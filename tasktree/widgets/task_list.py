@@ -1,7 +1,8 @@
 """Task list widget for tasktree."""
 
-from textual.widgets import ListItem, ListView, Static
+from rich.text import Text
 from textual.message import Message
+from textual.widgets import ListItem, ListView, Static
 
 from ..services.task_manager import Task
 
@@ -15,9 +16,15 @@ class TaskListItem(ListItem):
 
     def compose(self):
         """Compose the task item."""
-        indicator = "●" if self.task_data.is_dirty else " "
-        dirty_info = f" ({self.task_data.dirty_count} dirty)" if self.task_data.is_dirty else ""
-        yield Static(f"{indicator} {self.task_data.name}{dirty_info}", classes="task-item-text")
+        text = Text()
+        if self.task_data.is_dirty:
+            text.append("● ", style="#ff5f5f")
+        else:
+            text.append("  ")
+        text.append(self.task_data.name, style="white")
+        if self.task_data.is_dirty:
+            text.append(f" ({self.task_data.dirty_count})", style="#ff5f5f")
+        yield Static(text, classes="task-item-text")
 
 
 class TaskList(ListView):

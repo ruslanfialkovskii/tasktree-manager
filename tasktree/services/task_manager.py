@@ -1,9 +1,9 @@
 """Task management service for tasktree."""
 
-import subprocess
 import shutil
-from pathlib import Path
+import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .config import Config
 

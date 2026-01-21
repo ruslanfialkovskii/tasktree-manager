@@ -1,10 +1,11 @@
 """Status panel widget for tasktree."""
 
-from textual.widgets import Static
+from rich.text import Text
 from textual.reactive import reactive
+from textual.widgets import Static
 
-from ..services.task_manager import Worktree
 from ..services.git_ops import GitStatus
+from ..services.task_manager import Worktree
 
 
 class StatusPanel(Static):
@@ -33,33 +34,50 @@ class StatusPanel(Static):
     def _update_display(self) -> None:
         """Update the display content."""
         if not self.worktree_name or self._status is None:
-            self.update("No worktree selected")
+            self.update(Text("No worktree selected", style="#808080"))
             return
 
-        lines = [f"Status: {self.worktree_name}"]
-        lines.append(f"Branch: {self._status.branch}")
+        text = Text()
 
+        # Header
+        text.append("Status: ", style="#5fafff")
+        text.append(f"{self.worktree_name}\n", style="white")
+
+        # Branch
+        text.append("Branch: ", style="#5fafff")
+        text.append(f"{self._status.branch}\n", style="#00d700")
+
+        # Sync info
         if self._status.ahead or self._status.behind:
-            sync = []
+            text.append("Sync:   ", style="#5fafff")
             if self._status.ahead:
-                sync.append(f"↑{self._status.ahead}")
+                text.append(f"↑{self._status.ahead} ", style="#00d700")
             if self._status.behind:
-                sync.append(f"↓{self._status.behind}")
-            lines.append(f"Sync: {' '.join(sync)}")
+                text.append(f"↓{self._status.behind}", style="#ffaf00")
+            text.append("\n")
 
-        lines.append("")
+        text.append("\n")
 
+        # Status
         if not self._status.is_dirty:
-            lines.append("Working tree clean")
+            text.append("Working tree clean", style="#00d700")
         else:
             for status_code, filename in self._status.all_changes:
-                lines.append(f" {status_code} {filename}")
+                if status_code.strip().startswith("?"):
+                    text.append(f" {status_code} ", style="#ff5f5f")
+                    text.append(f"{filename}\n", style="#ff5f5f")
+                elif status_code.strip().startswith("M") or status_code.strip() == "M":
+                    text.append(f" {status_code} ", style="#ffaf00")
+                    text.append(f"{filename}\n", style="white")
+                else:
+                    text.append(f" {status_code} ", style="#00d700")
+                    text.append(f"{filename}\n", style="white")
 
-        self.update("\n".join(lines))
+        self.update(text)
 
     def clear_status(self) -> None:
         """Clear the status display."""
         self.worktree_name = ""
         self.status_text = ""
         self._status = None
-        self.update("No worktree selected")
+        self.update(Text("No worktree selected", style="#808080"))

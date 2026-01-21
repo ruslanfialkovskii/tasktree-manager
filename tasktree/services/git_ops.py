@@ -1,10 +1,9 @@
 """Git operations service for tasktree."""
 
 import subprocess
-from pathlib import Path
 from dataclasses import dataclass
 
-from .task_manager import Worktree, Task
+from .task_manager import Task, Worktree
 
 
 @dataclass
@@ -12,7 +11,6 @@ class GitStatus:
     """Represents the git status of a worktree."""
 
     branch: str = ""
-    is_dirty: bool = False
     staged: list[str] = None
     modified: list[str] = None
     untracked: list[str] = None
@@ -26,6 +24,11 @@ class GitStatus:
             self.modified = []
         if self.untracked is None:
             self.untracked = []
+
+    @property
+    def is_dirty(self) -> bool:
+        """Check if there are any uncommitted changes."""
+        return bool(self.staged or self.modified or self.untracked)
 
     @property
     def changed_files(self) -> int:
@@ -93,7 +96,6 @@ class GitOps:
                 elif status_code[0] == " " and status_code[1] == "M":
                     status.modified.append(filename)
 
-            status.is_dirty = bool(status.staged or status.modified or status.untracked)
         except (subprocess.TimeoutExpired, subprocess.SubprocessError):
             pass
 

@@ -1,7 +1,14 @@
+/* Lazygit-inspired theme for tasktree */
+
+Screen {
+    background: #111111;
+}
+
 /* Main container layout */
 #main-container {
     height: 100%;
     width: 100%;
+    background: #111111;
 }
 
 #top-panels {
@@ -12,49 +19,71 @@
 /* Task panel - left side */
 #task-panel {
     width: 30%;
-    min-width: 25;
-    border: solid $primary;
-    padding: 0 1;
+    min-width: 20;
+    border: solid #444444;
+    background: #111111;
+    padding: 0;
+}
+
+#task-panel:focus-within {
+    border: solid #00d700;
 }
 
 /* Worktree panel - right side of top */
 #worktree-panel {
     width: 70%;
-    border: solid $primary;
-    padding: 0 1;
+    border: solid #444444;
+    background: #111111;
+    padding: 0;
+}
+
+#worktree-panel:focus-within {
+    border: solid #00d700;
 }
 
 /* Status panel - bottom */
 #status-panel {
     height: auto;
-    min-height: 8;
-    max-height: 15;
-    border: solid $primary;
-    padding: 0 1;
+    min-height: 6;
+    max-height: 12;
+    border: solid #444444;
+    background: #111111;
+    padding: 0;
 }
 
 /* Panel titles */
 .panel-title {
     text-style: bold;
-    color: $text;
-    background: $primary;
-    text-align: center;
+    color: #ffffff;
+    background: #111111;
+    text-align: left;
     width: 100%;
-    margin-bottom: 1;
+    padding: 0 1;
 }
 
 /* Task list styling */
 #task-list {
     height: 1fr;
+    background: #111111;
     scrollbar-gutter: stable;
+    padding: 0;
 }
 
 #task-list > ListItem {
     padding: 0 1;
+    height: 1;
+    background: #111111;
+    color: #ffffff;
 }
 
 #task-list > ListItem.--highlight {
-    background: $accent;
+    background: #005faf;
+    color: #ffffff;
+}
+
+#task-list:focus > ListItem.--highlight {
+    background: #0087ff;
+    color: #ffffff;
 }
 
 .task-item-text {
@@ -64,15 +93,26 @@
 /* Worktree list styling */
 #worktree-list {
     height: 1fr;
+    background: #111111;
     scrollbar-gutter: stable;
+    padding: 0;
 }
 
 #worktree-list > ListItem {
     padding: 0 1;
+    height: 1;
+    background: #111111;
+    color: #ffffff;
 }
 
 #worktree-list > ListItem.--highlight {
-    background: $accent;
+    background: #005faf;
+    color: #ffffff;
+}
+
+#worktree-list:focus > ListItem.--highlight {
+    background: #0087ff;
+    color: #ffffff;
 }
 
 .worktree-item-text {
@@ -82,28 +122,53 @@
 /* Status panel styling */
 #status-display {
     height: 100%;
-    padding: 1;
+    padding: 0 1;
+    background: #111111;
+    color: #ffffff;
 }
 
-/* Focus styling */
-#task-list:focus {
-    border: double $accent;
+/* Header styling */
+Header {
+    background: #111111;
+    color: #00d700;
+    text-style: bold;
+    dock: top;
+    height: 1;
 }
 
-#worktree-list:focus {
-    border: double $accent;
+/* Footer styling */
+Footer {
+    background: #1c1c1c;
 }
 
-/* List item with dirty indicator */
+FooterKey {
+    background: #1c1c1c;
+    color: #808080;
+}
+
+FooterKey > .footer-key--key {
+    background: #303030;
+    color: #00d700;
+}
+
+FooterKey > .footer-key--description {
+    color: #808080;
+}
+
+/* Scrollbar styling */
+Scrollbar {
+    background: #111111;
+}
+
+ScrollBar > .scrollbar--bar {
+    background: #444444;
+}
+
+ScrollBar > .scrollbar--bar:hover {
+    background: #666666;
+}
+
+/* List item minimal height */
 ListItem {
-    height: auto;
-}
-
-/* Dirty file indicators */
-.dirty-indicator {
-    color: $warning;
-}
-
-.clean-indicator {
-    color: $success;
+    height: 1;
 }

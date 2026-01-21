@@ -1,8 +1,8 @@
 """Configuration management for tasktree."""
 
 import os
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass
@@ -18,7 +18,9 @@ class Config:
         """Load configuration from environment variables and config file."""
         repos_dir = Path(os.environ.get("REPOS_DIR", str(Path.home() / "repos")))
         tasks_dir = Path(os.environ.get("TASKS_DIR", str(Path.home() / "wtasks")))
-        config_dir = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "tasktree"
+        config_dir = (
+            Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "tasktree"
+        )
 
         return cls(
             repos_dir=repos_dir,

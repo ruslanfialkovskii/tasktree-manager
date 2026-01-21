@@ -2,7 +2,6 @@
 
 import os
 import subprocess
-from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -10,12 +9,12 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Footer, Header, Static
 
 from .services.config import Config
-from .services.task_manager import TaskManager, Task, Worktree
 from .services.git_ops import GitOps, GitStatus
+from .services.task_manager import Task, TaskManager, Worktree
+from .widgets.create_modal import AddRepoModal, ConfirmModal, CreateTaskModal, HelpModal
+from .widgets.status_panel import StatusPanel
 from .widgets.task_list import TaskList
 from .widgets.worktree_list import WorktreeList
-from .widgets.status_panel import StatusPanel
-from .widgets.create_modal import CreateTaskModal, AddRepoModal, ConfirmModal, HelpModal
 
 
 class TaskTreeApp(App):
@@ -165,18 +164,14 @@ class TaskTreeApp(App):
                 repos, base_branch = result
                 try:
                     for repo in repos:
-                        self.task_manager.add_repo_to_task(
-                            self.current_task, repo, base_branch
-                        )
+                        self.task_manager.add_repo_to_task(self.current_task, repo, base_branch)
                     self._load_tasks()
                     self._refresh_current_task()
                     self.notify(f"Added {len(repos)} repo(s) to task")
                 except Exception as e:
                     self.notify(f"Failed to add repos: {e}", severity="error")
 
-        self.push_screen(
-            AddRepoModal(self.current_task.name, available_repos), handle_result
-        )
+        self.push_screen(AddRepoModal(self.current_task.name, available_repos), handle_result)
 
     def action_delete_task(self) -> None:
         """Delete/finish the current task."""
@@ -258,9 +253,7 @@ class TaskTreeApp(App):
         if fail_count == 0:
             self.notify(f"Pushed {success_count} worktree(s) successfully")
         else:
-            self.notify(
-                f"Pushed {success_count}, failed {fail_count}", severity="warning"
-            )
+            self.notify(f"Pushed {success_count}, failed {fail_count}", severity="warning")
 
         self._refresh_current_task()
 
@@ -279,9 +272,7 @@ class TaskTreeApp(App):
         if fail_count == 0:
             self.notify(f"Pulled {success_count} worktree(s) successfully")
         else:
-            self.notify(
-                f"Pulled {success_count}, failed {fail_count}", severity="warning"
-            )
+            self.notify(f"Pulled {success_count}, failed {fail_count}", severity="warning")
 
         self._refresh_current_task()
 

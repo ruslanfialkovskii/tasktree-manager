@@ -1,11 +1,11 @@
 """Modal widgets for creating tasks and adding repos."""
 
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical
-from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Static, SelectionList
-from textual.widgets.selection_list import Selection
+from textual.containers import Container, Horizontal
 from textual.message import Message
+from textual.screen import ModalScreen
+from textual.widgets import Button, Input, Label, SelectionList, Static
+from textual.widgets.selection_list import Selection
 
 
 class CreateTaskModal(ModalScreen):
