@@ -162,6 +162,7 @@ class CreateTaskModal(ThemedModalScreen):
     def __init__(self, available_repos: list[str], *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.available_repos = available_repos
+        self.selected_repos: set[str] = set()
 
     def compose(self) -> ComposeResult:
         with Container():
@@ -170,6 +171,8 @@ class CreateTaskModal(ThemedModalScreen):
             yield Input(placeholder="e.g., FEAT-123-new-feature", id="task-name")
             yield Label("Base Branch:", classes="section-label")
             yield Input(value="master", placeholder="master", id="base-branch")
+            yield Label("Search Repositories:", classes="section-label")
+            yield Input(placeholder="Type to filter (e.g., ansible, postgres)...", id="repo-search")
             yield Label("Select Repositories:", classes="section-label")
             yield SelectionList[str](
                 *[Selection(repo, repo) for repo in self.available_repos],
@@ -178,6 +181,36 @@ class CreateTaskModal(ThemedModalScreen):
             with Horizontal(classes="button-row"):
                 yield Button("Create", variant="primary", id="create-btn")
                 yield Button("Cancel", variant="default", id="cancel-btn")
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Handle search input changes."""
+        if event.input.id == "repo-search":
+            self._filter_repos(event.value)
+
+    def _filter_repos(self, search_term: str) -> None:
+        """Filter repository list based on search term."""
+        repo_list = self.query_one("#repo-list", SelectionList)
+
+        # Save current selections
+        self.selected_repos.update(repo_list.selected)
+
+        # Filter repos (case-insensitive substring match)
+        search_lower = search_term.lower()
+        if search_lower:
+            filtered = [repo for repo in self.available_repos if search_lower in repo.lower()]
+        else:
+            filtered = self.available_repos
+
+        # Clear and rebuild the list
+        repo_list.clear_options()
+        for repo in filtered:
+            # Restore selection state
+            repo_list.add_option(Selection(repo, repo, initial_state=repo in self.selected_repos))
+
+    def on_selection_list_selected_changed(self, event: SelectionList.SelectedChanged) -> None:
+        """Track selections across filter changes."""
+        if event.selection_list.id == "repo-list":
+            self.selected_repos = set(event.selection_list.selected)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press."""
@@ -190,11 +223,10 @@ class CreateTaskModal(ThemedModalScreen):
         """Create the task and dismiss modal."""
         name_input = self.query_one("#task-name", Input)
         branch_input = self.query_one("#base-branch", Input)
-        repo_list = self.query_one("#repo-list", SelectionList)
 
         name = name_input.value.strip()
         base_branch = branch_input.value.strip() or "master"
-        selected_repos = list(repo_list.selected)
+        selected_repos = list(self.selected_repos)
 
         if not name:
             self.notify("Task name is required", severity="error")
@@ -214,14 +246,17 @@ class AddRepoModal(ThemedModalScreen):
         super().__init__(*args, **kwargs)
         self.task_name = task_name
         self.available_repos = available_repos
+        self.selected_repos: set[str] = set()
 
     def compose(self) -> ComposeResult:
         with Container():
             yield Label(f"Add Repos to: {self.task_name}", classes="modal-title")
             yield Label("Base Branch:", classes="section-label")
             yield Input(value="master", placeholder="master", id="base-branch")
-            yield Label("Select Repositories to Add:", classes="section-label")
             if self.available_repos:
+                yield Label("Search Repositories:", classes="section-label")
+                yield Input(placeholder="Type to filter (e.g., ansible, postgres)...", id="repo-search")
+                yield Label("Select Repositories to Add:", classes="section-label")
                 yield SelectionList[str](
                     *[Selection(repo, repo) for repo in self.available_repos],
                     id="repo-list",
@@ -231,6 +266,36 @@ class AddRepoModal(ThemedModalScreen):
             with Horizontal(classes="button-row"):
                 yield Button("Add", variant="primary", id="add-btn")
                 yield Button("Cancel", variant="default", id="cancel-btn")
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Handle search input changes."""
+        if event.input.id == "repo-search":
+            self._filter_repos(event.value)
+
+    def _filter_repos(self, search_term: str) -> None:
+        """Filter repository list based on search term."""
+        repo_list = self.query_one("#repo-list", SelectionList)
+
+        # Save current selections
+        self.selected_repos.update(repo_list.selected)
+
+        # Filter repos (case-insensitive substring match)
+        search_lower = search_term.lower()
+        if search_lower:
+            filtered = [repo for repo in self.available_repos if search_lower in repo.lower()]
+        else:
+            filtered = self.available_repos
+
+        # Clear and rebuild the list
+        repo_list.clear_options()
+        for repo in filtered:
+            # Restore selection state
+            repo_list.add_option(Selection(repo, repo, initial_state=repo in self.selected_repos))
+
+    def on_selection_list_selected_changed(self, event: SelectionList.SelectedChanged) -> None:
+        """Track selections across filter changes."""
+        if event.selection_list.id == "repo-list":
+            self.selected_repos = set(event.selection_list.selected)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press."""
@@ -246,10 +311,9 @@ class AddRepoModal(ThemedModalScreen):
             return
 
         branch_input = self.query_one("#base-branch", Input)
-        repo_list = self.query_one("#repo-list", SelectionList)
 
         base_branch = branch_input.value.strip() or "master"
-        selected_repos = list(repo_list.selected)
+        selected_repos = list(self.selected_repos)
 
         if not selected_repos:
             self.notify("Select at least one repository", severity="error")
