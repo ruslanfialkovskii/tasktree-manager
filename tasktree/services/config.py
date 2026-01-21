@@ -89,12 +89,22 @@ tasks_dir = "{self.tasks_dir}"
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
     def get_available_repos(self) -> list[str]:
-        """Get list of available repositories in REPOS_DIR."""
+        """Get list of available repositories in REPOS_DIR (recursively scans subdirectories)."""
         if not self.repos_dir.exists():
             return []
 
         repos = []
-        for item in self.repos_dir.iterdir():
-            if item.is_dir() and (item / ".git").exists():
-                repos.append(item.name)
+        # Recursively find all directories containing .git
+        for git_dir in self.repos_dir.rglob(".git"):
+            if git_dir.is_dir():
+                # Get the parent directory (the actual repo)
+                repo_path = git_dir.parent
+                # Get relative path from repos_dir
+                try:
+                    rel_path = repo_path.relative_to(self.repos_dir)
+                    repos.append(str(rel_path))
+                except ValueError:
+                    # Skip if not relative to repos_dir
+                    continue
+
         return sorted(repos)

@@ -77,3 +77,25 @@ class TestConfig:
         config = Config(repos_dir=Path("/nonexistent/path"))
         repos = config.get_available_repos()
         assert repos == []
+
+    def test_get_available_repos_nested(self, config):
+        """Test getting nested repositories."""
+        # Create nested git repos
+        backend_dir = config.repos_dir / "backend" / "api"
+        backend_dir.mkdir(parents=True)
+        (backend_dir / ".git").mkdir()
+
+        frontend_dir = config.repos_dir / "frontend" / "web"
+        frontend_dir.mkdir(parents=True)
+        (frontend_dir / ".git").mkdir()
+
+        # Also create a top-level repo
+        top_level = config.repos_dir / "infra"
+        top_level.mkdir()
+        (top_level / ".git").mkdir()
+
+        repos = config.get_available_repos()
+        assert len(repos) == 3
+        assert "backend/api" in repos
+        assert "frontend/web" in repos
+        assert "infra" in repos

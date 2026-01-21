@@ -63,15 +63,25 @@ class TaskManager:
         return tasks
 
     def _get_worktrees(self, task: Task) -> list[Worktree]:
-        """Get all worktrees for a task."""
+        """Get all worktrees for a task (recursively scans subdirectories)."""
         worktrees = []
         if not task.path.exists():
             return worktrees
 
-        for item in sorted(task.path.iterdir()):
-            if item.is_dir() and (item / ".git").exists():
-                worktree = Worktree(name=item.name, path=item)
-                worktrees.append(worktree)
+        # Recursively find all directories containing .git
+        for git_dir in sorted(task.path.rglob(".git")):
+            if git_dir.is_dir() or git_dir.is_file():
+                # Get the parent directory (the actual worktree)
+                worktree_path = git_dir.parent
+                # Get relative path from task directory for the name
+                try:
+                    rel_path = worktree_path.relative_to(task.path)
+                    worktree = Worktree(name=str(rel_path), path=worktree_path)
+                    worktrees.append(worktree)
+                except ValueError:
+                    # Skip if not relative to task path
+                    continue
+
         return worktrees
 
     def get_task(self, name: str) -> Task | None:
@@ -107,6 +117,9 @@ class TaskManager:
 
         if worktree_path.exists():
             return  # Already exists
+
+        # Ensure parent directory exists for nested repos
+        worktree_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Create git worktree with task name as branch
         subprocess.run(
