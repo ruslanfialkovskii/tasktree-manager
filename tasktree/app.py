@@ -11,6 +11,7 @@ from textual.widgets import Footer, Header, Static
 from .services.config import Config
 from .services.git_ops import GitOps, GitStatus
 from .services.task_manager import Task, TaskManager, Worktree
+from .themes import DEFAULT, generate_css, get_next_theme, get_theme
 from .widgets.create_modal import AddRepoModal, ConfirmModal, CreateTaskModal, HelpModal
 from .widgets.status_panel import StatusPanel
 from .widgets.task_list import TaskList
@@ -20,7 +21,6 @@ from .widgets.worktree_list import WorktreeList
 class TaskTreeApp(App):
     """TUI application for managing worktree-based tasks."""
 
-    CSS_PATH = "styles/app.tcss"
     TITLE = "tasktree"
 
     BINDINGS = [
@@ -34,6 +34,7 @@ class TaskTreeApp(App):
         Binding("p", "push_all", "Push All"),
         Binding("P", "pull_all", "Pull All", show=False),
         Binding("r", "refresh", "Refresh"),
+        Binding("t", "cycle_theme", "Theme"),
         Binding("tab", "focus_next", "Next Panel", show=False),
         Binding("shift+tab", "focus_previous", "Prev Panel", show=False),
         Binding("j", "cursor_down", "Down", show=False),
@@ -48,6 +49,13 @@ class TaskTreeApp(App):
         self.current_task: Task | None = None
         self.current_worktree: Worktree | None = None
         self.current_status: GitStatus | None = None
+        self.theme_name = "default"
+        self._theme = DEFAULT
+
+    @property
+    def css(self) -> str:
+        """Return dynamic CSS based on current theme."""
+        return generate_css(self._theme)
 
     def compose(self) -> ComposeResult:
         """Compose the app layout."""
@@ -66,10 +74,83 @@ class TaskTreeApp(App):
 
     def on_mount(self) -> None:
         """Handle app mount."""
+        self._apply_theme()
         self._load_tasks()
         # Focus the task list initially
         task_list = self.query_one("#task-list", TaskList)
         task_list.focus()
+
+    def _apply_theme(self) -> None:
+        """Apply the current theme."""
+        self._theme = get_theme(self.theme_name)
+
+        # Apply theme colors to main containers
+        try:
+            self.screen.styles.background = self._theme.background
+
+            main_container = self.query_one("#main-container", Container)
+            main_container.styles.background = self._theme.background
+
+            # Task panel
+            task_panel = self.query_one("#task-panel", Vertical)
+            task_panel.styles.background = self._theme.background
+            task_panel.styles.border = ("round", self._theme.border)
+
+            # Worktree panel
+            worktree_panel = self.query_one("#worktree-panel", Vertical)
+            worktree_panel.styles.background = self._theme.background
+            worktree_panel.styles.border = ("round", self._theme.border)
+
+            # Status panel
+            status_panel_container = self.query_one("#status-panel", Vertical)
+            status_panel_container.styles.background = self._theme.background
+            status_panel_container.styles.border = ("round", self._theme.border)
+
+            # Lists
+            task_list = self.query_one("#task-list", TaskList)
+            task_list.styles.background = self._theme.background
+
+            worktree_list = self.query_one("#worktree-list", WorktreeList)
+            worktree_list.styles.background = self._theme.background
+
+            # Status display
+            status_display = self.query_one("#status-display", StatusPanel)
+            status_display.styles.background = self._theme.background
+
+            # Panel titles
+            for title in self.query(".panel-title"):
+                title.styles.color = self._theme.foreground
+
+            # Header
+            header = self.query_one(Header)
+            header.styles.background = self._theme.background
+            header.styles.color = self._theme.accent
+
+            # Footer
+            footer = self.query_one(Footer)
+            footer.styles.background = self._theme.background_alt
+
+        except Exception:
+            pass  # Widgets may not exist yet during initial mount
+
+    def _apply_theme_to_lists(self) -> None:
+        """Reload lists to apply new theme colors to items."""
+        # Save current selection
+        task_list = self.query_one("#task-list", TaskList)
+        current_task_index = task_list.index
+
+        # Reload tasks (recreates list items with new theme colors)
+        self._load_tasks()
+
+        # Restore selection
+        if current_task_index is not None and current_task_index < len(task_list.tasks):
+            task_list.index = current_task_index
+            task_list._emit_highlighted()
+
+        # Update status panel display
+        if self.current_worktree and self.current_status:
+            status_panel = self.query_one("#status-display", StatusPanel)
+            status_panel._update_display()
 
     def _load_tasks(self) -> None:
         """Load tasks and update git status."""
@@ -281,6 +362,14 @@ class TaskTreeApp(App):
         self._load_tasks()
         self._refresh_current_task()
         self.notify("Refreshed")
+
+    def action_cycle_theme(self) -> None:
+        """Cycle to the next theme."""
+        next_theme = get_next_theme(self.theme_name)
+        self.theme_name = next_theme.name
+        self._apply_theme()
+        self._apply_theme_to_lists()
+        self.notify(f"Theme: {next_theme.name}")
 
     def action_cursor_down(self) -> None:
         """Move cursor down in the focused list."""

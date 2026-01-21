@@ -5,6 +5,7 @@ from textual.message import Message
 from textual.widgets import ListItem, ListView, Static
 
 from ..services.task_manager import Task
+from ..themes import get_theme
 
 
 class TaskListItem(ListItem):
@@ -14,16 +15,23 @@ class TaskListItem(ListItem):
         super().__init__(*args, **kwargs)
         self.task_data = task_data
 
+    def _get_theme(self):
+        """Get the current theme from the app."""
+        if hasattr(self.app, "theme_name"):
+            return get_theme(self.app.theme_name)
+        return get_theme("default")
+
     def compose(self):
         """Compose the task item."""
+        theme = self._get_theme()
         text = Text()
         if self.task_data.is_dirty:
-            text.append("● ", style="#ff5f5f")
+            text.append("● ", style=theme.error)
         else:
             text.append("  ")
-        text.append(self.task_data.name, style="white")
+        text.append(self.task_data.name, style=theme.foreground)
         if self.task_data.is_dirty:
-            text.append(f" ({self.task_data.dirty_count})", style="#ff5f5f")
+            text.append(f" ({self.task_data.dirty_count})", style=theme.error)
         yield Static(text, classes="task-item-text")
 
 

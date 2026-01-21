@@ -50,4 +50,9 @@ Thumbs.db
 # Project specific
 *.log
 
+# Documentation (tracked separately)
+PRD.md
+ROADMAP.md
+specs/
+
 CALUDE.md
