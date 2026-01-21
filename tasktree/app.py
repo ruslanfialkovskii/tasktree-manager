@@ -13,6 +13,7 @@ from .services.git_ops import GitOps, GitStatus
 from .services.task_manager import Task, TaskManager, Worktree
 from .themes import DEFAULT, generate_css, get_next_theme, get_theme
 from .widgets.create_modal import AddRepoModal, ConfirmModal, CreateTaskModal, HelpModal
+from .widgets.setup_modal import SetupModal
 from .widgets.status_panel import StatusPanel
 from .widgets.task_list import TaskList
 from .widgets.worktree_list import WorktreeList
@@ -75,10 +76,43 @@ class TaskTreeApp(App):
     def on_mount(self) -> None:
         """Handle app mount."""
         self._apply_theme()
-        self._load_tasks()
-        # Focus the task list initially
-        task_list = self.query_one("#task-list", TaskList)
-        task_list.focus()
+
+        # Check if configuration is valid
+        if not self.config.is_configured():
+            self._show_setup_wizard()
+        else:
+            self._load_tasks()
+            # Focus the task list initially
+            task_list = self.query_one("#task-list", TaskList)
+            task_list.focus()
+
+    def _show_setup_wizard(self) -> None:
+        """Show setup wizard for first-time configuration."""
+        def handle_setup(result):
+            if result:
+                repos_dir, tasks_dir = result
+                # Update config
+                self.config.repos_dir = repos_dir
+                self.config.tasks_dir = tasks_dir
+                self.config.save()
+                self.config.ensure_dirs()
+
+                # Reload task manager with new config
+                self.task_manager = TaskManager(self.config)
+
+                # Load tasks
+                self._load_tasks()
+
+                # Focus task list
+                task_list = self.query_one("#task-list", TaskList)
+                task_list.focus()
+
+                self.notify("Configuration saved!")
+            else:
+                # User cancelled - exit app
+                self.exit()
+
+        self.push_screen(SetupModal(), handle_setup)
 
     def _apply_theme(self) -> None:
         """Apply the current theme."""

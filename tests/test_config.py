@@ -12,7 +12,7 @@ class TestConfig:
         """Test default configuration paths."""
         config = Config()
         assert config.repos_dir == Path.home() / "repos"
-        assert config.tasks_dir == Path.home() / "wtasks"
+        assert config.tasks_dir == Path.home() / "tasks"
 
     def test_custom_paths(self, temp_dirs):
         """Test configuration with custom paths."""
