@@ -1,0 +1,109 @@
+/* Main container layout */
+#main-container {
+    height: 100%;
+    width: 100%;
+}
+
+#top-panels {
+    height: 1fr;
+    min-height: 10;
+}
+
+/* Task panel - left side */
+#task-panel {
+    width: 30%;
+    min-width: 25;
+    border: solid $primary;
+    padding: 0 1;
+}
+
+/* Worktree panel - right side of top */
+#worktree-panel {
+    width: 70%;
+    border: solid $primary;
+    padding: 0 1;
+}
+
+/* Status panel - bottom */
+#status-panel {
+    height: auto;
+    min-height: 8;
+    max-height: 15;
+    border: solid $primary;
+    padding: 0 1;
+}
+
+/* Panel titles */
+.panel-title {
+    text-style: bold;
+    color: $text;
+    background: $primary;
+    text-align: center;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+/* Task list styling */
+#task-list {
+    height: 1fr;
+    scrollbar-gutter: stable;
+}
+
+#task-list > ListItem {
+    padding: 0 1;
+}
+
+#task-list > ListItem.--highlight {
+    background: $accent;
+}
+
+.task-item-text {
+    width: 100%;
+}
+
+/* Worktree list styling */
+#worktree-list {
+    height: 1fr;
+    scrollbar-gutter: stable;
+}
+
+#worktree-list > ListItem {
+    padding: 0 1;
+}
+
+#worktree-list > ListItem.--highlight {
+    background: $accent;
+}
+
+.worktree-item-text {
+    width: 100%;
+}
+
+/* Status panel styling */
+#status-display {
+    height: 100%;
+    padding: 1;
+}
+
+/* Focus styling */
+#task-list:focus {
+    border: double $accent;
+}
+
+#worktree-list:focus {
+    border: double $accent;
+}
+
+/* List item with dirty indicator */
+ListItem {
+    height: auto;
+}
+
+/* Dirty file indicators */
+.dirty-indicator {
+    color: $warning;
+}
+
+.clean-indicator {
+    color: $success;
+}

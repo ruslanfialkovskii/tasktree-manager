@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tasktree"
+version = "0.1.0"
+description = "TUI application for managing worktree-based tasks"
+requires-python = ">=3.10"
+dependencies = [
+    "textual>=0.47.0",
+]
+
+[project.scripts]
+tasktree = "tasktree.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tasktree"]
