@@ -369,6 +369,145 @@ class ConfirmModal(ThemedModalScreen):
             self.dismiss(True)
 
 
+class SafeDeleteModal(ThemedModalScreen):
+    """Modal for safely deleting a task with safety warnings."""
+
+    DEFAULT_CSS = ThemedModalScreen.DEFAULT_CSS + """
+    SafeDeleteModal > Container {
+        width: 70;
+        height: auto;
+        max-height: 90%;
+        border: round #ff5f5f;
+    }
+
+    SafeDeleteModal .modal-title {
+        color: #ff5f5f;
+    }
+
+    SafeDeleteModal .warning-section {
+        margin-top: 1;
+        margin-bottom: 1;
+    }
+
+    SafeDeleteModal .warning-header {
+        color: #ff5f5f;
+        text-style: bold;
+        margin-bottom: 0;
+    }
+
+    SafeDeleteModal .warning-item {
+        color: #ffffff;
+        margin-left: 2;
+    }
+
+    SafeDeleteModal .scrollable-content {
+        height: auto;
+        max-height: 30;
+        overflow-y: auto;
+    }
+    """
+
+    def __init__(self, task_name: str, safety_report, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.task_name = task_name
+        self.safety_report = safety_report
+
+    def _apply_theme_styles(self) -> None:
+        """Apply theme colors including error styling."""
+        super()._apply_theme_styles()
+        theme = get_theme(self._theme_name)
+
+        # Override container border with error color
+        try:
+            container = self.query_one(Container)
+            container.styles.border = ("round", theme.error)
+        except Exception:
+            pass
+
+    def compose(self) -> ComposeResult:
+        with Container():
+            yield Label(f"Delete Task: {self.task_name}", classes="modal-title")
+            yield Static("⚠️  WARNING: Issues detected", classes="modal-message")
+
+            # Build warnings content
+            warnings_content = ""
+
+            if self.safety_report.has_unpushed():
+                warnings_content += "\n[bold #ff5f5f]Unpushed commits:[/]\n"
+                for issue in self.safety_report.unpushed:
+                    warnings_content += f"  • {issue.repo_name} ({issue.details})\n"
+
+            if self.safety_report.has_unmerged():
+                warnings_content += "\n[bold #ff5f5f]Unmerged branches:[/]\n"
+                for issue in self.safety_report.unmerged:
+                    warnings_content += f"  • {issue.repo_name} ({issue.details})\n"
+
+            if self.safety_report.has_dirty():
+                warnings_content += "\n[bold #ff5f5f]Uncommitted changes:[/]\n"
+                for issue in self.safety_report.dirty:
+                    warnings_content += f"  • {issue.repo_name} ({issue.details})\n"
+
+            yield Static(warnings_content.strip(), classes="scrollable-content")
+
+            with Horizontal(classes="button-row"):
+                yield Button("Push All", variant="primary", id="push-btn")
+                yield Button("Open Lazygit", variant="default", id="lazygit-btn")
+                yield Button("Force Delete", variant="error", id="force-btn")
+                yield Button("Cancel", variant="default", id="cancel-btn")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press."""
+        if event.button.id == "cancel-btn":
+            self.dismiss(None)
+        elif event.button.id == "push-btn":
+            self.dismiss("push")
+        elif event.button.id == "lazygit-btn":
+            self.dismiss("lazygit")
+        elif event.button.id == "force-btn":
+            self.dismiss("force")
+
+
+class PushResultModal(ThemedModalScreen):
+    """Modal showing results of push operation."""
+
+    DEFAULT_CSS = ThemedModalScreen.DEFAULT_CSS + """
+    PushResultModal > Container {
+        width: 60;
+    }
+    """
+
+    def __init__(self, success_repos: list[str], failed_repos: list[str], *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.success_repos = success_repos
+        self.failed_repos = failed_repos
+
+    def compose(self) -> ComposeResult:
+        with Container():
+            yield Label("Push Results", classes="modal-title")
+
+            result_text = ""
+            if self.success_repos:
+                result_text += "[bold green]Successfully pushed:[/]\n"
+                for repo in self.success_repos:
+                    result_text += f"  ✓ {repo}\n"
+
+            if self.failed_repos:
+                if result_text:
+                    result_text += "\n"
+                result_text += "[bold #ff5f5f]Failed to push:[/]\n"
+                for repo in self.failed_repos:
+                    result_text += f"  ✗ {repo}\n"
+
+            yield Static(result_text.strip(), classes="modal-message")
+
+            with Horizontal(classes="button-row"):
+                yield Button("Close", variant="primary", id="close-btn")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press."""
+        self.dismiss()
+
+
 class HelpModal(ThemedModalScreen):
     """Modal showing keybindings help."""
 

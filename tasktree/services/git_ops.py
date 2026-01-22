@@ -182,3 +182,69 @@ class GitOps:
             success, message = GitOps.pull(worktree)
             results.append((worktree.name, success, message))
         return results
+
+    @staticmethod
+    def get_default_branch(worktree: Worktree) -> str:
+        """Get the default branch (main/master) for a worktree's repo.
+
+        Returns:
+            The default branch name, or "main" as fallback.
+        """
+        try:
+            # Try to get the default branch from origin/HEAD
+            result = subprocess.run(
+                ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
+                cwd=worktree.path,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                # Output is like "refs/remotes/origin/main"
+                ref = result.stdout.strip()
+                return ref.split("/")[-1]
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            pass
+
+        # Fallback: check which of main/master exists
+        for branch in ["main", "master"]:
+            try:
+                result = subprocess.run(
+                    ["git", "rev-parse", "--verify", f"refs/remotes/origin/{branch}"],
+                    cwd=worktree.path,
+                    capture_output=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    return branch
+            except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+                pass
+
+        # Final fallback
+        return "main"
+
+    @staticmethod
+    def check_merged(worktree: Worktree, base_branch: str) -> bool:
+        """Check if the current branch is merged into base_branch.
+
+        Args:
+            worktree: The worktree to check
+            base_branch: The base branch to check against (e.g., "main", "master")
+
+        Returns:
+            True if current branch is merged into base_branch, False otherwise.
+        """
+        try:
+            # Use git merge-base --is-ancestor to check if HEAD is reachable from base
+            # This checks if the current branch has been merged
+            result = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", "HEAD", f"origin/{base_branch}"],
+                cwd=worktree.path,
+                capture_output=True,
+                timeout=5,
+            )
+            # Exit code 0 means HEAD is an ancestor of base (merged)
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            # If we can't determine, assume not merged (safer)
+            return False
