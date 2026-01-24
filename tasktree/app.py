@@ -1,6 +1,5 @@
 """Main application for tasktree."""
 
-import os
 import shutil
 import subprocess
 
@@ -248,6 +247,14 @@ class TaskTreeApp(App):
 
     def on_mount(self) -> None:
         """Handle app mount."""
+        # Apply theme from config
+        if self.config.theme:
+            try:
+                self.theme = self.config.theme
+            except Exception:
+                # Invalid theme name, use default
+                pass
+
         # Check if configuration is valid
         if not self.config.is_configured():
             self._show_setup_wizard()
@@ -566,7 +573,7 @@ class TaskTreeApp(App):
             # Suspend app and run lazygit
             with self.suspend():
                 self._run_external_command(
-                    ["lazygit"],
+                    [self.config.lazygit_path],
                     cwd=first_issue_worktree,
                     name="lazygit",
                     install_hint="brew install lazygit",
@@ -592,7 +599,7 @@ class TaskTreeApp(App):
         # Suspend app and run lazygit
         with self.suspend():
             self._run_external_command(
-                ["lazygit"],
+                [self.config.lazygit_path],
                 cwd=worktree_path,
                 name="lazygit",
                 install_hint="brew install lazygit",
@@ -613,8 +620,8 @@ class TaskTreeApp(App):
             self.notify("Worktree directory not found", severity="error")
             return
 
-        # Get user's shell
-        shell = os.environ.get("SHELL", "/bin/bash")
+        # Get shell from config
+        shell = self.config.get_shell()
 
         # Suspend app and open shell
         with self.suspend():
