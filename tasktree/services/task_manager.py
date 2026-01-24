@@ -215,18 +215,27 @@ class TaskManager:
             main_repo = main_git_dir.parent if main_git_dir.name == ".git" else main_git_dir
 
             # Remove the worktree using git
-            subprocess.run(
+            wt_result = subprocess.run(
                 ["git", "worktree", "remove", "--force", str(worktree.path)],
                 cwd=main_repo,
                 capture_output=True,
+                text=True,
             )
+            # Log warning but continue - worktree dir might already be removed
+            if wt_result.returncode != 0:
+                # Not critical - directory cleanup will happen anyway
+                pass
 
             # Delete the branch
-            subprocess.run(
+            br_result = subprocess.run(
                 ["git", "branch", "-D", branch_name],
                 cwd=main_repo,
                 capture_output=True,
+                text=True,
             )
+            # Branch might not exist or be checked out elsewhere - not critical
+            if br_result.returncode != 0:
+                pass
 
     def get_repos_not_in_task(self, task: Task) -> list[str]:
         """Get list of repos that are not yet in the task."""

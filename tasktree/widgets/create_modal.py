@@ -7,13 +7,10 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, SelectionList, Static
 from textual.widgets.selection_list import Selection
 
-from ..themes import get_theme
-
 
 class ThemedModalScreen(ModalScreen):
     """Base class for themed modal screens."""
 
-    # Default CSS using lazygit-inspired theme colors
     DEFAULT_CSS = """
     ThemedModalScreen {
         align: center middle;
@@ -23,40 +20,40 @@ class ThemedModalScreen(ModalScreen):
         width: 70;
         height: auto;
         max-height: 80%;
-        border: round #444444;
-        background: #1c1c1c;
+        border: round $primary;
+        background: $surface;
         padding: 1 2;
     }
 
     ThemedModalScreen .modal-title {
         text-align: center;
         text-style: bold;
-        color: #ffffff;
+        color: $text;
         margin-bottom: 1;
     }
 
     ThemedModalScreen .section-label {
-        color: #808080;
+        color: $foreground-muted;
         margin-top: 1;
         margin-bottom: 0;
     }
 
     ThemedModalScreen Input {
-        background: #111111;
-        border: round #444444;
-        color: #ffffff;
+        background: $background;
+        border: round $primary;
+        color: $text;
         margin-bottom: 1;
     }
 
     ThemedModalScreen Input:focus {
-        border: round #00d700;
+        border: round $accent;
     }
 
     ThemedModalScreen SelectionList {
         height: 12;
         margin-bottom: 1;
-        background: #111111;
-        border: round #444444;
+        background: $background;
+        border: round $primary;
     }
 
     ThemedModalScreen .button-row {
@@ -67,84 +64,19 @@ class ThemedModalScreen(ModalScreen):
     ThemedModalScreen Button {
         margin: 0 1;
         min-width: 12;
-        background: #444444;
-        color: #ffffff;
-        border: none;
-    }
-
-    ThemedModalScreen Button:hover {
-        background: #303030;
-    }
-
-    ThemedModalScreen Button.-primary {
-        background: #005faf;
-        color: #ffffff;
-    }
-
-    ThemedModalScreen Button.-primary:hover {
-        background: #0087ff;
-    }
-
-    ThemedModalScreen Button.-error {
-        background: #ff5f5f;
-        color: #ffffff;
     }
 
     ThemedModalScreen .help-text {
-        color: #ffffff;
+        color: $text;
         margin-bottom: 1;
     }
 
     ThemedModalScreen .modal-message {
         text-align: center;
-        color: #ffffff;
+        color: $text;
         margin-bottom: 1;
     }
     """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._theme_name = "default"
-
-    def on_mount(self) -> None:
-        """Apply theme on mount."""
-        if hasattr(self.app, "theme_name"):
-            self._theme_name = self.app.theme_name
-        self._apply_theme_styles()
-
-    def _apply_theme_styles(self) -> None:
-        """Apply theme colors to container and children."""
-        theme = get_theme(self._theme_name)
-
-        # Apply styles to the container
-        try:
-            container = self.query_one(Container)
-            container.styles.background = theme.background_alt
-            container.styles.border = ("round", theme.border)
-        except Exception:
-            pass
-
-        # Apply styles to buttons
-        for button in self.query(Button):
-            if button.variant == "primary":
-                button.styles.background = theme.accent
-                button.styles.color = theme.highlight_text
-            elif button.variant == "error":
-                button.styles.background = theme.error
-                button.styles.color = theme.highlight_text
-            else:
-                button.styles.background = theme.border
-                button.styles.color = theme.foreground
-
-        # Apply styles to inputs
-        for input_widget in self.query(Input):
-            input_widget.styles.background = theme.background
-            input_widget.styles.border = ("round", theme.border)
-
-        # Apply styles to selection lists
-        for sel_list in self.query(SelectionList):
-            sel_list.styles.background = theme.background
-            sel_list.styles.border = ("round", theme.border)
 
 
 class CreateTaskModal(ThemedModalScreen):
@@ -328,11 +260,11 @@ class ConfirmModal(ThemedModalScreen):
     DEFAULT_CSS = ThemedModalScreen.DEFAULT_CSS + """
     ConfirmModal > Container {
         width: 60;
-        border: round #ff5f5f;
+        border: round $error;
     }
 
     ConfirmModal .modal-title {
-        color: #ff5f5f;
+        color: $text-error;
     }
     """
 
@@ -340,18 +272,6 @@ class ConfirmModal(ThemedModalScreen):
         super().__init__(*args, **kwargs)
         self.title_text = title
         self.message_text = message
-
-    def _apply_theme_styles(self) -> None:
-        """Apply theme colors including error styling."""
-        super()._apply_theme_styles()
-        theme = get_theme(self._theme_name)
-
-        # Override container border with error color
-        try:
-            container = self.query_one(Container)
-            container.styles.border = ("round", theme.error)
-        except Exception:
-            pass
 
     def compose(self) -> ComposeResult:
         with Container():
@@ -377,11 +297,11 @@ class SafeDeleteModal(ThemedModalScreen):
         width: 70;
         height: auto;
         max-height: 90%;
-        border: round #ff5f5f;
+        border: round $error;
     }
 
     SafeDeleteModal .modal-title {
-        color: #ff5f5f;
+        color: $text-error;
     }
 
     SafeDeleteModal .warning-section {
@@ -390,13 +310,13 @@ class SafeDeleteModal(ThemedModalScreen):
     }
 
     SafeDeleteModal .warning-header {
-        color: #ff5f5f;
+        color: $text-error;
         text-style: bold;
         margin-bottom: 0;
     }
 
     SafeDeleteModal .warning-item {
-        color: #ffffff;
+        color: $text;
         margin-left: 2;
     }
 
@@ -412,40 +332,28 @@ class SafeDeleteModal(ThemedModalScreen):
         self.task_name = task_name
         self.safety_report = safety_report
 
-    def _apply_theme_styles(self) -> None:
-        """Apply theme colors including error styling."""
-        super()._apply_theme_styles()
-        theme = get_theme(self._theme_name)
-
-        # Override container border with error color
-        try:
-            container = self.query_one(Container)
-            container.styles.border = ("round", theme.error)
-        except Exception:
-            pass
-
     def compose(self) -> ComposeResult:
         with Container():
             yield Label(f"Delete Task: {self.task_name}", classes="modal-title")
-            yield Static("⚠️  WARNING: Issues detected", classes="modal-message")
+            yield Static("WARNING: Issues detected", classes="modal-message")
 
             # Build warnings content
             warnings_content = ""
 
             if self.safety_report.has_unpushed():
-                warnings_content += "\n[bold #ff5f5f]Unpushed commits:[/]\n"
+                warnings_content += "\n[bold red]Unpushed commits:[/]\n"
                 for issue in self.safety_report.unpushed:
-                    warnings_content += f"  • {issue.repo_name} ({issue.details})\n"
+                    warnings_content += f"  * {issue.repo_name} ({issue.details})\n"
 
             if self.safety_report.has_unmerged():
-                warnings_content += "\n[bold #ff5f5f]Unmerged branches:[/]\n"
+                warnings_content += "\n[bold red]Unmerged branches:[/]\n"
                 for issue in self.safety_report.unmerged:
-                    warnings_content += f"  • {issue.repo_name} ({issue.details})\n"
+                    warnings_content += f"  * {issue.repo_name} ({issue.details})\n"
 
             if self.safety_report.has_dirty():
-                warnings_content += "\n[bold #ff5f5f]Uncommitted changes:[/]\n"
+                warnings_content += "\n[bold red]Uncommitted changes:[/]\n"
                 for issue in self.safety_report.dirty:
-                    warnings_content += f"  • {issue.repo_name} ({issue.details})\n"
+                    warnings_content += f"  * {issue.repo_name} ({issue.details})\n"
 
             yield Static(warnings_content.strip(), classes="scrollable-content")
 
@@ -489,14 +397,14 @@ class PushResultModal(ThemedModalScreen):
             if self.success_repos:
                 result_text += "[bold green]Successfully pushed:[/]\n"
                 for repo in self.success_repos:
-                    result_text += f"  ✓ {repo}\n"
+                    result_text += f"  [green]✓[/] {repo}\n"
 
             if self.failed_repos:
                 if result_text:
                     result_text += "\n"
-                result_text += "[bold #ff5f5f]Failed to push:[/]\n"
+                result_text += "[bold red]Failed to push:[/]\n"
                 for repo in self.failed_repos:
-                    result_text += f"  ✗ {repo}\n"
+                    result_text += f"  [red]✗[/] {repo}\n"
 
             yield Static(result_text.strip(), classes="modal-message")
 
@@ -519,8 +427,8 @@ class HelpModal(ThemedModalScreen):
 
     HELP_TEXT = """
 Navigation:
-  j/↓     Move down
-  k/↑     Move up
+  j/down  Move down
+  k/up    Move up
   Tab     Switch panels
   Enter   Open shell in worktree
 
@@ -533,10 +441,8 @@ Actions:
   P       Pull all worktrees
   r       Refresh status
 
-Themes:
-  t       Cycle theme
-
 General:
+  Ctrl+P  Command palette (themes)
   ?       Show this help
   q       Quit
 """

@@ -7,8 +7,6 @@ from textual.containers import Container, Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Static
 
-from ..themes import get_theme
-
 
 class SetupModal(ModalScreen):
     """Modal for first-time setup configuration."""
@@ -21,44 +19,44 @@ class SetupModal(ModalScreen):
     SetupModal > Container {
         width: 80;
         height: auto;
-        border: round #444444;
-        background: #1c1c1c;
+        border: round $primary;
+        background: $surface;
         padding: 1 2;
     }
 
     SetupModal .modal-title {
         text-align: center;
         text-style: bold;
-        color: #ffffff;
+        color: $text;
         margin-bottom: 1;
     }
 
     SetupModal .welcome-text {
-        color: #ffffff;
+        color: $text;
         margin-bottom: 1;
     }
 
     SetupModal .section-label {
-        color: #808080;
+        color: $foreground-muted;
         margin-top: 1;
         margin-bottom: 0;
     }
 
     SetupModal .help-text {
-        color: #808080;
+        color: $foreground-muted;
         margin-bottom: 1;
         text-style: italic;
     }
 
     SetupModal Input {
-        background: #111111;
-        border: round #444444;
-        color: #ffffff;
+        background: $background;
+        border: round $primary;
+        color: $text;
         margin-bottom: 1;
     }
 
     SetupModal Input:focus {
-        border: round #00d700;
+        border: round $accent;
     }
 
     SetupModal .button-row {
@@ -69,26 +67,10 @@ class SetupModal(ModalScreen):
     SetupModal Button {
         margin: 0 1;
         min-width: 12;
-        background: #444444;
-        color: #ffffff;
-        border: none;
-    }
-
-    SetupModal Button:hover {
-        background: #303030;
-    }
-
-    SetupModal Button.-primary {
-        background: #005faf;
-        color: #ffffff;
-    }
-
-    SetupModal Button.-primary:hover {
-        background: #0087ff;
     }
 
     SetupModal .error-message {
-        color: #ff5f5f;
+        color: $text-error;
         text-align: center;
         margin-top: 1;
     }
@@ -106,37 +88,7 @@ These settings will be saved to ~/.config/tasktree/config.toml
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._theme_name = "default"
         self.error_message = ""
-
-    def on_mount(self) -> None:
-        """Apply theme on mount."""
-        if hasattr(self.app, "theme_name"):
-            self._theme_name = self.app.theme_name
-        self._apply_theme_styles()
-
-    def _apply_theme_styles(self) -> None:
-        """Apply theme colors."""
-        theme = get_theme(self._theme_name)
-
-        try:
-            container = self.query_one(Container)
-            container.styles.background = theme.background_alt
-            container.styles.border = ("round", theme.border)
-
-            for button in self.query(Button):
-                if button.variant == "primary":
-                    button.styles.background = theme.accent
-                    button.styles.color = theme.highlight_text
-                else:
-                    button.styles.background = theme.border
-                    button.styles.color = theme.foreground
-
-            for input_widget in self.query(Input):
-                input_widget.styles.background = theme.background
-                input_widget.styles.border = ("round", theme.border)
-        except Exception:
-            pass
 
     def compose(self) -> ComposeResult:
         with Container():

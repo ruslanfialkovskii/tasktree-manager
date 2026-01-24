@@ -5,7 +5,6 @@ from textual.message import Message
 from textual.widgets import ListItem, ListView, Static
 
 from ..services.task_manager import Worktree
-from ..themes import get_theme
 
 
 class WorktreeListItem(ListItem):
@@ -15,26 +14,19 @@ class WorktreeListItem(ListItem):
         super().__init__(*args, **kwargs)
         self.worktree = worktree
 
-    def _get_theme(self):
-        """Get the current theme from the app."""
-        if hasattr(self.app, "theme_name"):
-            return get_theme(self.app.theme_name)
-        return get_theme("default")
-
     def compose(self):
         """Compose the worktree item."""
-        theme = self._get_theme()
         branch = self.worktree.branch or "unknown"
 
         text = Text()
-        text.append(f"  {self.worktree.name:<20} ", style=theme.foreground)
-        text.append(f"{branch:<15} ", style=theme.accent)
+        text.append(f"  {self.worktree.name:<20} ")
+        text.append(f"{branch:<15} ", style="cyan")
 
         if self.worktree.is_dirty:
-            text.append("✗ ", style=theme.error)
-            text.append(f"{self.worktree.changed_files} files", style=theme.error)
+            text.append("✗ ", style="red")
+            text.append(f"{self.worktree.changed_files} files", style="red")
         else:
-            text.append("✓", style=theme.success)
+            text.append("✓", style="green")
 
         yield Static(text, classes="worktree-item-text")
 

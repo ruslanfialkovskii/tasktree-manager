@@ -1,6 +1,7 @@
 """Main application for tasktree."""
 
 import os
+import shutil
 import subprocess
 
 from textual.app import App, ComposeResult
@@ -11,7 +12,6 @@ from textual.widgets import Footer, Header, Static
 from .services.config import Config
 from .services.git_ops import GitOps, GitStatus
 from .services.task_manager import Task, TaskManager, Worktree
-from .themes import DEFAULT, generate_css, get_next_theme, get_theme
 from .widgets.create_modal import (
     AddRepoModal,
     ConfirmModal,
@@ -31,6 +31,180 @@ class TaskTreeApp(App):
 
     TITLE = "tasktree"
 
+    CSS = """
+    /* Main layout */
+    Screen {
+        background: $background;
+    }
+
+    #main-container {
+        height: 100%;
+        width: 100%;
+        background: $background;
+    }
+
+    #top-panels {
+        height: 1fr;
+        min-height: 10;
+    }
+
+    /* Task panel */
+    #task-panel {
+        width: 30%;
+        min-width: 20;
+        border: round $primary;
+        background: $background;
+        padding: 0;
+    }
+
+    #task-panel:focus-within {
+        border: round $accent;
+    }
+
+    /* Worktree panel */
+    #worktree-panel {
+        width: 70%;
+        border: round $primary;
+        background: $background;
+        padding: 0;
+    }
+
+    #worktree-panel:focus-within {
+        border: round $accent;
+    }
+
+    /* Status panel */
+    #status-panel {
+        height: auto;
+        min-height: 6;
+        max-height: 12;
+        border: round $primary;
+        background: $background;
+        padding: 0;
+    }
+
+    /* Panel titles */
+    .panel-title {
+        text-style: bold;
+        color: $text;
+        background: transparent;
+        text-align: left;
+        width: 100%;
+        padding: 0 1;
+    }
+
+    /* Task list */
+    #task-list {
+        height: 1fr;
+        background: $background;
+        scrollbar-gutter: stable;
+        padding: 0;
+    }
+
+    #task-list > ListItem {
+        padding: 0 1;
+        height: 1;
+        background: $background;
+        color: $text;
+    }
+
+    #task-list > ListItem.--highlight {
+        background: $surface;
+    }
+
+    #task-list > ListItem.--highlight .task-item-text {
+        background: $surface;
+    }
+
+    #task-list:focus > ListItem.--highlight {
+        background: $accent;
+    }
+
+    #task-list:focus > ListItem.--highlight .task-item-text {
+        background: $accent;
+    }
+
+    .task-item-text {
+        width: 100%;
+        background: transparent;
+    }
+
+    /* Worktree list */
+    #worktree-list {
+        height: 1fr;
+        background: $background;
+        scrollbar-gutter: stable;
+        padding: 0;
+    }
+
+    #worktree-list > ListItem {
+        padding: 0 1;
+        height: 1;
+        background: $background;
+        color: $text;
+    }
+
+    #worktree-list > ListItem.--highlight {
+        background: $surface;
+    }
+
+    #worktree-list > ListItem.--highlight .worktree-item-text {
+        background: $surface;
+    }
+
+    #worktree-list:focus > ListItem.--highlight {
+        background: $accent;
+    }
+
+    #worktree-list:focus > ListItem.--highlight .worktree-item-text {
+        background: $accent;
+    }
+
+    .worktree-item-text {
+        width: 100%;
+        background: transparent;
+    }
+
+    /* Status panel styling */
+    #status-display {
+        height: 100%;
+        padding: 0 1;
+        background: $background;
+        color: $text;
+    }
+
+    /* Header */
+    Header {
+        background: $surface;
+        color: $text;
+        text-style: bold;
+        dock: top;
+        height: 1;
+    }
+
+    /* Footer */
+    Footer {
+        background: $surface;
+    }
+
+    /* Scrollbar */
+    Scrollbar {
+        background: $background;
+    }
+
+    ScrollBar > .scrollbar--bar {
+        background: $panel;
+    }
+
+    ScrollBar > .scrollbar--bar:hover {
+        background: $foreground-muted;
+    }
+
+    ListItem {
+        height: 1;
+    }
+    """
+
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
@@ -42,7 +216,6 @@ class TaskTreeApp(App):
         Binding("p", "push_all", "Push All"),
         Binding("P", "pull_all", "Pull All", show=False),
         Binding("r", "refresh", "Refresh"),
-        Binding("t", "cycle_theme", "Theme"),
         Binding("tab", "focus_next", "Next Panel", show=False),
         Binding("shift+tab", "focus_previous", "Prev Panel", show=False),
         Binding("j", "cursor_down", "Down", show=False),
@@ -57,13 +230,6 @@ class TaskTreeApp(App):
         self.current_task: Task | None = None
         self.current_worktree: Worktree | None = None
         self.current_status: GitStatus | None = None
-        self.theme_name = "default"
-        self._theme = DEFAULT
-
-    @property
-    def css(self) -> str:
-        """Return dynamic CSS based on current theme."""
-        return generate_css(self._theme)
 
     def compose(self) -> ComposeResult:
         """Compose the app layout."""
@@ -82,8 +248,6 @@ class TaskTreeApp(App):
 
     def on_mount(self) -> None:
         """Handle app mount."""
-        self._apply_theme()
-
         # Check if configuration is valid
         if not self.config.is_configured():
             self._show_setup_wizard()
@@ -121,78 +285,6 @@ class TaskTreeApp(App):
 
         self.push_screen(SetupModal(), handle_setup)
 
-    def _apply_theme(self) -> None:
-        """Apply the current theme."""
-        self._theme = get_theme(self.theme_name)
-
-        # Apply theme colors to main containers
-        try:
-            self.screen.styles.background = self._theme.background
-
-            main_container = self.query_one("#main-container", Container)
-            main_container.styles.background = self._theme.background
-
-            # Task panel
-            task_panel = self.query_one("#task-panel", Vertical)
-            task_panel.styles.background = self._theme.background
-            task_panel.styles.border = ("round", self._theme.border)
-
-            # Worktree panel
-            worktree_panel = self.query_one("#worktree-panel", Vertical)
-            worktree_panel.styles.background = self._theme.background
-            worktree_panel.styles.border = ("round", self._theme.border)
-
-            # Status panel
-            status_panel_container = self.query_one("#status-panel", Vertical)
-            status_panel_container.styles.background = self._theme.background
-            status_panel_container.styles.border = ("round", self._theme.border)
-
-            # Lists
-            task_list = self.query_one("#task-list", TaskList)
-            task_list.styles.background = self._theme.background
-
-            worktree_list = self.query_one("#worktree-list", WorktreeList)
-            worktree_list.styles.background = self._theme.background
-
-            # Status display
-            status_display = self.query_one("#status-display", StatusPanel)
-            status_display.styles.background = self._theme.background
-
-            # Panel titles
-            for title in self.query(".panel-title"):
-                title.styles.color = self._theme.foreground
-
-            # Header
-            header = self.query_one(Header)
-            header.styles.background = self._theme.background
-            header.styles.color = self._theme.accent
-
-            # Footer
-            footer = self.query_one(Footer)
-            footer.styles.background = self._theme.background_alt
-
-        except Exception:
-            pass  # Widgets may not exist yet during initial mount
-
-    def _apply_theme_to_lists(self) -> None:
-        """Reload lists to apply new theme colors to items."""
-        # Save current selection
-        task_list = self.query_one("#task-list", TaskList)
-        current_task_index = task_list.index
-
-        # Reload tasks (recreates list items with new theme colors)
-        self._load_tasks()
-
-        # Restore selection
-        if current_task_index is not None and current_task_index < len(task_list.tasks):
-            task_list.index = current_task_index
-            task_list._emit_highlighted()
-
-        # Update status panel display
-        if self.current_worktree and self.current_status:
-            status_panel = self.query_one("#status-display", StatusPanel)
-            status_panel._update_display()
-
     def _load_tasks(self) -> None:
         """Load tasks and update git status."""
         tasks = self.task_manager.list_tasks()
@@ -215,6 +307,38 @@ class TaskTreeApp(App):
                 self.current_task = task
                 worktree_list = self.query_one("#worktree-list", WorktreeList)
                 worktree_list.load_worktrees(task.worktrees)
+
+    def _run_external_command(
+        self, cmd: list[str], cwd, name: str, install_hint: str | None = None
+    ) -> bool:
+        """Run external command with proper error handling.
+
+        Args:
+            cmd: Command and arguments to run
+            cwd: Working directory for the command
+            name: Human-readable name of the command (for error messages)
+            install_hint: Optional hint for installing the command (e.g., "brew install lazygit")
+
+        Returns:
+            True if command ran successfully, False otherwise
+        """
+        if not shutil.which(cmd[0]):
+            hint = f" Install with: {install_hint}" if install_hint else ""
+            self.notify(f"{name} not found.{hint}", severity="error")
+            return False
+        try:
+            subprocess.run(cmd, cwd=cwd)
+            return True
+        except FileNotFoundError:
+            hint = f" Install with: {install_hint}" if install_hint else ""
+            self.notify(f"{name} not found.{hint}", severity="error")
+            return False
+        except PermissionError:
+            self.notify(f"Permission denied running {name}", severity="error")
+            return False
+        except Exception as e:
+            self.notify(f"Failed to run {name}: {e}", severity="error")
+            return False
 
     def on_task_list_task_highlighted(self, event: TaskList.TaskHighlighted) -> None:
         """Handle task highlight in task list."""
@@ -265,8 +389,15 @@ class TaskTreeApp(App):
                     self.task_manager.create_task(name, repos, base_branch)
                     self._load_tasks()
                     self.notify(f"Created task: {name}")
+                except FileNotFoundError as e:
+                    self.notify(f"Repository not found: {e}", severity="error")
+                except PermissionError:
+                    self.notify("Permission denied: check directory permissions", severity="error")
+                except ValueError as e:
+                    # ValueError from task_manager has good messages
+                    self.notify(str(e), severity="error")
                 except Exception as e:
-                    self.notify(f"Failed to create task: {e}", severity="error")
+                    self.notify(f"Failed to create task: {type(e).__name__}: {e}", severity="error")
 
         self.push_screen(CreateTaskModal(available_repos), handle_result)
 
@@ -278,7 +409,7 @@ class TaskTreeApp(App):
 
         available_repos = self.task_manager.get_repos_not_in_task(self.current_task)
         if not available_repos:
-            self.notify("All repositories already in task", severity="info")
+            self.notify("All repositories already in task", severity="information")
             return
 
         def handle_result(result):
@@ -290,8 +421,15 @@ class TaskTreeApp(App):
                     self._load_tasks()
                     self._refresh_current_task()
                     self.notify(f"Added {len(repos)} repo(s) to task")
+                except FileNotFoundError as e:
+                    self.notify(f"Repository not found: {e}", severity="error")
+                except PermissionError:
+                    self.notify("Permission denied: check directory permissions", severity="error")
+                except ValueError as e:
+                    # ValueError from task_manager has good messages
+                    self.notify(str(e), severity="error")
                 except Exception as e:
-                    self.notify(f"Failed to add repos: {e}", severity="error")
+                    self.notify(f"Failed to add repos: {type(e).__name__}: {e}", severity="error")
 
         self.push_screen(AddRepoModal(self.current_task.name, available_repos), handle_result)
 
@@ -388,7 +526,7 @@ class TaskTreeApp(App):
                     # Final confirmation before force delete
                     message = (
                         f"Really delete task '{task.name}'?\n\n"
-                        "⚠️  You may lose unpushed work!"
+                        "You may lose unpushed work!"
                     )
 
                     def handle_force_confirm(confirmed):
@@ -427,7 +565,12 @@ class TaskTreeApp(App):
         if first_issue_worktree and first_issue_worktree.exists():
             # Suspend app and run lazygit
             with self.suspend():
-                subprocess.run(["lazygit"], cwd=first_issue_worktree)
+                self._run_external_command(
+                    ["lazygit"],
+                    cwd=first_issue_worktree,
+                    name="lazygit",
+                    install_hint="brew install lazygit",
+                )
 
             # Refresh status after lazygit exits
             self._load_tasks()
@@ -448,7 +591,12 @@ class TaskTreeApp(App):
 
         # Suspend app and run lazygit
         with self.suspend():
-            subprocess.run(["lazygit"], cwd=worktree_path)
+            self._run_external_command(
+                ["lazygit"],
+                cwd=worktree_path,
+                name="lazygit",
+                install_hint="brew install lazygit",
+            )
 
         # Refresh status after lazygit exits
         self._load_tasks()
@@ -470,7 +618,7 @@ class TaskTreeApp(App):
 
         # Suspend app and open shell
         with self.suspend():
-            subprocess.run([shell], cwd=worktree_path)
+            self._run_external_command([shell], cwd=worktree_path, name="shell")
 
         # Refresh status after shell exits
         self._load_tasks()
@@ -519,14 +667,6 @@ class TaskTreeApp(App):
         self._load_tasks()
         self._refresh_current_task()
         self.notify("Refreshed")
-
-    def action_cycle_theme(self) -> None:
-        """Cycle to the next theme."""
-        next_theme = get_next_theme(self.theme_name)
-        self.theme_name = next_theme.name
-        self._apply_theme()
-        self._apply_theme_to_lists()
-        self.notify(f"Theme: {next_theme.name}")
 
     def action_cursor_down(self) -> None:
         """Move cursor down in the focused list."""

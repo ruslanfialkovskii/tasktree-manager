@@ -40,16 +40,9 @@ pytest tests/test_app.py::TestTaskTreeApp::test_app_starts -v
 - `task_manager.py`: CRUD operations for tasks and worktrees (creates git worktrees via subprocess)
 - `git_ops.py`: Git status queries, push/pull operations (all via subprocess)
 
-### Themes (`tasktree/themes/`)
+### Theming
 
-Dynamic theming system with 3 built-in themes:
-- **vscode-dark**: VS Code Dark theme (default)
-- **vscode-light**: VS Code Light theme
-- **catppuccin**: Catppuccin Mocha theme
-
-Themes are defined as `Theme` dataclass with colors for: background, foreground, borders, highlights, accent, success/warning/error.
-
-The `generate_css()` function creates Textual CSS from a theme. Press `t` to cycle themes at runtime.
+Uses Textual's built-in theming system with design tokens (`$primary`, `$background`, `$error`, etc.). Switch themes via the Command Palette (`Ctrl+P`). Available themes include: textual-dark, textual-light, nord, gruvbox, tokyo-night, monokai, dracula.
 
 ### Widgets Layer (`tasktree/widgets/`)
 
@@ -59,23 +52,21 @@ All widgets extend Textual's `ListView` or `Static`:
 - `status_panel.py`: Bottom panel showing git status for selected worktree
 - `create_modal.py`: Modal dialogs (all extend `ThemedModalScreen` base class)
 
-Widgets get theme colors via `_get_theme()` helper that reads `app.theme_name`.
-
 ### App (`tasktree/app.py`)
 
 `TaskTreeApp` is the main Textual App. It:
 - Composes the 3-panel layout
 - Handles message events from list widgets (`TaskHighlighted`, `WorktreeHighlighted`)
-- Implements actions for keybindings (n=new task, d=delete, g=lazygit, t=theme, etc.)
+- Implements actions for keybindings (n=new task, d=delete, g=lazygit, etc.)
 - Uses `app.suspend()` to shell out to lazygit or $SHELL
-- Provides `css` property that returns dynamically generated CSS from current theme
+- Uses static `CSS` class variable with Textual design tokens
 
 ### Styling Pattern
 
-CSS is generated dynamically from `Theme` objects in `tasktree/themes/__init__.py`:
-- `generate_css(theme)` creates main app CSS
-- Modals use `DEFAULT_CSS` class attribute with hardcoded colors, then `_apply_theme_styles()` updates widget styles on mount
-- List items need `.--highlight` styling for both the ListItem and its child Static widget
+CSS uses Textual's design tokens (e.g., `$primary`, `$background`, `$surface`, `$error`) for theme-aware styling:
+- Main app CSS is defined in `TaskTreeApp.CSS` class variable
+- Modals use `DEFAULT_CSS` class attribute with design tokens
+- List items use `.--highlight` styling for both the ListItem and its child Static widget
 
 ## Testing
 

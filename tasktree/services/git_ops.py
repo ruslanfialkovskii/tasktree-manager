@@ -16,6 +16,7 @@ class GitStatus:
     untracked: list[str] = None
     ahead: int = 0
     behind: int = 0
+    error: str | None = None  # Error message if status fetch failed
 
     def __post_init__(self):
         if self.staged is None:
@@ -68,9 +69,16 @@ class GitOps:
                 text=True,
                 timeout=5,
             )
+            if result.returncode != 0:
+                status.error = f"Git error: {result.stderr.strip() or 'failed to get branch'}"
+                return status
             status.branch = result.stdout.strip()
-        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-            pass
+        except subprocess.TimeoutExpired:
+            status.error = "Git operation timed out"
+            return status
+        except subprocess.SubprocessError as e:
+            status.error = f"Git error: {e}"
+            return status
 
         # Get status
         try:
@@ -81,6 +89,9 @@ class GitOps:
                 text=True,
                 timeout=5,
             )
+            if result.returncode != 0:
+                status.error = f"Git status failed: {result.stderr.strip() or 'unknown error'}"
+                return status
             for line in result.stdout.strip().split("\n"):
                 if not line:
                     continue
@@ -96,8 +107,12 @@ class GitOps:
                 elif status_code[0] == " " and status_code[1] == "M":
                     status.modified.append(filename)
 
-        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-            pass
+        except subprocess.TimeoutExpired:
+            status.error = "Git status timed out"
+            return status
+        except subprocess.SubprocessError as e:
+            status.error = f"Git status error: {e}"
+            return status
 
         # Get ahead/behind info
         try:
@@ -114,6 +129,7 @@ class GitOps:
                     status.ahead = int(parts[0])
                     status.behind = int(parts[1])
         except (subprocess.TimeoutExpired, subprocess.SubprocessError, ValueError):
+            # ahead/behind info is not critical - don't report error
             pass
 
         return status

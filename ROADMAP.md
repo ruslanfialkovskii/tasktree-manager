@@ -25,7 +25,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 #### Features
 - [ ] Config file support (`~/.config/tasktree/config.toml`)
 - [ ] Custom keybindings configuration
-- [ ] Improved error messages
+- [x] Improved error messages
 - [ ] Loading indicators for slow operations
 - [ ] Help text improvements
 
