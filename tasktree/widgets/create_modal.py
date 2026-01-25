@@ -417,42 +417,147 @@ class PushResultModal(ThemedModalScreen):
 
 
 class HelpModal(ThemedModalScreen):
-    """Modal showing keybindings help."""
+    """Modal showing keybindings help and application info."""
 
     DEFAULT_CSS = ThemedModalScreen.DEFAULT_CSS + """
     HelpModal > Container {
-        width: 60;
+        width: 70;
+        max-height: 90%;
+    }
+
+    HelpModal .help-section {
+        margin-bottom: 1;
+    }
+
+    HelpModal .help-section-title {
+        color: $primary;
+        text-style: bold;
+        margin-bottom: 0;
+    }
+
+    HelpModal .help-content {
+        color: $text;
+        margin-left: 2;
+    }
+
+    HelpModal .help-key {
+        color: $accent;
+        text-style: bold;
+    }
+
+    HelpModal .help-desc {
+        color: $text-muted;
+    }
+
+    HelpModal .help-info {
+        color: $text-muted;
+        text-style: italic;
+        margin-top: 1;
+        border-top: solid $primary;
+        padding-top: 1;
+    }
+
+    HelpModal .scrollable-help {
+        height: auto;
+        max-height: 35;
+        overflow-y: auto;
     }
     """
 
-    HELP_TEXT = """
-Navigation:
-  j/down  Move down
-  k/up    Move up
-  Tab     Switch panels
-  Enter   Open shell in worktree
+    def __init__(self, keybindings: dict[str, str] | None = None, config_path: str = "", *args, **kwargs):
+        """Initialize help modal.
 
-Actions:
-  n       New task
-  a       Add repo to task
-  d       Finish/delete task
-  g       Open lazygit in worktree
-  p       Push all worktrees
-  P       Pull all worktrees
-  r       Refresh status
+        Args:
+            keybindings: Dictionary of action -> key mappings from config
+            config_path: Path to config file for display
+        """
+        super().__init__(*args, **kwargs)
+        self.keybindings = keybindings or {}
+        self.config_path = config_path
 
-General:
-  Ctrl+P  Command palette (themes)
-  ?       Show this help
-  q       Quit
-"""
+    def _get_key(self, action: str, default: str) -> str:
+        """Get the keybinding for an action, with formatting."""
+        key = self.keybindings.get(action, default)
+        # Format special keys for display
+        key = key.replace("ctrl+", "Ctrl+").replace("shift+", "Shift+").replace("alt+", "Alt+")
+        return key
+
+    def _format_binding(self, action: str, default: str, description: str) -> str:
+        """Format a single keybinding line."""
+        key = self._get_key(action, default)
+        # Pad key to align descriptions
+        return f"  [bold cyan]{key:<12}[/] {description}"
 
     def compose(self) -> ComposeResult:
         with Container():
-            yield Label("Keybindings", classes="modal-title")
-            yield Static(self.HELP_TEXT, classes="help-text")
+            yield Label("tasktree Help", classes="modal-title")
+
+            # Build help content with actual keybindings
+            help_content = self._build_help_content()
+
+            with Container(classes="scrollable-help"):
+                yield Static(help_content, classes="help-text")
+
+            # Show config info at bottom
+            info_text = self._build_info_text()
+            yield Static(info_text, classes="help-info")
+
             with Horizontal(classes="button-row"):
                 yield Button("Close", variant="primary", id="close-btn")
+
+    def _build_help_content(self) -> str:
+        """Build the help content with current keybindings."""
+        sections = []
+
+        # Navigation section
+        nav_section = "[bold $primary]Navigation[/]\n"
+        nav_section += self._format_binding("cursor_down", "j", "Move cursor down") + "\n"
+        nav_section += self._format_binding("cursor_up", "k", "Move cursor up") + "\n"
+        nav_section += self._format_binding("focus_next", "tab", "Switch to next panel") + "\n"
+        nav_section += self._format_binding("focus_previous", "shift+tab", "Switch to previous panel")
+        sections.append(nav_section)
+
+        # Task management section
+        task_section = "[bold $primary]Task Management[/]\n"
+        task_section += self._format_binding("new_task", "n", "Create a new task") + "\n"
+        task_section += self._format_binding("add_repo", "a", "Add repository to current task") + "\n"
+        task_section += self._format_binding("delete_task", "d", "Delete/finish current task")
+        sections.append(task_section)
+
+        # Git operations section
+        git_section = "[bold $primary]Git Operations[/]\n"
+        git_section += self._format_binding("open_lazygit", "g", "Open lazygit in worktree") + "\n"
+        git_section += self._format_binding("open_shell", "enter", "Open shell in worktree") + "\n"
+        git_section += self._format_binding("push_all", "p", "Push all worktrees in task") + "\n"
+        git_section += self._format_binding("pull_all", "P", "Pull all worktrees in task") + "\n"
+        git_section += self._format_binding("refresh", "r", "Refresh git status")
+        sections.append(git_section)
+
+        # General section
+        general_section = "[bold $primary]General[/]\n"
+        general_section += "  [bold cyan]Ctrl+P      [/] Open command palette (themes)\n"
+        general_section += self._format_binding("help", "?", "Show this help") + "\n"
+        general_section += self._format_binding("quit", "q", "Quit tasktree")
+        sections.append(general_section)
+
+        # Tips section
+        tips_section = "[bold $primary]Tips[/]\n"
+        tips_section += "  • Use [bold]Ctrl+P[/] to quickly switch themes\n"
+        tips_section += "  • Keybindings can be customized in config.toml\n"
+        tips_section += "  • Press [bold]g[/] to resolve conflicts with lazygit\n"
+        tips_section += "  • Tasks are stored in your tasks directory"
+        sections.append(tips_section)
+
+        return "\n\n".join(sections)
+
+    def _build_info_text(self) -> str:
+        """Build the info text showing config location."""
+        info = "Config: "
+        if self.config_path:
+            info += f"{self.config_path}"
+        else:
+            info += "~/.config/tasktree/config.toml"
+        return info
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press."""

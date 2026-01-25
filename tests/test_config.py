@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from tasktree.services.config import Config
+from tasktree.services.config import DEFAULT_KEYBINDINGS, Config
 
 
 class TestConfig:
@@ -239,6 +239,107 @@ shell = "/bin/zsh"
             assert loaded.editor == "vim"
             assert loaded.lazygit_path == "/opt/bin/lazygit"
             assert loaded.shell == "/bin/zsh"
+        finally:
+            if old_xdg is not None:
+                os.environ["XDG_CONFIG_HOME"] = old_xdg
+            else:
+                os.environ.pop("XDG_CONFIG_HOME", None)
+
+    def test_default_keybindings(self):
+        """Test that default keybindings are set correctly."""
+        config = Config()
+        assert config.keybindings["quit"] == "q"
+        assert config.keybindings["help"] == "?"
+        assert config.keybindings["new_task"] == "n"
+        assert config.keybindings["open_lazygit"] == "g"
+        assert config.keybindings["cursor_down"] == "j"
+        assert config.keybindings["cursor_up"] == "k"
+
+    def test_keybindings_from_config_file(self, temp_dirs):
+        """Test loading custom keybindings from config file."""
+        repos_dir, tasks_dir = temp_dirs
+        config_dir = repos_dir.parent / ".config" / "tasktree"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_file = config_dir / "config.toml"
+
+        config_content = f'''
+repos_dir = "{repos_dir}"
+tasks_dir = "{tasks_dir}"
+
+[keybindings]
+quit = "ctrl+q"
+new_task = "ctrl+n"
+cursor_down = "down"
+cursor_up = "up"
+'''
+        config_file.write_text(config_content)
+
+        import os
+        old_xdg = os.environ.get("XDG_CONFIG_HOME")
+        os.environ["XDG_CONFIG_HOME"] = str(config_dir.parent)
+        try:
+            config = Config.load()
+            # Custom keybindings should be loaded
+            assert config.keybindings["quit"] == "ctrl+q"
+            assert config.keybindings["new_task"] == "ctrl+n"
+            assert config.keybindings["cursor_down"] == "down"
+            assert config.keybindings["cursor_up"] == "up"
+            # Non-specified keybindings should use defaults
+            assert config.keybindings["help"] == "?"
+            assert config.keybindings["open_lazygit"] == "g"
+        finally:
+            if old_xdg is not None:
+                os.environ["XDG_CONFIG_HOME"] = old_xdg
+            else:
+                os.environ.pop("XDG_CONFIG_HOME", None)
+
+    def test_get_keybinding_method(self):
+        """Test get_keybinding helper method."""
+        config = Config()
+        assert config.get_keybinding("quit") == "q"
+        assert config.get_keybinding("new_task") == "n"
+        # Unknown action returns empty string
+        assert config.get_keybinding("unknown_action") == ""
+
+    def test_custom_keybindings_in_constructor(self):
+        """Test passing custom keybindings to constructor."""
+        custom_bindings = DEFAULT_KEYBINDINGS.copy()
+        custom_bindings["quit"] = "ctrl+c"
+        custom_bindings["new_task"] = "ctrl+shift+n"
+
+        config = Config(keybindings=custom_bindings)
+        assert config.keybindings["quit"] == "ctrl+c"
+        assert config.keybindings["new_task"] == "ctrl+shift+n"
+        # Other defaults should still be present
+        assert config.keybindings["help"] == "?"
+
+    def test_keybindings_save_and_load_roundtrip(self, temp_dirs):
+        """Test that keybindings are preserved through save/load."""
+        repos_dir, tasks_dir = temp_dirs
+        config_dir = repos_dir.parent / ".config" / "tasktree"
+
+        custom_bindings = DEFAULT_KEYBINDINGS.copy()
+        custom_bindings["quit"] = "ctrl+q"
+        custom_bindings["new_task"] = "ctrl+n"
+
+        original = Config(
+            repos_dir=repos_dir,
+            tasks_dir=tasks_dir,
+            config_dir=config_dir,
+            keybindings=custom_bindings,
+        )
+        original.save()
+
+        import os
+        old_xdg = os.environ.get("XDG_CONFIG_HOME")
+        os.environ["XDG_CONFIG_HOME"] = str(config_dir.parent)
+        try:
+            loaded = Config.load()
+            assert loaded.keybindings["quit"] == "ctrl+q"
+            assert loaded.keybindings["new_task"] == "ctrl+n"
+            # Other defaults should still be present
+            assert loaded.keybindings["help"] == "?"
+            assert loaded.keybindings["open_lazygit"] == "g"
         finally:
             if old_xdg is not None:
                 os.environ["XDG_CONFIG_HOME"] = old_xdg

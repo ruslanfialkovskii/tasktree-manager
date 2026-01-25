@@ -55,6 +55,24 @@ class TestTaskTreeApp:
             help_screens = [s for s in app.screen_stack if isinstance(s, HelpModal)]
             assert len(help_screens) == 1
 
+    async def test_help_modal_shows_keybindings(self, app):
+        """Test that help modal displays keybindings from config."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("?")
+            await pilot.pause()
+
+            from tasktree.widgets.create_modal import HelpModal
+
+            help_screens = [s for s in app.screen_stack if isinstance(s, HelpModal)]
+            assert len(help_screens) == 1
+
+            help_modal = help_screens[0]
+            # Verify keybindings were passed
+            assert help_modal.keybindings is not None
+            assert "quit" in help_modal.keybindings
+            assert "new_task" in help_modal.keybindings
+
     async def test_navigation_j_k(self, app, sample_repos, task_manager):
         """Test j/k navigation in task list."""
         repos, branch = sample_repos

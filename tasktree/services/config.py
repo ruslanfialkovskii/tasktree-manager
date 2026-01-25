@@ -15,6 +15,25 @@ else:
         tomllib = None  # type: ignore
 
 
+# Default keybindings - action name to key mapping
+DEFAULT_KEYBINDINGS: dict[str, str] = {
+    "quit": "q",
+    "help": "?",
+    "new_task": "n",
+    "add_repo": "a",
+    "delete_task": "d",
+    "open_lazygit": "g",
+    "open_shell": "enter",
+    "push_all": "p",
+    "pull_all": "P",
+    "refresh": "r",
+    "focus_next": "tab",
+    "focus_previous": "shift+tab",
+    "cursor_down": "j",
+    "cursor_up": "k",
+}
+
+
 @dataclass
 class Config:
     """Configuration for tasktree application.
@@ -43,6 +62,9 @@ class Config:
     editor: str = ""
     lazygit_path: str = "lazygit"
     shell: str = ""
+
+    # Keybindings (action -> key mapping)
+    keybindings: dict[str, str] = field(default_factory=lambda: DEFAULT_KEYBINDINGS.copy())
 
     @classmethod
     def load(cls) -> "Config":
@@ -83,6 +105,13 @@ class Config:
         lazygit_path = tools_config.get("lazygit_path", "lazygit")
         shell = tools_config.get("shell", "")
 
+        # Keybindings - start with defaults and override with config
+        keybindings = DEFAULT_KEYBINDINGS.copy()
+        keybindings_config = config_data.get("keybindings", {})
+        for action, key in keybindings_config.items():
+            if action in keybindings and isinstance(key, str):
+                keybindings[action] = key
+
         # Environment variables override config file
         if "REPOS_DIR" in os.environ:
             repos_dir = Path(os.environ["REPOS_DIR"])
@@ -109,6 +138,7 @@ class Config:
             editor=editor,
             lazygit_path=lazygit_path,
             shell=shell,
+            keybindings=keybindings,
         )
 
     @staticmethod
@@ -217,6 +247,28 @@ lazygit_path = "{self.lazygit_path}"
 
 # Preferred shell (leave empty to use $SHELL)
 shell = "{self.shell}"
+
+# ============================================================================
+# Keybindings
+# ============================================================================
+# Customize keyboard shortcuts. Uncomment and modify to change defaults.
+# Available modifiers: ctrl+, shift+, alt+
+# Special keys: enter, tab, escape, space, backspace, delete, up, down, left, right
+[keybindings]
+quit = "{self.keybindings.get('quit', 'q')}"
+help = "{self.keybindings.get('help', '?')}"
+new_task = "{self.keybindings.get('new_task', 'n')}"
+add_repo = "{self.keybindings.get('add_repo', 'a')}"
+delete_task = "{self.keybindings.get('delete_task', 'd')}"
+open_lazygit = "{self.keybindings.get('open_lazygit', 'g')}"
+open_shell = "{self.keybindings.get('open_shell', 'enter')}"
+push_all = "{self.keybindings.get('push_all', 'p')}"
+pull_all = "{self.keybindings.get('pull_all', 'P')}"
+refresh = "{self.keybindings.get('refresh', 'r')}"
+focus_next = "{self.keybindings.get('focus_next', 'tab')}"
+focus_previous = "{self.keybindings.get('focus_previous', 'shift+tab')}"
+cursor_down = "{self.keybindings.get('cursor_down', 'j')}"
+cursor_up = "{self.keybindings.get('cursor_up', 'k')}"
 '''
         config_file.write_text(config_content)
 
@@ -265,3 +317,14 @@ shell = "{self.shell}"
         if self.editor:
             return self.editor
         return os.environ.get("EDITOR", "vi")
+
+    def get_keybinding(self, action: str) -> str:
+        """Get the keybinding for an action.
+
+        Args:
+            action: The action name (e.g., 'quit', 'new_task')
+
+        Returns:
+            The key binding string (e.g., 'q', 'ctrl+n')
+        """
+        return self.keybindings.get(action, DEFAULT_KEYBINDINGS.get(action, ""))

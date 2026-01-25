@@ -204,6 +204,7 @@ class TaskTreeApp(App):
     }
     """
 
+    # Default bindings - will be overridden in __init__ with config values
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
@@ -222,13 +223,47 @@ class TaskTreeApp(App):
     ]
 
     def __init__(self):
-        super().__init__()
+        # Load config before calling super().__init__() so we can set up bindings
         self.config = Config.load()
         self.config.ensure_dirs()
+
+        # Build bindings from config
+        self._custom_bindings = self._build_bindings_from_config()
+
+        super().__init__()
         self.task_manager = TaskManager(self.config)
         self.current_task: Task | None = None
         self.current_worktree: Worktree | None = None
         self.current_status: GitStatus | None = None
+
+    def _build_bindings_from_config(self) -> list[Binding]:
+        """Build keybindings list from config.
+
+        Returns:
+            List of Binding objects with keys from config
+        """
+        kb = self.config.keybindings
+        return [
+            Binding(kb.get("quit", "q"), "quit", "Quit"),
+            Binding(kb.get("help", "?"), "help", "Help"),
+            Binding(kb.get("new_task", "n"), "new_task", "New Task"),
+            Binding(kb.get("add_repo", "a"), "add_repo", "Add Repo"),
+            Binding(kb.get("delete_task", "d"), "delete_task", "Delete Task"),
+            Binding(kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit"),
+            Binding(kb.get("open_shell", "enter"), "open_shell", "Shell", show=False),
+            Binding(kb.get("push_all", "p"), "push_all", "Push All"),
+            Binding(kb.get("pull_all", "P"), "pull_all", "Pull All", show=False),
+            Binding(kb.get("refresh", "r"), "refresh", "Refresh"),
+            Binding(kb.get("focus_next", "tab"), "focus_next", "Next Panel", show=False),
+            Binding(kb.get("focus_previous", "shift+tab"), "focus_previous", "Prev Panel", show=False),
+            Binding(kb.get("cursor_down", "j"), "cursor_down", "Down", show=False),
+            Binding(kb.get("cursor_up", "k"), "cursor_up", "Up", show=False),
+        ]
+
+    @property
+    def _binding_list(self) -> list[Binding]:
+        """Override to use custom bindings from config."""
+        return self._custom_bindings
 
     def compose(self) -> ComposeResult:
         """Compose the app layout."""
@@ -379,8 +414,12 @@ class TaskTreeApp(App):
         self.exit()
 
     def action_help(self) -> None:
-        """Show help modal."""
-        self.push_screen(HelpModal())
+        """Show help modal with current keybindings."""
+        config_path = str(self.config.config_dir / "config.toml")
+        self.push_screen(HelpModal(
+            keybindings=self.config.keybindings,
+            config_path=config_path,
+        ))
 
     def action_new_task(self) -> None:
         """Create a new task."""
