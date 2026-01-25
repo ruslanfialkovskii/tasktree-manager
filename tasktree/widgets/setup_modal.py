@@ -8,8 +8,11 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Static
 
 
-class SetupModal(ModalScreen):
-    """Modal for first-time setup configuration."""
+class SetupModal(ModalScreen[tuple[Path, Path] | None]):
+    """Modal for first-time setup configuration.
+
+    Dismisses with: (repos_dir, tasks_dir) tuple or None if cancelled.
+    """
 
     DEFAULT_CSS = """
     SetupModal {

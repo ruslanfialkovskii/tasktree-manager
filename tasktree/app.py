@@ -98,29 +98,29 @@ class TaskTreeApp(App):
         background: $background;
         scrollbar-gutter: stable;
         padding: 0;
-    }
 
-    #task-list > ListItem {
-        padding: 0 1;
-        height: 1;
-        background: $background;
-        color: $text;
-    }
+        & > ListItem {
+            padding: 0 1;
+            height: 1;
+            background: $background;
+            color: $text;
 
-    #task-list > ListItem.--highlight {
-        background: $surface;
-    }
+            &.--highlight {
+                background: $surface;
 
-    #task-list > ListItem.--highlight .task-item-text {
-        background: $surface;
-    }
+                & .task-item-text {
+                    background: $surface;
+                }
+            }
+        }
 
-    #task-list:focus > ListItem.--highlight {
-        background: $accent;
-    }
+        &:focus > ListItem.--highlight {
+            background: $accent;
 
-    #task-list:focus > ListItem.--highlight .task-item-text {
-        background: $accent;
+            & .task-item-text {
+                background: $accent;
+            }
+        }
     }
 
     .task-item-text {
@@ -134,29 +134,29 @@ class TaskTreeApp(App):
         background: $background;
         scrollbar-gutter: stable;
         padding: 0;
-    }
 
-    #worktree-list > ListItem {
-        padding: 0 1;
-        height: 1;
-        background: $background;
-        color: $text;
-    }
+        & > ListItem {
+            padding: 0 1;
+            height: 1;
+            background: $background;
+            color: $text;
 
-    #worktree-list > ListItem.--highlight {
-        background: $surface;
-    }
+            &.--highlight {
+                background: $surface;
 
-    #worktree-list > ListItem.--highlight .worktree-item-text {
-        background: $surface;
-    }
+                & .worktree-item-text {
+                    background: $surface;
+                }
+            }
+        }
 
-    #worktree-list:focus > ListItem.--highlight {
-        background: $accent;
-    }
+        &:focus > ListItem.--highlight {
+            background: $accent;
 
-    #worktree-list:focus > ListItem.--highlight .worktree-item-text {
-        background: $accent;
+            & .worktree-item-text {
+                background: $accent;
+            }
+        }
     }
 
     .worktree-item-text {
@@ -329,15 +329,19 @@ class TaskTreeApp(App):
 
     def _load_tasks(self) -> None:
         """Load tasks and update git status."""
-        tasks = self.task_manager.list_tasks()
-
-        # Update git status for all worktrees
-        for task in tasks:
-            for worktree in task.worktrees:
-                GitOps.update_worktree_status(worktree)
-
         task_list = self.query_one("#task-list", TaskList)
-        task_list.load_tasks(tasks)
+        task_list.loading = True
+        try:
+            tasks = self.task_manager.list_tasks()
+
+            # Update git status for all worktrees
+            for task in tasks:
+                for worktree in task.worktrees:
+                    GitOps.update_worktree_status(worktree)
+
+            task_list.load_tasks(tasks)
+        finally:
+            task_list.loading = False
 
     def _refresh_current_task(self) -> None:
         """Refresh the current task's worktrees and status."""
@@ -635,6 +639,8 @@ class TaskTreeApp(App):
             self.notify("Worktree directory not found", severity="error")
             return
 
+        self.notify("Opening lazygit...")
+
         # Suspend app and run lazygit
         with self.suspend():
             self._run_external_command(
@@ -661,6 +667,8 @@ class TaskTreeApp(App):
 
         # Get shell from config
         shell = self.config.get_shell()
+
+        self.notify("Opening shell...")
 
         # Suspend app and open shell
         with self.suspend():

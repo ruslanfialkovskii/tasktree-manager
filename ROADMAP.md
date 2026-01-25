@@ -23,6 +23,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 **Focus**: Bug fixes, UX improvements, documentation
 
 #### Features
+
 - [x] Config file support (`~/.config/tasktree/config.toml`)
 - [x] Custom keybindings configuration
 - [x] Improved error messages
@@ -30,12 +31,14 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [x] Help text improvements
 
 #### Improvements
+
 - [ ] Optimize git status queries (parallel execution)
 - [ ] Better theme switching (instant without reload)
 - [ ] Improved modal animations
 - [ ] Status panel scrolling for large diffs
 
 #### Documentation
+
 - [ ] User guide (README expansion)
 - [ ] Installation guide (PyPI, Homebrew, pipx)
 - [ ] Configuration reference
@@ -43,6 +46,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [ ] Video demo/walkthrough
 
 #### Quality
+
 - [ ] Increase test coverage to 85%
 - [ ] Add integration tests for git workflows
 - [ ] Performance benchmarks
@@ -55,6 +59,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 **Focus**: Productivity features, search/filter
 
 #### Features
+
 - [ ] Search tasks by name (/)
 - [ ] Filter worktrees by status (dirty/clean)
 - [ ] Task templates (create from existing tasks)
@@ -62,12 +67,14 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [ ] Recent tasks list (quick switch)
 
 #### Git Operations
+
 - [ ] Stash management
 - [ ] Branch comparison (diff between worktrees)
 - [ ] Commit history view
 - [ ] Cherry-pick support
 
 #### UI/UX
+
 - [ ] Sort tasks (by name, date, status)
 - [ ] Worktree groups (by repo, status)
 - [ ] Quick actions menu (?)
@@ -80,6 +87,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 **Focus**: Metadata, collaboration, automation
 
 #### Task Metadata
+
 - [ ] Task descriptions
 - [ ] JIRA/GitHub issue linking
 - [ ] Tags/labels
@@ -87,12 +95,14 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [ ] Custom fields
 
 #### Collaboration
+
 - [ ] Export/import task configs
 - [ ] Team templates repository
 - [ ] Shared task definitions
 - [ ] Task handoff workflow
 
 #### Automation
+
 - [ ] Git hooks integration (pre-commit, pre-push)
 - [ ] Auto-cleanup stale tasks
 - [ ] Scheduled pulls/pushes
@@ -105,24 +115,28 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 **Focus**: Production-ready, comprehensive docs
 
 #### Stability
+
 - [ ] API stability guarantee
 - [ ] Comprehensive error handling
 - [ ] Graceful degradation
 - [ ] Backup/restore functionality
 
 #### Performance
+
 - [ ] < 500ms startup on 100+ tasks
 - [ ] Lazy loading for large task lists
 - [ ] Caching layer for git status
 - [ ] Incremental updates
 
 #### Documentation
+
 - [ ] Complete API reference
 - [ ] Architecture deep-dive
 - [ ] Contributing guide
 - [ ] Plugin system docs
 
 #### Distribution
+
 - [ ] PyPI package
 - [ ] Homebrew formula
 - [ ] Arch AUR package
@@ -148,42 +162,26 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - Dependency detection across repos
 - Usage analytics and insights
 
-### Phase 4: Collaboration
-
-- Remote worktree management (SSH)
-- Shared team dashboard
-- Real-time collaboration indicators
-- Code review integration
-- CI/CD status tracking
-
-### Phase 5: Enterprise
-
-- LDAP/SSO integration
-- Audit logging
-- Compliance features
-- Multi-tenant support
-- Enterprise deployment guides
-
 ---
 
 ## Success Metrics
 
 ### Adoption Goals
 
-| Metric | v0.3 | v0.5 | v1.0 |
-|--------|------|------|------|
-| GitHub Stars | 100 | 250 | 500 |
-| PyPI Downloads/month | 500 | 2000 | 5000 |
-| Active Contributors | 3 | 5 | 10 |
-| Issues Closed | 20 | 50 | 100 |
+| Metric               | v0.3 | v0.5 | v1.0 |
+| -------------------- | ---- | ---- | ---- |
+| GitHub Stars         | 100  | 250  | 500  |
+| PyPI Downloads/month | 500  | 2000 | 5000 |
+| Active Contributors  | 3    | 5    | 10   |
+| Issues Closed        | 20   | 50   | 100  |
 
 ### Quality Goals
 
-| Metric | Target |
-|--------|--------|
-| Test Coverage | >85% |
-| Bug Reports/month | <10 |
-| Response Time | <48h |
+| Metric            | Target |
+| ----------------- | ------ |
+| Test Coverage     | >85%   |
+| Bug Reports/month | <10    |
+| Response Time     | <48h   |
 | User Satisfaction | 4.5+/5 |
 
 ---
@@ -191,12 +189,14 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 ## Community & Contribution
 
 ### Open Source Strategy
+
 - Weekly releases during active development
 - Public roadmap updates
 - Community voting on features
 - Contributor recognition program
 
 ### Communication Channels
+
 - GitHub Discussions for Q&A
 - Discord server for real-time chat
 - Monthly dev updates blog
@@ -207,6 +207,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 ## Technical Debt
 
 ### Known Issues
+
 1. Theme switching requires list reload (v0.2.0)
 2. No async git operations (v0.3.0)
 3. Limited error recovery (v0.4.0)
@@ -214,6 +215,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 5. Hardcoded paths in tests (v0.2.0)
 
 ### Architectural Improvements
+
 1. Extract git layer to interface (testability)
 2. Add event bus for widget communication
 3. Implement command pattern for undo/redo
@@ -224,11 +226,11 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 
 ## Dependencies to Watch
 
-| Dependency | Current | Notes |
-|------------|---------|-------|
-| Textual | 0.89.1 | Breaking changes possible |
-| Rich | 13.9.4 | Stable |
-| Python | 3.13+ | New features to leverage |
+| Dependency | Current | Notes         |
+| ---------- | ------- | ------------- |
+| Textual    | 7.3.0   | Latest stable |
+| Rich       | 13.9.4  | Stable                    |
+| Python     | 3.13+   | New features to leverage  |
 
 ---
 
@@ -240,15 +242,8 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 
 ---
 
-## Alternatives & Competition
+## Competition
 
-### Similar Tools
-- **lazygit**: Git TUI (single repo focus)
-- **tig**: Git browser (read-only focus)
-- **gh**: GitHub CLI (cloud integration)
-- **git-machete**: Branch management
-
-### Our Differentiators
 1. Multi-repository focus
 2. Worktree-first design
 3. Task-oriented workflow
@@ -260,14 +255,12 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 ## Research & Exploration
 
 ### Features Under Investigation
+
 - [ ] Native Windows support (without WSL)
-- [ ] Web-based remote UI
-- [ ] Mobile app for monitoring
-- [ ] VS Code extension integration
-- [ ] tmux/screen session management
 
 ### Technical Experiments
-- [ ] Rust rewrite for performance
+
+- [ ] Golang rewrite for performance
 - [ ] Web assembly for browser support
 - [ ] GraphQL API for extensibility
 - [ ] Real-time collaboration via WebRTC

@@ -1,5 +1,7 @@
 """Modal widgets for creating tasks and adding repos."""
 
+from typing import TypeVar
+
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
 from textual.message import Message
@@ -7,9 +9,11 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, SelectionList, Static
 from textual.widgets.selection_list import Selection
 
+T = TypeVar("T")
 
-class ThemedModalScreen(ModalScreen):
-    """Base class for themed modal screens."""
+
+class ThemedModalScreen(ModalScreen[T]):
+    """Base class for themed modal screens with typed dismiss results."""
 
     DEFAULT_CSS = """
     ThemedModalScreen {
@@ -79,8 +83,11 @@ class ThemedModalScreen(ModalScreen):
     """
 
 
-class CreateTaskModal(ThemedModalScreen):
-    """Modal for creating a new task."""
+class CreateTaskModal(ThemedModalScreen[tuple[str, list[str], str] | None]):
+    """Modal for creating a new task.
+
+    Dismisses with: (name, repos, branch) tuple or None if cancelled.
+    """
 
     class TaskCreated(Message):
         """Message sent when a task is created."""
@@ -171,8 +178,11 @@ class CreateTaskModal(ThemedModalScreen):
         self.dismiss((name, selected_repos, base_branch))
 
 
-class AddRepoModal(ThemedModalScreen):
-    """Modal for adding repos to an existing task."""
+class AddRepoModal(ThemedModalScreen[tuple[list[str], str] | None]):
+    """Modal for adding repos to an existing task.
+
+    Dismisses with: (repos, branch) tuple or None if cancelled.
+    """
 
     def __init__(self, task_name: str, available_repos: list[str], *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -254,8 +264,11 @@ class AddRepoModal(ThemedModalScreen):
         self.dismiss((selected_repos, base_branch))
 
 
-class ConfirmModal(ThemedModalScreen):
-    """Modal for confirming an action."""
+class ConfirmModal(ThemedModalScreen[bool]):
+    """Modal for confirming an action.
+
+    Dismisses with: True if confirmed, False if cancelled.
+    """
 
     DEFAULT_CSS = ThemedModalScreen.DEFAULT_CSS + """
     ConfirmModal > Container {
@@ -289,8 +302,11 @@ class ConfirmModal(ThemedModalScreen):
             self.dismiss(True)
 
 
-class SafeDeleteModal(ThemedModalScreen):
-    """Modal for safely deleting a task with safety warnings."""
+class SafeDeleteModal(ThemedModalScreen[str | None]):
+    """Modal for safely deleting a task with safety warnings.
+
+    Dismisses with: "push", "lazygit", "force", or None if cancelled.
+    """
 
     DEFAULT_CSS = ThemedModalScreen.DEFAULT_CSS + """
     SafeDeleteModal > Container {
@@ -375,8 +391,11 @@ class SafeDeleteModal(ThemedModalScreen):
             self.dismiss("force")
 
 
-class PushResultModal(ThemedModalScreen):
-    """Modal showing results of push operation."""
+class PushResultModal(ThemedModalScreen[None]):
+    """Modal showing results of push operation.
+
+    Dismisses with: None (informational only).
+    """
 
     DEFAULT_CSS = ThemedModalScreen.DEFAULT_CSS + """
     PushResultModal > Container {
@@ -416,8 +435,11 @@ class PushResultModal(ThemedModalScreen):
         self.dismiss()
 
 
-class HelpModal(ThemedModalScreen):
-    """Modal showing keybindings help and application info."""
+class HelpModal(ThemedModalScreen[None]):
+    """Modal showing keybindings help and application info.
+
+    Dismisses with: None (informational only).
+    """
 
     DEFAULT_CSS = ThemedModalScreen.DEFAULT_CSS + """
     HelpModal > Container {
