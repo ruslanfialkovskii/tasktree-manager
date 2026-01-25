@@ -161,6 +161,7 @@ shell = "/bin/zsh"
 
         # Use a custom XDG_CONFIG_HOME to point to our test config
         import os
+
         old_xdg = os.environ.get("XDG_CONFIG_HOME")
         os.environ["XDG_CONFIG_HOME"] = str(config_dir.parent)
         try:
@@ -225,6 +226,7 @@ shell = "/bin/zsh"
 
         # Load using custom XDG_CONFIG_HOME
         import os
+
         old_xdg = os.environ.get("XDG_CONFIG_HOME")
         os.environ["XDG_CONFIG_HOME"] = str(config_dir.parent)
         try:
@@ -275,6 +277,7 @@ cursor_up = "up"
         config_file.write_text(config_content)
 
         import os
+
         old_xdg = os.environ.get("XDG_CONFIG_HOME")
         os.environ["XDG_CONFIG_HOME"] = str(config_dir.parent)
         try:
@@ -331,6 +334,7 @@ cursor_up = "up"
         original.save()
 
         import os
+
         old_xdg = os.environ.get("XDG_CONFIG_HOME")
         os.environ["XDG_CONFIG_HOME"] = str(config_dir.parent)
         try:

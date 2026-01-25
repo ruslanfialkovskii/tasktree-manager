@@ -170,6 +170,8 @@ class TaskTreeApp(App):
         padding: 0 1;
         background: $background;
         color: $text;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
     }
 
     /* Header */
@@ -255,7 +257,9 @@ class TaskTreeApp(App):
             Binding(kb.get("pull_all", "P"), "pull_all", "Pull All", show=False),
             Binding(kb.get("refresh", "r"), "refresh", "Refresh"),
             Binding(kb.get("focus_next", "tab"), "focus_next", "Next Panel", show=False),
-            Binding(kb.get("focus_previous", "shift+tab"), "focus_previous", "Prev Panel", show=False),
+            Binding(
+                kb.get("focus_previous", "shift+tab"), "focus_previous", "Prev Panel", show=False
+            ),
             Binding(kb.get("cursor_down", "j"), "cursor_down", "Down", show=False),
             Binding(kb.get("cursor_up", "k"), "cursor_up", "Up", show=False),
         ]
@@ -301,6 +305,7 @@ class TaskTreeApp(App):
 
     def _show_setup_wizard(self) -> None:
         """Show setup wizard for first-time configuration."""
+
         def handle_setup(result):
             if result:
                 repos_dir, tasks_dir = result
@@ -334,10 +339,9 @@ class TaskTreeApp(App):
         try:
             tasks = self.task_manager.list_tasks()
 
-            # Update git status for all worktrees
-            for task in tasks:
-                for worktree in task.worktrees:
-                    GitOps.update_worktree_status(worktree)
+            # Collect all worktrees and update in parallel
+            all_worktrees = [wt for task in tasks for wt in task.worktrees]
+            GitOps.update_all_worktree_statuses(all_worktrees)
 
             task_list.load_tasks(tasks)
         finally:
@@ -348,8 +352,7 @@ class TaskTreeApp(App):
         if self.current_task:
             task = self.task_manager.get_task(self.current_task.name)
             if task:
-                for worktree in task.worktrees:
-                    GitOps.update_worktree_status(worktree)
+                GitOps.update_all_worktree_statuses(task.worktrees)
                 self.current_task = task
                 worktree_list = self.query_one("#worktree-list", WorktreeList)
                 worktree_list.load_worktrees(task.worktrees)
@@ -406,6 +409,7 @@ class TaskTreeApp(App):
         status_panel = self.query_one("#status-display", StatusPanel)
 
         if event.worktree:
+            status_panel.set_loading(True)
             status = GitOps.get_status(event.worktree)
             self.current_status = status
             status_panel.update_status(event.worktree, status)
@@ -420,10 +424,12 @@ class TaskTreeApp(App):
     def action_help(self) -> None:
         """Show help modal with current keybindings."""
         config_path = str(self.config.config_dir / "config.toml")
-        self.push_screen(HelpModal(
-            keybindings=self.config.keybindings,
-            config_path=config_path,
-        ))
+        self.push_screen(
+            HelpModal(
+                keybindings=self.config.keybindings,
+                config_path=config_path,
+            )
+        )
 
     def action_new_task(self) -> None:
         """Create a new task."""
@@ -435,6 +441,8 @@ class TaskTreeApp(App):
         def handle_result(result):
             if result:
                 name, repos, base_branch = result
+                task_list = self.query_one("#task-list", TaskList)
+                task_list.loading = True
                 try:
                     self.task_manager.create_task(name, repos, base_branch)
                     self._load_tasks()
@@ -448,6 +456,8 @@ class TaskTreeApp(App):
                     self.notify(str(e), severity="error")
                 except Exception as e:
                     self.notify(f"Failed to create task: {type(e).__name__}: {e}", severity="error")
+                finally:
+                    task_list.loading = False
 
         self.push_screen(CreateTaskModal(available_repos), handle_result)
 
@@ -465,6 +475,10 @@ class TaskTreeApp(App):
         def handle_result(result):
             if result and self.current_task:
                 repos, base_branch = result
+                task_list = self.query_one("#task-list", TaskList)
+                worktree_list = self.query_one("#worktree-list", WorktreeList)
+                task_list.loading = True
+                worktree_list.loading = True
                 try:
                     for repo in repos:
                         self.task_manager.add_repo_to_task(self.current_task, repo, base_branch)
@@ -480,6 +494,9 @@ class TaskTreeApp(App):
                     self.notify(str(e), severity="error")
                 except Exception as e:
                     self.notify(f"Failed to add repos: {type(e).__name__}: {e}", severity="error")
+                finally:
+                    task_list.loading = False
+                    worktree_list.loading = False
 
         self.push_screen(AddRepoModal(self.current_task.name, available_repos), handle_result)
 
@@ -518,6 +535,7 @@ class TaskTreeApp(App):
 
                     # Show results
                     if failed_repos:
+
                         def handle_push_result(_):
                             # Re-check safety after push
                             new_report = self.task_manager.check_task_safety(task)
@@ -530,7 +548,9 @@ class TaskTreeApp(App):
                                             self._load_tasks()
                                             self.notify(f"Deleted task: {task.name}")
                                         except Exception as e:
-                                            self.notify(f"Failed to delete task: {e}", severity="error")
+                                            self.notify(
+                                                f"Failed to delete task: {e}", severity="error"
+                                            )
 
                                 self.push_screen(
                                     ConfirmModal("Delete Task", f"Delete task '{task.name}'?"),
@@ -542,7 +562,9 @@ class TaskTreeApp(App):
                                     SafeDeleteModal(task.name, new_report), handle_safe_delete
                                 )
 
-                        self.push_screen(PushResultModal(success_repos, failed_repos), handle_push_result)
+                        self.push_screen(
+                            PushResultModal(success_repos, failed_repos), handle_push_result
+                        )
                     else:
                         # All pushed successfully
                         self.notify(f"Pushed {len(success_repos)} branch(es) successfully")
@@ -560,11 +582,14 @@ class TaskTreeApp(App):
                                         self.notify(f"Failed to delete task: {e}", severity="error")
 
                             self.push_screen(
-                                ConfirmModal("Delete Task", f"Delete task '{task.name}'?"), final_confirm
+                                ConfirmModal("Delete Task", f"Delete task '{task.name}'?"),
+                                final_confirm,
                             )
                         else:
                             # Still has issues, show modal again
-                            self.push_screen(SafeDeleteModal(task.name, new_report), handle_safe_delete)
+                            self.push_screen(
+                                SafeDeleteModal(task.name, new_report), handle_safe_delete
+                            )
 
                 elif action == "lazygit":
                     # Open lazygit in first problematic worktree
@@ -574,10 +599,7 @@ class TaskTreeApp(App):
 
                 elif action == "force":
                     # Final confirmation before force delete
-                    message = (
-                        f"Really delete task '{task.name}'?\n\n"
-                        "You may lose unpushed work!"
-                    )
+                    message = f"Really delete task '{task.name}'?\n\nYou may lose unpushed work!"
 
                     def handle_force_confirm(confirmed):
                         if confirmed:
@@ -684,18 +706,23 @@ class TaskTreeApp(App):
             self.notify("No task selected", severity="warning")
             return
 
-        self.notify(f"Pushing all worktrees in {self.current_task.name}...")
-        results = GitOps.push_all(self.current_task)
+        worktree_list = self.query_one("#worktree-list", WorktreeList)
+        worktree_list.loading = True
+        try:
+            self.notify(f"Pushing all worktrees in {self.current_task.name}...")
+            results = GitOps.push_all_parallel(self.current_task)
 
-        success_count = sum(1 for _, success, _ in results if success)
-        fail_count = len(results) - success_count
+            success_count = sum(1 for _, success, _ in results if success)
+            fail_count = len(results) - success_count
 
-        if fail_count == 0:
-            self.notify(f"Pushed {success_count} worktree(s) successfully")
-        else:
-            self.notify(f"Pushed {success_count}, failed {fail_count}", severity="warning")
+            if fail_count == 0:
+                self.notify(f"Pushed {success_count} worktree(s) successfully")
+            else:
+                self.notify(f"Pushed {success_count}, failed {fail_count}", severity="warning")
 
-        self._refresh_current_task()
+            self._refresh_current_task()
+        finally:
+            worktree_list.loading = False
 
     def action_pull_all(self) -> None:
         """Pull all worktrees in the current task."""
@@ -703,18 +730,23 @@ class TaskTreeApp(App):
             self.notify("No task selected", severity="warning")
             return
 
-        self.notify(f"Pulling all worktrees in {self.current_task.name}...")
-        results = GitOps.pull_all(self.current_task)
+        worktree_list = self.query_one("#worktree-list", WorktreeList)
+        worktree_list.loading = True
+        try:
+            self.notify(f"Pulling all worktrees in {self.current_task.name}...")
+            results = GitOps.pull_all_parallel(self.current_task)
 
-        success_count = sum(1 for _, success, _ in results if success)
-        fail_count = len(results) - success_count
+            success_count = sum(1 for _, success, _ in results if success)
+            fail_count = len(results) - success_count
 
-        if fail_count == 0:
-            self.notify(f"Pulled {success_count} worktree(s) successfully")
-        else:
-            self.notify(f"Pulled {success_count}, failed {fail_count}", severity="warning")
+            if fail_count == 0:
+                self.notify(f"Pulled {success_count} worktree(s) successfully")
+            else:
+                self.notify(f"Pulled {success_count}, failed {fail_count}", severity="warning")
 
-        self._refresh_current_task()
+            self._refresh_current_task()
+        finally:
+            worktree_list.loading = False
 
     def action_refresh(self) -> None:
         """Refresh all status."""

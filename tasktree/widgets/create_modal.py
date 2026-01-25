@@ -27,6 +27,14 @@ class ThemedModalScreen(ModalScreen[T]):
         border: round $primary;
         background: $surface;
         padding: 1 2;
+        offset: 0 3;
+        opacity: 0;
+    }
+
+    ThemedModalScreen > Container.-visible {
+        offset: 0 0;
+        opacity: 1;
+        transition: offset 200ms out_cubic, opacity 200ms out_cubic;
     }
 
     ThemedModalScreen .modal-title {
@@ -81,6 +89,11 @@ class ThemedModalScreen(ModalScreen[T]):
         margin-bottom: 1;
     }
     """
+
+    def on_mount(self) -> None:
+        """Trigger entrance animation."""
+        container = self.query_one(Container)
+        container.add_class("-visible")
 
 
 class CreateTaskModal(ThemedModalScreen[tuple[str, list[str], str] | None]):
@@ -197,7 +210,9 @@ class AddRepoModal(ThemedModalScreen[tuple[list[str], str] | None]):
             yield Input(value="master", placeholder="master", id="base-branch")
             if self.available_repos:
                 yield Label("Search Repositories:", classes="section-label")
-                yield Input(placeholder="Type to filter (e.g., ansible, postgres)...", id="repo-search")
+                yield Input(
+                    placeholder="Type to filter (e.g., ansible, postgres)...", id="repo-search"
+                )
                 yield Label("Select Repositories to Add:", classes="section-label")
                 yield SelectionList[str](
                     *[Selection(repo, repo) for repo in self.available_repos],
@@ -270,7 +285,9 @@ class ConfirmModal(ThemedModalScreen[bool]):
     Dismisses with: True if confirmed, False if cancelled.
     """
 
-    DEFAULT_CSS = ThemedModalScreen.DEFAULT_CSS + """
+    DEFAULT_CSS = (
+        ThemedModalScreen.DEFAULT_CSS
+        + """
     ConfirmModal > Container {
         width: 60;
         border: round $error;
@@ -280,6 +297,7 @@ class ConfirmModal(ThemedModalScreen[bool]):
         color: $text-error;
     }
     """
+    )
 
     def __init__(self, title: str, message: str, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -308,7 +326,9 @@ class SafeDeleteModal(ThemedModalScreen[str | None]):
     Dismisses with: "push", "lazygit", "force", or None if cancelled.
     """
 
-    DEFAULT_CSS = ThemedModalScreen.DEFAULT_CSS + """
+    DEFAULT_CSS = (
+        ThemedModalScreen.DEFAULT_CSS
+        + """
     SafeDeleteModal > Container {
         width: 70;
         height: auto;
@@ -342,6 +362,7 @@ class SafeDeleteModal(ThemedModalScreen[str | None]):
         overflow-y: auto;
     }
     """
+    )
 
     def __init__(self, task_name: str, safety_report, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -397,11 +418,14 @@ class PushResultModal(ThemedModalScreen[None]):
     Dismisses with: None (informational only).
     """
 
-    DEFAULT_CSS = ThemedModalScreen.DEFAULT_CSS + """
+    DEFAULT_CSS = (
+        ThemedModalScreen.DEFAULT_CSS
+        + """
     PushResultModal > Container {
         width: 60;
     }
     """
+    )
 
     def __init__(self, success_repos: list[str], failed_repos: list[str], *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -441,7 +465,9 @@ class HelpModal(ThemedModalScreen[None]):
     Dismisses with: None (informational only).
     """
 
-    DEFAULT_CSS = ThemedModalScreen.DEFAULT_CSS + """
+    DEFAULT_CSS = (
+        ThemedModalScreen.DEFAULT_CSS
+        + """
     HelpModal > Container {
         width: 70;
         max-height: 90%;
@@ -485,8 +511,11 @@ class HelpModal(ThemedModalScreen[None]):
         overflow-y: auto;
     }
     """
+    )
 
-    def __init__(self, keybindings: dict[str, str] | None = None, config_path: str = "", *args, **kwargs):
+    def __init__(
+        self, keybindings: dict[str, str] | None = None, config_path: str = "", *args, **kwargs
+    ):
         """Initialize help modal.
 
         Args:
@@ -536,13 +565,17 @@ class HelpModal(ThemedModalScreen[None]):
         nav_section += self._format_binding("cursor_down", "j", "Move cursor down") + "\n"
         nav_section += self._format_binding("cursor_up", "k", "Move cursor up") + "\n"
         nav_section += self._format_binding("focus_next", "tab", "Switch to next panel") + "\n"
-        nav_section += self._format_binding("focus_previous", "shift+tab", "Switch to previous panel")
+        nav_section += self._format_binding(
+            "focus_previous", "shift+tab", "Switch to previous panel"
+        )
         sections.append(nav_section)
 
         # Task management section
         task_section = "[bold $primary]Task Management[/]\n"
         task_section += self._format_binding("new_task", "n", "Create a new task") + "\n"
-        task_section += self._format_binding("add_repo", "a", "Add repository to current task") + "\n"
+        task_section += (
+            self._format_binding("add_repo", "a", "Add repository to current task") + "\n"
+        )
         task_section += self._format_binding("delete_task", "d", "Delete/finish current task")
         sections.append(task_section)
 

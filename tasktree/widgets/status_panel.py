@@ -83,3 +83,14 @@ class StatusPanel(Static):
         self._worktree_name = ""
         self._status = None
         self.update(Text("No worktree selected", style="dim"))
+
+    def set_loading(self, loading: bool = True) -> None:
+        """Show or hide loading indicator.
+
+        Args:
+            loading: If True, show loading indicator. If False, restore display.
+        """
+        if loading:
+            self.update(Text("Loading...", style="dim italic"))
+        else:
+            self._update_display()

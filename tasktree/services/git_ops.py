@@ -1,6 +1,7 @@
 """Git operations service for tasktree."""
 
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
 from .task_manager import Task, Worktree
@@ -264,3 +265,65 @@ class GitOps:
         except (subprocess.TimeoutExpired, subprocess.SubprocessError):
             # If we can't determine, assume not merged (safer)
             return False
+
+    @staticmethod
+    def update_all_worktree_statuses(worktrees: list[Worktree], max_workers: int = 5) -> None:
+        """Update status for multiple worktrees in parallel.
+
+        Args:
+            worktrees: List of worktrees to update
+            max_workers: Maximum number of parallel workers
+        """
+        if not worktrees:
+            return
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(GitOps.update_worktree_status, wt): wt for wt in worktrees}
+            for future in as_completed(futures):
+                future.result()  # Raises exceptions if any
+
+    @staticmethod
+    def push_all_parallel(task: Task, max_workers: int = 3) -> list[tuple[str, bool, str]]:
+        """Push all worktrees in a task in parallel.
+
+        Args:
+            task: The task containing worktrees to push
+            max_workers: Maximum number of parallel workers
+
+        Returns:
+            List of (worktree_name, success, message) tuples
+        """
+        if not task.worktrees:
+            return []
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(GitOps.push, wt): wt for wt in task.worktrees}
+            results = []
+            for future in as_completed(futures):
+                wt = futures[future]
+                success, message = future.result()
+                results.append((wt.name, success, message))
+            return results
+
+    @staticmethod
+    def pull_all_parallel(task: Task, max_workers: int = 3) -> list[tuple[str, bool, str]]:
+        """Pull all worktrees in a task in parallel.
+
+        Args:
+            task: The task containing worktrees to pull
+            max_workers: Maximum number of parallel workers
+
+        Returns:
+            List of (worktree_name, success, message) tuples
+        """
+        if not task.worktrees:
+            return []
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(GitOps.pull, wt): wt for wt in task.worktrees}
+            results = []
+            for future in as_completed(futures):
+                wt = futures[future]
+                success, message = future.result()
+                results.append((wt.name, success, message))
+            return results

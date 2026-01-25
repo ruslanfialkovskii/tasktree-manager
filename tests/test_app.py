@@ -1,6 +1,5 @@
 """Tests for the main tasktree application."""
 
-
 from tasktree.widgets.status_panel import StatusPanel
 from tasktree.widgets.task_list import TaskList
 from tasktree.widgets.worktree_list import WorktreeList

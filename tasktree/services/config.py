@@ -72,9 +72,9 @@ class Config:
 
         Priority: Environment variables > Config file > Defaults
         """
-        config_dir = Path(
-            os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
-        ) / "tasktree"
+        config_dir = (
+            Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "tasktree"
+        )
         config_file = config_dir / "config.toml"
 
         # Start with defaults
@@ -255,29 +255,27 @@ shell = "{self.shell}"
 # Available modifiers: ctrl+, shift+, alt+
 # Special keys: enter, tab, escape, space, backspace, delete, up, down, left, right
 [keybindings]
-quit = "{self.keybindings.get('quit', 'q')}"
-help = "{self.keybindings.get('help', '?')}"
-new_task = "{self.keybindings.get('new_task', 'n')}"
-add_repo = "{self.keybindings.get('add_repo', 'a')}"
-delete_task = "{self.keybindings.get('delete_task', 'd')}"
-open_lazygit = "{self.keybindings.get('open_lazygit', 'g')}"
-open_shell = "{self.keybindings.get('open_shell', 'enter')}"
-push_all = "{self.keybindings.get('push_all', 'p')}"
-pull_all = "{self.keybindings.get('pull_all', 'P')}"
-refresh = "{self.keybindings.get('refresh', 'r')}"
-focus_next = "{self.keybindings.get('focus_next', 'tab')}"
-focus_previous = "{self.keybindings.get('focus_previous', 'shift+tab')}"
-cursor_down = "{self.keybindings.get('cursor_down', 'j')}"
-cursor_up = "{self.keybindings.get('cursor_up', 'k')}"
+quit = "{self.keybindings.get("quit", "q")}"
+help = "{self.keybindings.get("help", "?")}"
+new_task = "{self.keybindings.get("new_task", "n")}"
+add_repo = "{self.keybindings.get("add_repo", "a")}"
+delete_task = "{self.keybindings.get("delete_task", "d")}"
+open_lazygit = "{self.keybindings.get("open_lazygit", "g")}"
+open_shell = "{self.keybindings.get("open_shell", "enter")}"
+push_all = "{self.keybindings.get("push_all", "p")}"
+pull_all = "{self.keybindings.get("pull_all", "P")}"
+refresh = "{self.keybindings.get("refresh", "r")}"
+focus_next = "{self.keybindings.get("focus_next", "tab")}"
+focus_previous = "{self.keybindings.get("focus_previous", "shift+tab")}"
+cursor_down = "{self.keybindings.get("cursor_down", "j")}"
+cursor_up = "{self.keybindings.get("cursor_up", "k")}"
 '''
         config_file.write_text(config_content)
 
     def is_configured(self) -> bool:
         """Check if configuration is valid and directories exist."""
         return (
-            self.repos_dir.exists()
-            and self.repos_dir.is_dir()
-            and self.tasks_dir.parent.exists()
+            self.repos_dir.exists() and self.repos_dir.is_dir() and self.tasks_dir.parent.exists()
         )
 
     def ensure_dirs(self) -> None:

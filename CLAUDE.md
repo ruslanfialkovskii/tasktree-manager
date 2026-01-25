@@ -81,3 +81,9 @@ async def test_app_starts():
     async with TaskTreeApp().run_test() as pilot:
         assert pilot.app.query_one("#task-list")
 ```
+
+## Development Preferences
+
+- **Documentation lookup**: Use Context7 MCP tool when needing up-to-date library documentation (Textual, Rich, etc.)
+- **Code intelligence**: Use Python LSP for type checking and diagnostics
+- **Documentation updates**: After implementing tasks or plans, update README.md and other relevant markdown files to reflect changes

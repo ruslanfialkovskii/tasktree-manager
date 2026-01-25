@@ -27,15 +27,15 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [x] Config file support (`~/.config/tasktree/config.toml`)
 - [x] Custom keybindings configuration
 - [x] Improved error messages
-- [ ] Loading indicators for slow operations
+- [x] Loading indicators for slow operations
 - [x] Help text improvements
 
 #### Improvements
 
-- [ ] Optimize git status queries (parallel execution)
-- [ ] Better theme switching (instant without reload)
-- [ ] Improved modal animations
-- [ ] Status panel scrolling for large diffs
+- [x] Optimize git status queries (parallel execution)
+- [x] Better theme switching (Textual built-in themes via Command Palette)
+- [x] Improved modal animations
+- [x] Status panel scrolling for large diffs
 
 #### Documentation
 
@@ -208,8 +208,8 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 
 ### Known Issues
 
-1. Theme switching requires list reload (v0.2.0)
-2. No async git operations (v0.3.0)
+1. ~~Theme switching requires list reload~~ - Fixed (uses Textual built-in themes)
+2. ~~No async git operations~~ - Fixed (parallel execution with ThreadPoolExecutor)
 3. Limited error recovery (v0.4.0)
 4. No logging system (v0.2.0)
 5. Hardcoded paths in tests (v0.2.0)

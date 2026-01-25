@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-48%20passed-green.svg)](./tests/)
+[![Tests](https://img.shields.io/badge/tests-64%20passed-green.svg)](./tests/)
 
 **tasktree** is a terminal user interface (TUI) application for managing development tasks that span multiple git repositories. Create tasks, organize worktrees, and track status across your entire codebase—all from a beautiful, keyboard-driven interface inspired by [lazygit](https://github.com/jesseduffield/lazygit).
 
@@ -13,10 +13,10 @@
 - 🎯 **Task-Based Workflow**: Group related worktrees across multiple repositories
 - 🌳 **Git Worktree Management**: Create, delete, and manage worktrees seamlessly
 - 📊 **Real-Time Status**: See uncommitted changes, branch info, and sync status at a glance
-- 🎨 **Beautiful Themes**: 4 built-in themes (default, VS Code Dark/Light, Catppuccin)
+- 🎨 **Beautiful Themes**: Multiple built-in themes via Command Palette (Ctrl+P)
 - ⌨️ **Keyboard-First**: Navigate and control everything without touching the mouse
-- 🚀 **Fast & Lightweight**: Built with Python and [Textual](https://textual.textualize.io/)
-- 🔧 **Flexible Configuration**: TOML config file or environment variables
+- 🚀 **Fast & Responsive**: Parallel git operations with loading indicators
+- 🔧 **Flexible Configuration**: TOML config file, custom keybindings, environment variables
 
 ## 📸 Screenshots
 
@@ -36,7 +36,7 @@
 │   ?? README.md                                                          │
 │   M  tests/test_app.py                                                  │
 └──────────────────────────────────────────────────────────────────────────┘
-  n New task  d Delete  g Lazygit  r Refresh  t Theme  ? Help  q Quit
+  n New task  d Delete  g Lazygit  p Push  r Refresh  ? Help  q Quit
 ```
 
 ## 🚀 Quick Start
@@ -97,7 +97,7 @@ Configuration is saved to `~/.config/tasktree/config.toml`.
 - `r` - Refresh status
 
 #### General
-- `t` - Cycle theme
+- `Ctrl+P` - Open Command Palette (theme switcher)
 - `?` - Show help
 - `q` - Quit
 
@@ -127,12 +127,16 @@ tasktree
 
 ### Themes
 
-Press `t` to cycle through themes:
+Press `Ctrl+P` to open the Command Palette and search for themes. Available themes include:
 
-1. **default** - Lazygit-inspired dark theme (green/blue)
-2. **vscode-dark** - VS Code Dark theme
-3. **vscode-light** - VS Code Light theme
-4. **catppuccin** - Catppuccin Mocha theme
+- **textual-dark** / **textual-light** - Default Textual themes
+- **nord** - Nord color scheme
+- **gruvbox** - Gruvbox color scheme
+- **tokyo-night** - Tokyo Night theme
+- **monokai** - Monokai theme
+- **dracula** - Dracula theme
+
+Your theme preference is saved in the config file.
 
 ## 🏗️ How It Works
 
@@ -218,7 +222,7 @@ tasktree/
 │   ├── themes/            # Color themes
 │   │   └── __init__.py
 │   └── app.py             # Main application
-├── tests/                 # Test suite (48 tests)
+├── tests/                 # Test suite (64 tests)
 ├── specs/                 # Technical specifications
 ├── PRD.md                 # Product requirements
 ├── OPENSPEC.md           # Architecture documentation
@@ -284,7 +288,7 @@ ls ~/repos
 
 ### Theme not changing
 
-Press `t` to cycle themes. If issues persist, delete `~/.config/tasktree/config.toml` and reconfigure.
+Press `Ctrl+P` to open the Command Palette and search for "theme". If issues persist, delete `~/.config/tasktree/config.toml` and reconfigure.
 
 ### Config not found
 
