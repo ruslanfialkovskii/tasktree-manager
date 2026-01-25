@@ -1,0 +1,53 @@
+[tools]
+python = "3.13"
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+
+[tasks.install]
+description = "Install dependencies"
+run = "uv pip install -e '.[dev]'"
+
+[tasks.test]
+description = "Run tests"
+run = "pytest tests/ -v"
+
+[tasks."test:watch"]
+description = "Run tests in watch mode"
+run = "pytest tests/ -v --tb=short -x"
+
+[tasks."test:cov"]
+description = "Run tests with coverage"
+run = "pytest tests/ -v --cov=tasktree --cov-report=term-missing"
+
+[tasks.lint]
+description = "Run linter"
+run = "ruff check tasktree/ tests/"
+
+[tasks."lint:fix"]
+description = "Run linter and fix issues"
+run = "ruff check --fix tasktree/ tests/"
+
+[tasks.format]
+description = "Format code"
+run = "ruff format tasktree/ tests/"
+
+[tasks.build]
+description = "Build package"
+run = "python -m build"
+
+[tasks.clean]
+description = "Clean build artifacts"
+run = """
+rm -rf dist/ build/ *.egg-info/
+find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
+"""
+
+[tasks.run]
+description = "Run tasktree"
+run = "tasktree"
+
+[tasks.dev]
+description = "Run tasktree in dev mode with textual console"
+run = "textual run --dev tasktree.app:TaskTreeApp"

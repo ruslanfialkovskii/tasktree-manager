@@ -1,7 +1,8 @@
 """Worktree list widget for tasktree."""
 
-from textual.widgets import ListItem, ListView, Static
+from rich.text import Text
 from textual.message import Message
+from textual.widgets import ListItem, ListView, Static
 
 from ..services.task_manager import Worktree
 
@@ -15,11 +16,18 @@ class WorktreeListItem(ListItem):
 
     def compose(self):
         """Compose the worktree item."""
-        dirty_indicator = "✗" if self.worktree.is_dirty else "✓"
-        dirty_info = f" {self.worktree.changed_files} files" if self.worktree.is_dirty else ""
         branch = self.worktree.branch or "unknown"
 
-        text = f"  {self.worktree.name:<20} {branch:<15} {dirty_indicator}{dirty_info}"
+        text = Text()
+        text.append(f"  {self.worktree.name:<20} ")
+        text.append(f"{branch:<15} ", style="cyan")
+
+        if self.worktree.is_dirty:
+            text.append("✗ ", style="red")
+            text.append(f"{self.worktree.changed_files} files", style="red")
+        else:
+            text.append("✓", style="green")
+
         yield Static(text, classes="worktree-item-text")
 
 

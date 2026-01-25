@@ -4,11 +4,21 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tasktree"
-version = "0.1.0"
+version = "0.2.0"
 description = "TUI application for managing worktree-based tasks"
 requires-python = ">=3.10"
 dependencies = [
-    "textual>=0.47.0",
+    "textual>=7.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.0.0",
+    "textual-dev>=1.8.0",
+    "ruff>=0.4.0",
+    "build>=1.0.0",
 ]
 
 [project.scripts]
@@ -16,3 +26,32 @@ tasktree = "tasktree.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tasktree"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.coverage.run]
+source = ["tasktree"]
+omit = ["tests/*"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+fail_under = 70
+show_missing = true
+skip_covered = false

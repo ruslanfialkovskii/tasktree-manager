@@ -1,8 +1,7 @@
 """Main application for tasktree."""
 
-import os
+import shutil
 import subprocess
-from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -10,20 +9,204 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Footer, Header, Static
 
 from .services.config import Config
-from .services.task_manager import TaskManager, Task, Worktree
 from .services.git_ops import GitOps, GitStatus
+from .services.task_manager import Task, TaskManager, Worktree
+from .widgets.create_modal import (
+    AddRepoModal,
+    ConfirmModal,
+    CreateTaskModal,
+    HelpModal,
+    PushResultModal,
+    SafeDeleteModal,
+)
+from .widgets.setup_modal import SetupModal
+from .widgets.status_panel import StatusPanel
 from .widgets.task_list import TaskList
 from .widgets.worktree_list import WorktreeList
-from .widgets.status_panel import StatusPanel
-from .widgets.create_modal import CreateTaskModal, AddRepoModal, ConfirmModal, HelpModal
 
 
 class TaskTreeApp(App):
     """TUI application for managing worktree-based tasks."""
 
-    CSS_PATH = "styles/app.tcss"
     TITLE = "tasktree"
 
+    CSS = """
+    /* Main layout */
+    Screen {
+        background: $background;
+    }
+
+    #main-container {
+        height: 100%;
+        width: 100%;
+        background: $background;
+    }
+
+    #top-panels {
+        height: 1fr;
+        min-height: 10;
+    }
+
+    /* Task panel */
+    #task-panel {
+        width: 30%;
+        min-width: 20;
+        border: round $primary;
+        background: $background;
+        padding: 0;
+    }
+
+    #task-panel:focus-within {
+        border: round $accent;
+    }
+
+    /* Worktree panel */
+    #worktree-panel {
+        width: 70%;
+        border: round $primary;
+        background: $background;
+        padding: 0;
+    }
+
+    #worktree-panel:focus-within {
+        border: round $accent;
+    }
+
+    /* Status panel */
+    #status-panel {
+        height: auto;
+        min-height: 6;
+        max-height: 12;
+        border: round $primary;
+        background: $background;
+        padding: 0;
+    }
+
+    /* Panel titles */
+    .panel-title {
+        text-style: bold;
+        color: $text;
+        background: transparent;
+        text-align: left;
+        width: 100%;
+        padding: 0 1;
+    }
+
+    /* Task list */
+    #task-list {
+        height: 1fr;
+        background: $background;
+        scrollbar-gutter: stable;
+        padding: 0;
+
+        & > ListItem {
+            padding: 0 1;
+            height: 1;
+            background: $background;
+            color: $text;
+
+            &.--highlight {
+                background: $surface;
+
+                & .task-item-text {
+                    background: $surface;
+                }
+            }
+        }
+
+        &:focus > ListItem.--highlight {
+            background: $accent;
+
+            & .task-item-text {
+                background: $accent;
+            }
+        }
+    }
+
+    .task-item-text {
+        width: 100%;
+        background: transparent;
+    }
+
+    /* Worktree list */
+    #worktree-list {
+        height: 1fr;
+        background: $background;
+        scrollbar-gutter: stable;
+        padding: 0;
+
+        & > ListItem {
+            padding: 0 1;
+            height: 1;
+            background: $background;
+            color: $text;
+
+            &.--highlight {
+                background: $surface;
+
+                & .worktree-item-text {
+                    background: $surface;
+                }
+            }
+        }
+
+        &:focus > ListItem.--highlight {
+            background: $accent;
+
+            & .worktree-item-text {
+                background: $accent;
+            }
+        }
+    }
+
+    .worktree-item-text {
+        width: 100%;
+        background: transparent;
+    }
+
+    /* Status panel styling */
+    #status-display {
+        height: 100%;
+        padding: 0 1;
+        background: $background;
+        color: $text;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+    }
+
+    /* Header */
+    Header {
+        background: $surface;
+        color: $text;
+        text-style: bold;
+        dock: top;
+        height: 1;
+    }
+
+    /* Footer */
+    Footer {
+        background: $surface;
+    }
+
+    /* Scrollbar */
+    Scrollbar {
+        background: $background;
+    }
+
+    ScrollBar > .scrollbar--bar {
+        background: $panel;
+    }
+
+    ScrollBar > .scrollbar--bar:hover {
+        background: $foreground-muted;
+    }
+
+    ListItem {
+        height: 1;
+    }
+    """
+
+    # Default bindings - will be overridden in __init__ with config values
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
@@ -42,13 +225,49 @@ class TaskTreeApp(App):
     ]
 
     def __init__(self):
-        super().__init__()
+        # Load config before calling super().__init__() so we can set up bindings
         self.config = Config.load()
         self.config.ensure_dirs()
+
+        # Build bindings from config
+        self._custom_bindings = self._build_bindings_from_config()
+
+        super().__init__()
         self.task_manager = TaskManager(self.config)
         self.current_task: Task | None = None
         self.current_worktree: Worktree | None = None
         self.current_status: GitStatus | None = None
+
+    def _build_bindings_from_config(self) -> list[Binding]:
+        """Build keybindings list from config.
+
+        Returns:
+            List of Binding objects with keys from config
+        """
+        kb = self.config.keybindings
+        return [
+            Binding(kb.get("quit", "q"), "quit", "Quit"),
+            Binding(kb.get("help", "?"), "help", "Help"),
+            Binding(kb.get("new_task", "n"), "new_task", "New Task"),
+            Binding(kb.get("add_repo", "a"), "add_repo", "Add Repo"),
+            Binding(kb.get("delete_task", "d"), "delete_task", "Delete Task"),
+            Binding(kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit"),
+            Binding(kb.get("open_shell", "enter"), "open_shell", "Shell", show=False),
+            Binding(kb.get("push_all", "p"), "push_all", "Push All"),
+            Binding(kb.get("pull_all", "P"), "pull_all", "Pull All", show=False),
+            Binding(kb.get("refresh", "r"), "refresh", "Refresh"),
+            Binding(kb.get("focus_next", "tab"), "focus_next", "Next Panel", show=False),
+            Binding(
+                kb.get("focus_previous", "shift+tab"), "focus_previous", "Prev Panel", show=False
+            ),
+            Binding(kb.get("cursor_down", "j"), "cursor_down", "Down", show=False),
+            Binding(kb.get("cursor_up", "k"), "cursor_up", "Up", show=False),
+        ]
+
+    @property
+    def _binding_list(self) -> list[Binding]:
+        """Override to use custom bindings from config."""
+        return self._custom_bindings
 
     def compose(self) -> ComposeResult:
         """Compose the app layout."""
@@ -67,33 +286,108 @@ class TaskTreeApp(App):
 
     def on_mount(self) -> None:
         """Handle app mount."""
-        self._load_tasks()
-        # Focus the task list initially
-        task_list = self.query_one("#task-list", TaskList)
-        task_list.focus()
+        # Apply theme from config
+        if self.config.theme:
+            try:
+                self.theme = self.config.theme
+            except Exception:
+                # Invalid theme name, use default
+                pass
+
+        # Check if configuration is valid
+        if not self.config.is_configured():
+            self._show_setup_wizard()
+        else:
+            self._load_tasks()
+            # Focus the task list initially
+            task_list = self.query_one("#task-list", TaskList)
+            task_list.focus()
+
+    def _show_setup_wizard(self) -> None:
+        """Show setup wizard for first-time configuration."""
+
+        def handle_setup(result):
+            if result:
+                repos_dir, tasks_dir = result
+                # Update config
+                self.config.repos_dir = repos_dir
+                self.config.tasks_dir = tasks_dir
+                self.config.save()
+                self.config.ensure_dirs()
+
+                # Reload task manager with new config
+                self.task_manager = TaskManager(self.config)
+
+                # Load tasks
+                self._load_tasks()
+
+                # Focus task list
+                task_list = self.query_one("#task-list", TaskList)
+                task_list.focus()
+
+                self.notify("Configuration saved!")
+            else:
+                # User cancelled - exit app
+                self.exit()
+
+        self.push_screen(SetupModal(), handle_setup)
 
     def _load_tasks(self) -> None:
         """Load tasks and update git status."""
-        tasks = self.task_manager.list_tasks()
-
-        # Update git status for all worktrees
-        for task in tasks:
-            for worktree in task.worktrees:
-                GitOps.update_worktree_status(worktree)
-
         task_list = self.query_one("#task-list", TaskList)
-        task_list.load_tasks(tasks)
+        task_list.loading = True
+        try:
+            tasks = self.task_manager.list_tasks()
+
+            # Collect all worktrees and update in parallel
+            all_worktrees = [wt for task in tasks for wt in task.worktrees]
+            GitOps.update_all_worktree_statuses(all_worktrees)
+
+            task_list.load_tasks(tasks)
+        finally:
+            task_list.loading = False
 
     def _refresh_current_task(self) -> None:
         """Refresh the current task's worktrees and status."""
         if self.current_task:
             task = self.task_manager.get_task(self.current_task.name)
             if task:
-                for worktree in task.worktrees:
-                    GitOps.update_worktree_status(worktree)
+                GitOps.update_all_worktree_statuses(task.worktrees)
                 self.current_task = task
                 worktree_list = self.query_one("#worktree-list", WorktreeList)
                 worktree_list.load_worktrees(task.worktrees)
+
+    def _run_external_command(
+        self, cmd: list[str], cwd, name: str, install_hint: str | None = None
+    ) -> bool:
+        """Run external command with proper error handling.
+
+        Args:
+            cmd: Command and arguments to run
+            cwd: Working directory for the command
+            name: Human-readable name of the command (for error messages)
+            install_hint: Optional hint for installing the command (e.g., "brew install lazygit")
+
+        Returns:
+            True if command ran successfully, False otherwise
+        """
+        if not shutil.which(cmd[0]):
+            hint = f" Install with: {install_hint}" if install_hint else ""
+            self.notify(f"{name} not found.{hint}", severity="error")
+            return False
+        try:
+            subprocess.run(cmd, cwd=cwd)
+            return True
+        except FileNotFoundError:
+            hint = f" Install with: {install_hint}" if install_hint else ""
+            self.notify(f"{name} not found.{hint}", severity="error")
+            return False
+        except PermissionError:
+            self.notify(f"Permission denied running {name}", severity="error")
+            return False
+        except Exception as e:
+            self.notify(f"Failed to run {name}: {e}", severity="error")
+            return False
 
     def on_task_list_task_highlighted(self, event: TaskList.TaskHighlighted) -> None:
         """Handle task highlight in task list."""
@@ -115,6 +409,7 @@ class TaskTreeApp(App):
         status_panel = self.query_one("#status-display", StatusPanel)
 
         if event.worktree:
+            status_panel.set_loading(True)
             status = GitOps.get_status(event.worktree)
             self.current_status = status
             status_panel.update_status(event.worktree, status)
@@ -127,8 +422,14 @@ class TaskTreeApp(App):
         self.exit()
 
     def action_help(self) -> None:
-        """Show help modal."""
-        self.push_screen(HelpModal())
+        """Show help modal with current keybindings."""
+        config_path = str(self.config.config_dir / "config.toml")
+        self.push_screen(
+            HelpModal(
+                keybindings=self.config.keybindings,
+                config_path=config_path,
+            )
+        )
 
     def action_new_task(self) -> None:
         """Create a new task."""
@@ -140,12 +441,23 @@ class TaskTreeApp(App):
         def handle_result(result):
             if result:
                 name, repos, base_branch = result
+                task_list = self.query_one("#task-list", TaskList)
+                task_list.loading = True
                 try:
                     self.task_manager.create_task(name, repos, base_branch)
                     self._load_tasks()
                     self.notify(f"Created task: {name}")
+                except FileNotFoundError as e:
+                    self.notify(f"Repository not found: {e}", severity="error")
+                except PermissionError:
+                    self.notify("Permission denied: check directory permissions", severity="error")
+                except ValueError as e:
+                    # ValueError from task_manager has good messages
+                    self.notify(str(e), severity="error")
                 except Exception as e:
-                    self.notify(f"Failed to create task: {e}", severity="error")
+                    self.notify(f"Failed to create task: {type(e).__name__}: {e}", severity="error")
+                finally:
+                    task_list.loading = False
 
         self.push_screen(CreateTaskModal(available_repos), handle_result)
 
@@ -157,50 +469,186 @@ class TaskTreeApp(App):
 
         available_repos = self.task_manager.get_repos_not_in_task(self.current_task)
         if not available_repos:
-            self.notify("All repositories already in task", severity="info")
+            self.notify("All repositories already in task", severity="information")
             return
 
         def handle_result(result):
             if result and self.current_task:
                 repos, base_branch = result
+                task_list = self.query_one("#task-list", TaskList)
+                worktree_list = self.query_one("#worktree-list", WorktreeList)
+                task_list.loading = True
+                worktree_list.loading = True
                 try:
                     for repo in repos:
-                        self.task_manager.add_repo_to_task(
-                            self.current_task, repo, base_branch
-                        )
+                        self.task_manager.add_repo_to_task(self.current_task, repo, base_branch)
                     self._load_tasks()
                     self._refresh_current_task()
                     self.notify(f"Added {len(repos)} repo(s) to task")
+                except FileNotFoundError as e:
+                    self.notify(f"Repository not found: {e}", severity="error")
+                except PermissionError:
+                    self.notify("Permission denied: check directory permissions", severity="error")
+                except ValueError as e:
+                    # ValueError from task_manager has good messages
+                    self.notify(str(e), severity="error")
                 except Exception as e:
-                    self.notify(f"Failed to add repos: {e}", severity="error")
+                    self.notify(f"Failed to add repos: {type(e).__name__}: {e}", severity="error")
+                finally:
+                    task_list.loading = False
+                    worktree_list.loading = False
 
-        self.push_screen(
-            AddRepoModal(self.current_task.name, available_repos), handle_result
-        )
+        self.push_screen(AddRepoModal(self.current_task.name, available_repos), handle_result)
 
     def action_delete_task(self) -> None:
-        """Delete/finish the current task."""
+        """Delete/finish the current task with safety checks."""
         if not self.current_task:
             self.notify("No task selected", severity="warning")
             return
 
         task = self.current_task
-        dirty_warning = ""
-        if task.is_dirty:
-            dirty_warning = f"\n\nWARNING: {task.dirty_count} worktree(s) have uncommitted changes!"
 
-        message = f"Delete task '{task.name}' and all its worktrees?{dirty_warning}"
+        # Run safety checks
+        safety_report = self.task_manager.check_task_safety(task)
 
-        def handle_result(confirmed):
-            if confirmed:
-                try:
-                    self.task_manager.finish_task(task)
-                    self._load_tasks()
-                    self.notify(f"Deleted task: {task.name}")
-                except Exception as e:
-                    self.notify(f"Failed to delete task: {e}", severity="error")
+        if safety_report.is_safe():
+            # No issues - show simple confirm
+            message = f"Delete task '{task.name}' and all its worktrees?"
 
-        self.push_screen(ConfirmModal("Delete Task", message), handle_result)
+            def handle_confirm(confirmed):
+                if confirmed:
+                    try:
+                        self.task_manager.finish_task(task)
+                        self._load_tasks()
+                        self.notify(f"Deleted task: {task.name}")
+                    except Exception as e:
+                        self.notify(f"Failed to delete task: {e}", severity="error")
+
+            self.push_screen(ConfirmModal("Delete Task", message), handle_confirm)
+        else:
+            # Issues found - show detailed safe delete modal
+            def handle_safe_delete(action):
+                if action == "push":
+                    # Push all branches
+                    self.notify(f"Pushing all branches for {task.name}...")
+                    success_repos, failed_repos = self.task_manager.push_all_branches(task)
+
+                    # Show results
+                    if failed_repos:
+
+                        def handle_push_result(_):
+                            # Re-check safety after push
+                            new_report = self.task_manager.check_task_safety(task)
+                            if new_report.is_safe():
+                                # Now safe, ask to delete
+                                def final_confirm(confirmed):
+                                    if confirmed:
+                                        try:
+                                            self.task_manager.finish_task(task)
+                                            self._load_tasks()
+                                            self.notify(f"Deleted task: {task.name}")
+                                        except Exception as e:
+                                            self.notify(
+                                                f"Failed to delete task: {e}", severity="error"
+                                            )
+
+                                self.push_screen(
+                                    ConfirmModal("Delete Task", f"Delete task '{task.name}'?"),
+                                    final_confirm,
+                                )
+                            else:
+                                # Still has issues, show modal again
+                                self.push_screen(
+                                    SafeDeleteModal(task.name, new_report), handle_safe_delete
+                                )
+
+                        self.push_screen(
+                            PushResultModal(success_repos, failed_repos), handle_push_result
+                        )
+                    else:
+                        # All pushed successfully
+                        self.notify(f"Pushed {len(success_repos)} branch(es) successfully")
+                        # Re-check safety
+                        new_report = self.task_manager.check_task_safety(task)
+                        if new_report.is_safe():
+                            # Now safe, ask to delete
+                            def final_confirm(confirmed):
+                                if confirmed:
+                                    try:
+                                        self.task_manager.finish_task(task)
+                                        self._load_tasks()
+                                        self.notify(f"Deleted task: {task.name}")
+                                    except Exception as e:
+                                        self.notify(f"Failed to delete task: {e}", severity="error")
+
+                            self.push_screen(
+                                ConfirmModal("Delete Task", f"Delete task '{task.name}'?"),
+                                final_confirm,
+                            )
+                        else:
+                            # Still has issues, show modal again
+                            self.push_screen(
+                                SafeDeleteModal(task.name, new_report), handle_safe_delete
+                            )
+
+                elif action == "lazygit":
+                    # Open lazygit in first problematic worktree
+                    self._open_lazygit_for_task(task)
+                    # After return, refresh and offer to try deletion again
+                    self.action_delete_task()
+
+                elif action == "force":
+                    # Final confirmation before force delete
+                    message = f"Really delete task '{task.name}'?\n\nYou may lose unpushed work!"
+
+                    def handle_force_confirm(confirmed):
+                        if confirmed:
+                            try:
+                                self.task_manager.finish_task(task)
+                                self._load_tasks()
+                                self.notify(f"Deleted task: {task.name}")
+                            except Exception as e:
+                                self.notify(f"Failed to delete task: {e}", severity="error")
+
+                    self.push_screen(ConfirmModal("Force Delete", message), handle_force_confirm)
+
+                # else: cancelled, do nothing
+
+            self.push_screen(SafeDeleteModal(task.name, safety_report), handle_safe_delete)
+
+    def _open_lazygit_for_task(self, task: Task) -> None:
+        """Open lazygit in the first worktree with issues.
+
+        Args:
+            task: The task whose worktrees to check
+        """
+        # Get safety report to find first problematic worktree
+        safety_report = self.task_manager.check_task_safety(task)
+
+        # Find first worktree with any issues
+        first_issue_worktree = None
+        if safety_report.unpushed:
+            first_issue_worktree = safety_report.unpushed[0].worktree_path
+        elif safety_report.unmerged:
+            first_issue_worktree = safety_report.unmerged[0].worktree_path
+        elif safety_report.dirty:
+            first_issue_worktree = safety_report.dirty[0].worktree_path
+
+        if first_issue_worktree and first_issue_worktree.exists():
+            # Suspend app and run lazygit
+            with self.suspend():
+                self._run_external_command(
+                    [self.config.lazygit_path],
+                    cwd=first_issue_worktree,
+                    name="lazygit",
+                    install_hint="brew install lazygit",
+                )
+
+            # Refresh status after lazygit exits
+            self._load_tasks()
+            self._refresh_current_task()
+        else:
+            self.notify("No problematic worktree found", severity="warning")
 
     def action_open_lazygit(self) -> None:
         """Open lazygit in the current worktree."""
@@ -213,9 +661,16 @@ class TaskTreeApp(App):
             self.notify("Worktree directory not found", severity="error")
             return
 
+        self.notify("Opening lazygit...")
+
         # Suspend app and run lazygit
         with self.suspend():
-            subprocess.run(["lazygit"], cwd=worktree_path)
+            self._run_external_command(
+                [self.config.lazygit_path],
+                cwd=worktree_path,
+                name="lazygit",
+                install_hint="brew install lazygit",
+            )
 
         # Refresh status after lazygit exits
         self._load_tasks()
@@ -232,12 +687,14 @@ class TaskTreeApp(App):
             self.notify("Worktree directory not found", severity="error")
             return
 
-        # Get user's shell
-        shell = os.environ.get("SHELL", "/bin/bash")
+        # Get shell from config
+        shell = self.config.get_shell()
+
+        self.notify("Opening shell...")
 
         # Suspend app and open shell
         with self.suspend():
-            subprocess.run([shell], cwd=worktree_path)
+            self._run_external_command([shell], cwd=worktree_path, name="shell")
 
         # Refresh status after shell exits
         self._load_tasks()
@@ -249,20 +706,23 @@ class TaskTreeApp(App):
             self.notify("No task selected", severity="warning")
             return
 
-        self.notify(f"Pushing all worktrees in {self.current_task.name}...")
-        results = GitOps.push_all(self.current_task)
+        worktree_list = self.query_one("#worktree-list", WorktreeList)
+        worktree_list.loading = True
+        try:
+            self.notify(f"Pushing all worktrees in {self.current_task.name}...")
+            results = GitOps.push_all_parallel(self.current_task)
 
-        success_count = sum(1 for _, success, _ in results if success)
-        fail_count = len(results) - success_count
+            success_count = sum(1 for _, success, _ in results if success)
+            fail_count = len(results) - success_count
 
-        if fail_count == 0:
-            self.notify(f"Pushed {success_count} worktree(s) successfully")
-        else:
-            self.notify(
-                f"Pushed {success_count}, failed {fail_count}", severity="warning"
-            )
+            if fail_count == 0:
+                self.notify(f"Pushed {success_count} worktree(s) successfully")
+            else:
+                self.notify(f"Pushed {success_count}, failed {fail_count}", severity="warning")
 
-        self._refresh_current_task()
+            self._refresh_current_task()
+        finally:
+            worktree_list.loading = False
 
     def action_pull_all(self) -> None:
         """Pull all worktrees in the current task."""
@@ -270,20 +730,23 @@ class TaskTreeApp(App):
             self.notify("No task selected", severity="warning")
             return
 
-        self.notify(f"Pulling all worktrees in {self.current_task.name}...")
-        results = GitOps.pull_all(self.current_task)
+        worktree_list = self.query_one("#worktree-list", WorktreeList)
+        worktree_list.loading = True
+        try:
+            self.notify(f"Pulling all worktrees in {self.current_task.name}...")
+            results = GitOps.pull_all_parallel(self.current_task)
 
-        success_count = sum(1 for _, success, _ in results if success)
-        fail_count = len(results) - success_count
+            success_count = sum(1 for _, success, _ in results if success)
+            fail_count = len(results) - success_count
 
-        if fail_count == 0:
-            self.notify(f"Pulled {success_count} worktree(s) successfully")
-        else:
-            self.notify(
-                f"Pulled {success_count}, failed {fail_count}", severity="warning"
-            )
+            if fail_count == 0:
+                self.notify(f"Pulled {success_count} worktree(s) successfully")
+            else:
+                self.notify(f"Pulled {success_count}, failed {fail_count}", severity="warning")
 
-        self._refresh_current_task()
+            self._refresh_current_task()
+        finally:
+            worktree_list.loading = False
 
     def action_refresh(self) -> None:
         """Refresh all status."""

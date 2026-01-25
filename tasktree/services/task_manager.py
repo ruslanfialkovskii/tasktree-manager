@@ -1,9 +1,9 @@
 """Task management service for tasktree."""
 
-import subprocess
 import shutil
-from pathlib import Path
+import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .config import Config
 
@@ -43,6 +43,41 @@ class Task:
         return sum(1 for wt in self.worktrees if wt.is_dirty)
 
 
+@dataclass
+class RepoIssue:
+    """Represents an issue with a specific repo."""
+
+    repo_name: str
+    worktree_path: Path
+    issue_type: str  # "unpushed", "unmerged", "dirty"
+    details: str  # "3 commits ahead", "not merged to main", "2 files changed"
+
+
+@dataclass
+class TaskSafetyReport:
+    """Report of safety issues for a task."""
+
+    unpushed: list[RepoIssue] = field(default_factory=list)
+    unmerged: list[RepoIssue] = field(default_factory=list)
+    dirty: list[RepoIssue] = field(default_factory=list)
+
+    def is_safe(self) -> bool:
+        """True if no issues found."""
+        return not (self.unpushed or self.unmerged or self.dirty)
+
+    def has_unpushed(self) -> bool:
+        """True if there are unpushed commits."""
+        return bool(self.unpushed)
+
+    def has_unmerged(self) -> bool:
+        """True if there are unmerged branches."""
+        return bool(self.unmerged)
+
+    def has_dirty(self) -> bool:
+        """True if there are uncommitted changes."""
+        return bool(self.dirty)
+
+
 class TaskManager:
     """Manages tasks and worktrees."""
 
@@ -63,15 +98,25 @@ class TaskManager:
         return tasks
 
     def _get_worktrees(self, task: Task) -> list[Worktree]:
-        """Get all worktrees for a task."""
+        """Get all worktrees for a task (recursively scans subdirectories)."""
         worktrees = []
         if not task.path.exists():
             return worktrees
 
-        for item in sorted(task.path.iterdir()):
-            if item.is_dir() and (item / ".git").exists():
-                worktree = Worktree(name=item.name, path=item)
-                worktrees.append(worktree)
+        # Recursively find all directories containing .git
+        for git_dir in sorted(task.path.rglob(".git")):
+            if git_dir.is_dir() or git_dir.is_file():
+                # Get the parent directory (the actual worktree)
+                worktree_path = git_dir.parent
+                # Get relative path from task directory for the name
+                try:
+                    rel_path = worktree_path.relative_to(task.path)
+                    worktree = Worktree(name=str(rel_path), path=worktree_path)
+                    worktrees.append(worktree)
+                except ValueError:
+                    # Skip if not relative to task path
+                    continue
+
         return worktrees
 
     def get_task(self, name: str) -> Task | None:
@@ -108,13 +153,30 @@ class TaskManager:
         if worktree_path.exists():
             return  # Already exists
 
-        # Create git worktree with task name as branch
-        subprocess.run(
-            ["git", "worktree", "add", "-b", task.name, str(worktree_path), base_branch],
+        # Ensure parent directory exists for nested repos
+        worktree_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Check if branch already exists
+        branch_check = subprocess.run(
+            ["git", "rev-parse", "--verify", f"refs/heads/{task.name}"],
             cwd=repo_path,
             capture_output=True,
-            check=True,
         )
+
+        # Use -B to reset branch if it exists, -b if it doesn't
+        branch_flag = "-B" if branch_check.returncode == 0 else "-b"
+
+        # Create git worktree with task name as branch
+        result = subprocess.run(
+            ["git", "worktree", "add", branch_flag, task.name, str(worktree_path), base_branch],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() or result.stdout.strip()
+            raise ValueError(f"Failed to create worktree for {repo_name}: {error_msg}")
 
     def add_repo_to_task(self, task: Task, repo_name: str, base_branch: str = "master") -> None:
         """Add a repo worktree to an existing task."""
@@ -124,47 +186,146 @@ class TaskManager:
     def finish_task(self, task: Task) -> None:
         """Finish/delete a task and clean up worktrees."""
         for worktree in task.worktrees:
-            self._remove_worktree(worktree)
+            self._remove_worktree(worktree, task.name)
 
         # Remove task directory
         if task.path.exists():
             shutil.rmtree(task.path)
 
-    def _remove_worktree(self, worktree: Worktree) -> None:
-        """Remove a worktree from its main repo."""
+    def _remove_worktree(self, worktree: Worktree, branch_name: str) -> None:
+        """Remove a worktree from its main repo.
+
+        Args:
+            worktree: The worktree to remove
+            branch_name: The branch name to delete (usually the task name)
+        """
         if not worktree.path.exists():
             return
 
-        # Find the main repo for this worktree
-        git_dir = worktree.path / ".git"
-        if git_dir.is_file():
-            # Read the gitdir from the .git file
-            content = git_dir.read_text().strip()
-            if content.startswith("gitdir:"):
-                gitdir_path = content[7:].strip()
-                # The main repo is typically at the parent of .git/worktrees/
-                gitdir = Path(gitdir_path)
-                if "worktrees" in gitdir.parts:
-                    worktrees_idx = gitdir.parts.index("worktrees")
-                    main_repo = Path(*gitdir.parts[:worktrees_idx])
+        # Use git to find the main repo (more reliable than parsing paths)
+        result = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=worktree.path,
+            capture_output=True,
+            text=True,
+        )
 
-                    # Remove the worktree using git
-                    subprocess.run(
-                        ["git", "worktree", "remove", "--force", str(worktree.path)],
-                        cwd=main_repo,
-                        capture_output=True,
-                    )
+        if result.returncode == 0:
+            main_git_dir = Path(result.stdout.strip())
+            main_repo = main_git_dir.parent if main_git_dir.name == ".git" else main_git_dir
 
-                    # Also try to delete the branch
-                    branch_name = worktree.path.parent.name  # task name
-                    subprocess.run(
-                        ["git", "branch", "-D", branch_name],
-                        cwd=main_repo,
-                        capture_output=True,
-                    )
+            # Remove the worktree using git
+            wt_result = subprocess.run(
+                ["git", "worktree", "remove", "--force", str(worktree.path)],
+                cwd=main_repo,
+                capture_output=True,
+                text=True,
+            )
+            # Log warning but continue - worktree dir might already be removed
+            if wt_result.returncode != 0:
+                # Not critical - directory cleanup will happen anyway
+                pass
+
+            # Delete the branch
+            br_result = subprocess.run(
+                ["git", "branch", "-D", branch_name],
+                cwd=main_repo,
+                capture_output=True,
+                text=True,
+            )
+            # Branch might not exist or be checked out elsewhere - not critical
+            if br_result.returncode != 0:
+                pass
 
     def get_repos_not_in_task(self, task: Task) -> list[str]:
         """Get list of repos that are not yet in the task."""
         all_repos = set(self.config.get_available_repos())
         task_repos = {wt.name for wt in task.worktrees}
         return sorted(all_repos - task_repos)
+
+    def check_task_safety(self, task: Task) -> TaskSafetyReport:
+        """Check if task is safe to delete.
+
+        Checks for:
+        - Unpushed commits (ahead of remote)
+        - Unmerged branches (not merged to main/master)
+        - Uncommitted changes (dirty working tree)
+
+        Args:
+            task: The task to check
+
+        Returns:
+            TaskSafetyReport with lists of issues found
+        """
+        from .git_ops import GitOps
+
+        report = TaskSafetyReport()
+
+        for worktree in task.worktrees:
+            if not worktree.path.exists():
+                continue
+
+            # Get git status
+            status = GitOps.get_status(worktree)
+
+            # Check for uncommitted changes
+            if status.is_dirty:
+                issue = RepoIssue(
+                    repo_name=worktree.name,
+                    worktree_path=worktree.path,
+                    issue_type="dirty",
+                    details=f"{status.changed_files} file{'s' if status.changed_files != 1 else ''} changed",
+                )
+                report.dirty.append(issue)
+
+            # Check for unpushed commits
+            if status.ahead > 0:
+                issue = RepoIssue(
+                    repo_name=worktree.name,
+                    worktree_path=worktree.path,
+                    issue_type="unpushed",
+                    details=f"{status.ahead} commit{'s' if status.ahead != 1 else ''} ahead",
+                )
+                report.unpushed.append(issue)
+
+            # Check if branch is merged to default branch
+            default_branch = GitOps.get_default_branch(worktree)
+            is_merged = GitOps.check_merged(worktree, default_branch)
+
+            if not is_merged:
+                issue = RepoIssue(
+                    repo_name=worktree.name,
+                    worktree_path=worktree.path,
+                    issue_type="unmerged",
+                    details=f"not merged to {default_branch}",
+                )
+                report.unmerged.append(issue)
+
+        return report
+
+    def push_all_branches(self, task: Task) -> tuple[list[str], list[str]]:
+        """Push all branches for task to origin.
+
+        Args:
+            task: The task whose branches to push
+
+        Returns:
+            Tuple of (successful_repos, failed_repos) with repo names
+        """
+        from .git_ops import GitOps
+
+        success_repos = []
+        failed_repos = []
+
+        for worktree in task.worktrees:
+            if not worktree.path.exists():
+                failed_repos.append(worktree.name)
+                continue
+
+            success, message = GitOps.push(worktree)
+            if success:
+                success_repos.append(worktree.name)
+            else:
+                failed_repos.append(worktree.name)
+
+        return success_repos, failed_repos
