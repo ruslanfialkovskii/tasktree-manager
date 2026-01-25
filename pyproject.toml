@@ -43,9 +43,15 @@ ignore = ["E501"]
 [tool.coverage.run]
 source = ["tasktree"]
 omit = ["tests/*"]
+branch = true
 
 [tool.coverage.report]
 exclude_lines = [
     "pragma: no cover",
     "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
 ]
+fail_under = 70
+show_missing = true
+skip_covered = false

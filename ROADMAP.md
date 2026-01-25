@@ -39,18 +39,26 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 
 #### Documentation
 
-- [ ] User guide (README expansion)
-- [ ] Installation guide (PyPI, Homebrew, pipx)
-- [ ] Configuration reference
-- [ ] Troubleshooting guide
-- [ ] Video demo/walkthrough
+- [x] User guide (README expansion + docs/user-guide.md)
+- [x] Installation guide (docs/installation.md - pipx, pip, from source)
+- [x] Configuration reference (docs/configuration.md)
+- [x] Troubleshooting guide (docs/troubleshooting.md)
+- [x] CHANGELOG.md for version tracking
 
 #### Quality
 
 - [ ] Increase test coverage to 85%
 - [ ] Add integration tests for git workflows
-- [ ] Performance benchmarks
 - [ ] Memory leak testing
+
+#### CI/CD
+
+[] Create pipelines
+
+- add check linters
+- add check test
+- add PR pipeline
+- add release pipeline
 
 ---
 
@@ -107,6 +115,10 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [ ] Auto-cleanup stale tasks
 - [ ] Scheduled pulls/pushes
 - [ ] Custom scripts per task
+
+#### Quality
+
+- [ ] Performance benchmarks
 
 ---
 
@@ -226,11 +238,11 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 
 ## Dependencies to Watch
 
-| Dependency | Current | Notes         |
-| ---------- | ------- | ------------- |
-| Textual    | 7.3.0   | Latest stable |
-| Rich       | 13.9.4  | Stable                    |
-| Python     | 3.13+   | New features to leverage  |
+| Dependency | Current | Notes                    |
+| ---------- | ------- | ------------------------ |
+| Textual    | 7.3.0   | Latest stable            |
+| Rich       | 13.9.4  | Stable                   |
+| Python     | 3.13+   | New features to leverage |
 
 ---
 
