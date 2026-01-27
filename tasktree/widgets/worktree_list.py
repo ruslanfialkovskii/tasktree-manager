@@ -1,46 +1,13 @@
 """Worktree list widget for tasktree."""
 
-from rich.text import Text
 from textual.message import Message
-from textual.widgets import ListItem, ListView, Static
+from textual.widgets import OptionList
+from textual.widgets.option_list import Option
 
 from ..services.task_manager import Worktree
 
 
-class WorktreeListItem(ListItem):
-    """A worktree item in the worktree list."""
-
-    def __init__(self, worktree: Worktree, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.worktree = worktree
-        # Add contextual tooltip
-        branch = worktree.branch or "unknown"
-        status_hint = ""
-        if worktree.is_dirty:
-            status_hint = " | Has uncommitted changes"
-        self.tooltip = (
-            f"Branch: {branch}{status_hint}\n"
-            "Press g for lazygit, Enter for shell, o to open folder"
-        )
-
-    def compose(self):
-        """Compose the worktree item."""
-        branch = self.worktree.branch or "unknown"
-
-        text = Text()
-        text.append(f"  {self.worktree.name:<20} ")
-        text.append(f"{branch:<15} ", style="cyan")
-
-        if self.worktree.is_dirty:
-            text.append("✗ ", style="red")
-            text.append(f"{self.worktree.changed_files} files", style="red")
-        else:
-            text.append("✓", style="green")
-
-        yield Static(text, classes="worktree-item-text")
-
-
-class WorktreeList(ListView):
+class WorktreeList(OptionList):
     """List of worktrees widget."""
 
     class WorktreeSelected(Message):
@@ -61,16 +28,32 @@ class WorktreeList(ListView):
         super().__init__(*args, **kwargs)
         self.worktrees: list[Worktree] = []
 
+    @property
+    def index(self) -> int | None:
+        """Compatibility property - returns highlighted index."""
+        return self.highlighted
+
+    @index.setter
+    def index(self, value: int | None) -> None:
+        """Compatibility property - sets highlighted index."""
+        self.highlighted = value
+
     def load_worktrees(self, worktrees: list[Worktree]) -> None:
         """Load worktrees into the list."""
         self.worktrees = worktrees
-        self.clear()
+        self.clear_options()
         for worktree in worktrees:
-            self.append(WorktreeListItem(worktree))
+            branch = worktree.branch or "unknown"
+            # Build display text
+            if worktree.is_dirty:
+                prompt = f"  {worktree.name:<20} [cyan]{branch:<15}[/] [red]✗ {worktree.changed_files} files[/]"
+            else:
+                prompt = f"  {worktree.name:<20} [cyan]{branch:<15}[/] [green]✓[/]"
+            self.add_option(Option(prompt, id=worktree.name))
 
         # Select first item if available
-        if self.worktrees and len(self.children) > 0:
-            self.index = 0
+        if self.worktrees and self.option_count > 0:
+            self.action_first()
             self._emit_highlighted()
 
     def _emit_highlighted(self) -> None:
@@ -80,15 +63,15 @@ class WorktreeList(ListView):
 
     def get_selected_worktree(self) -> Worktree | None:
         """Get the currently selected worktree."""
-        if self.index is not None and 0 <= self.index < len(self.worktrees):
-            return self.worktrees[self.index]
+        if self.highlighted is not None and 0 <= self.highlighted < len(self.worktrees):
+            return self.worktrees[self.highlighted]
         return None
 
-    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+    def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
         """Handle item highlight."""
         self._emit_highlighted()
 
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle item selection."""
         worktree = self.get_selected_worktree()
         self.post_message(self.WorktreeSelected(worktree))
@@ -96,4 +79,4 @@ class WorktreeList(ListView):
     def clear_worktrees(self) -> None:
         """Clear the worktree list."""
         self.worktrees = []
-        self.clear()
+        self.clear_options()

@@ -9,8 +9,24 @@ description = "Install dependencies"
 run = "uv pip install -e '.[dev]'"
 
 [tasks.test]
-description = "Run tests"
+description = "Run all tests (alias for test:full)"
 run = "pytest tests/ -v"
+
+[tasks."test:quick"]
+description = "Run quick unit tests (for commits)"
+run = "pytest tests/test_config.py tests/test_task_manager.py -v --tb=short"
+
+[tasks."test:full"]
+description = "Run all tests (for PRs)"
+run = "pytest tests/ -v"
+
+[tasks."test:memory"]
+description = "Run memory tests only"
+run = "pytest tests/test_memory.py -v"
+
+[tasks."test:ui"]
+description = "Run UI/integration tests"
+run = "pytest tests/test_app.py tests/test_modals.py tests/test_setup_modal.py tests/test_status_panel.py -v"
 
 [tasks."test:watch"]
 description = "Run tests in watch mode"

@@ -109,6 +109,7 @@ def sample_repos(temp_dirs):
 @pytest.fixture
 def app(config):
     """Create app with test config."""
+    config.ensure_dirs()
     app = TaskTreeApp()
     app.config = config
     app.task_manager = TaskManager(config)

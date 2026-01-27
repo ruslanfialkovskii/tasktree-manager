@@ -5,7 +5,7 @@ import subprocess
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Static
 
 from .services.config import Config
@@ -41,17 +41,20 @@ class TaskTreeApp(App):
         height: 100%;
         width: 100%;
         background: $background;
+        layout: horizontal;
     }
 
-    #top-panels {
-        height: 1fr;
-        min-height: 10;
+    /* Left column - Tasks and Worktrees stacked */
+    #left-column {
+        width: 35%;
+        min-width: 25;
+        height: 100%;
     }
 
-    /* Task panel */
+    /* Task panel - top left */
     #task-panel {
-        width: 30%;
-        min-width: 20;
+        height: 1fr;
+        min-height: 8;
         border: round $primary;
         background: $background;
         padding: 0;
@@ -61,9 +64,10 @@ class TaskTreeApp(App):
         border: round $accent;
     }
 
-    /* Worktree panel */
+    /* Worktree panel - bottom left */
     #worktree-panel {
-        width: 70%;
+        height: 1fr;
+        min-height: 8;
         border: round $primary;
         background: $background;
         padding: 0;
@@ -73,11 +77,15 @@ class TaskTreeApp(App):
         border: round $accent;
     }
 
-    /* Status panel */
+    /* Right column - Info/Status panel */
+    #right-column {
+        width: 65%;
+        height: 100%;
+    }
+
+    /* Status panel - right side */
     #status-panel {
-        height: auto;
-        min-height: 8;
-        max-height: 20;
+        height: 100%;
         border: round $primary;
         background: $background;
         padding: 0;
@@ -93,80 +101,40 @@ class TaskTreeApp(App):
         padding: 0 1;
     }
 
-    /* Task list */
+    /* Task list (OptionList) */
     #task-list {
         height: 1fr;
         background: $background;
         scrollbar-gutter: stable;
+        border: none;
         padding: 0;
 
-        & > ListItem {
-            padding: 0 1;
-            height: 1;
-            background: $background;
+        &:focus {
+            border: none;
+        }
+
+        & > .option-list--option-highlighted {
+            background: $accent;
             color: $text;
-
-            &.--highlight {
-                background: $background;
-
-                & .task-item-text {
-                    background: $background;
-                }
-            }
-        }
-
-        &:focus > ListItem.--highlight {
-            background: $primary;
-
-            & .task-item-text {
-                background: $primary;
-                color: $background;
-                text-style: bold reverse;
-            }
         }
     }
 
-    .task-item-text {
-        width: 100%;
-        background: transparent;
-    }
-
-    /* Worktree list */
+    /* Worktree list (OptionList) */
     #worktree-list {
         height: 1fr;
         background: $background;
         scrollbar-gutter: stable;
+        border: none;
         padding: 0;
 
-        & > ListItem {
-            padding: 0 1;
-            height: 1;
-            background: $background;
+        &:focus {
+            border: none;
+        }
+
+        & > .option-list--option-highlighted {
+            background: $accent;
             color: $text;
-
-            &.--highlight {
-                background: $background;
-
-                & .worktree-item-text {
-                    background: $background;
-                }
-            }
         }
-
-        &:focus > ListItem.--highlight {
-            background: $primary;
-
-            & .worktree-item-text {
-                background: $primary;
-                color: $background;
-                text-style: bold reverse;
-            }
-        }
-    }
-
-    .worktree-item-text {
-        width: 100%;
-        background: transparent;
     }
 
     /* Status panel styling */
@@ -186,9 +154,7 @@ class TaskTreeApp(App):
 
     /* Messages panel */
     #messages-panel {
-        height: auto;
-        min-height: 6;
-        max-height: 12;
+        height: 100%;
         border: round $primary;
         background: $background;
         padding: 0;
@@ -321,8 +287,9 @@ class TaskTreeApp(App):
     def compose(self) -> ComposeResult:
         """Compose the app layout."""
         yield Header()
-        with Container(id="main-container"):
-            with Horizontal(id="top-panels"):
+        with Horizontal(id="main-container"):
+            # Left column: Tasks (top) and Worktrees (bottom)
+            with Vertical(id="left-column"):
                 with Vertical(id="task-panel"):
                     task_title = Static("Tasks", classes="panel-title")
                     task_title.tooltip = "Your active development tasks (n to create new)"
@@ -333,10 +300,12 @@ class TaskTreeApp(App):
                     worktree_title.tooltip = "Git worktrees for the selected task (a to add repo)"
                     yield worktree_title
                     yield WorktreeList(id="worktree-list")
-            with Vertical(id="status-panel"):
-                yield StatusPanel(id="status-display")
-            with Vertical(id="messages-panel"):
-                yield MessagesPanel(id="messages-display")
+            # Right column: Info/Status panel
+            with Vertical(id="right-column"):
+                with Vertical(id="status-panel"):
+                    yield StatusPanel(id="status-display")
+                with Vertical(id="messages-panel"):
+                    yield MessagesPanel(id="messages-display")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -357,6 +326,12 @@ class TaskTreeApp(App):
             # Focus the task list initially
             task_list = self.query_one("#task-list", TaskList)
             task_list.focus()
+
+    def watch_theme(self, theme: str) -> None:
+        """Save theme to config when changed."""
+        if hasattr(self, "config") and self.config.theme != theme:
+            self.config.theme = theme
+            self.config.save()
 
     def _show_setup_wizard(self) -> None:
         """Show setup wizard for first-time configuration."""
@@ -447,8 +422,12 @@ class TaskTreeApp(App):
     def on_task_list_task_highlighted(self, event: TaskList.TaskHighlighted) -> None:
         """Handle task highlight in task list."""
         self.current_task = event.task
-        worktree_list = self.query_one("#worktree-list", WorktreeList)
-        status_panel = self.query_one("#status-display", StatusPanel)
+        try:
+            worktree_list = self.query_one("#worktree-list", WorktreeList)
+            status_panel = self.query_one("#status-display", StatusPanel)
+        except Exception:
+            # Widgets not mounted yet during app startup
+            return
 
         if event.task:
             worktree_list.load_worktrees(event.task.worktrees)
@@ -461,7 +440,11 @@ class TaskTreeApp(App):
     ) -> None:
         """Handle worktree highlight in worktree list."""
         self.current_worktree = event.worktree
-        status_panel = self.query_one("#status-display", StatusPanel)
+        try:
+            status_panel = self.query_one("#status-display", StatusPanel)
+        except Exception:
+            # Widget not mounted yet during app startup
+            return
 
         if event.worktree:
             status_panel.set_loading(True)

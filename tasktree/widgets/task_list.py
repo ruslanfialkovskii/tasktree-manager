@@ -1,40 +1,13 @@
 """Task list widget for tasktree."""
 
-from rich.text import Text
 from textual.message import Message
-from textual.widgets import ListItem, ListView, Static
+from textual.widgets import OptionList
+from textual.widgets.option_list import Option
 
 from ..services.task_manager import Task
 
 
-class TaskListItem(ListItem):
-    """A task item in the task list."""
-
-    def __init__(self, task_data: Task, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.task_data = task_data
-        # Add contextual tooltip
-        dirty_hint = " (has uncommitted changes)" if task_data.is_dirty else ""
-        worktree_count = len(task_data.worktrees)
-        self.tooltip = (
-            f"{task_data.name}: {worktree_count} worktree(s){dirty_hint}\n"
-            "Press d to delete, Tab to view worktrees"
-        )
-
-    def compose(self):
-        """Compose the task item."""
-        text = Text()
-        if self.task_data.is_dirty:
-            text.append("● ", style="red")
-        else:
-            text.append("  ")
-        text.append(self.task_data.name)
-        if self.task_data.is_dirty:
-            text.append(f" ({self.task_data.dirty_count})", style="red")
-        yield Static(text, classes="task-item-text")
-
-
-class TaskList(ListView):
+class TaskList(OptionList):
     """List of tasks widget."""
 
     class TaskSelected(Message):
@@ -55,16 +28,31 @@ class TaskList(ListView):
         super().__init__(*args, **kwargs)
         self.tasks: list[Task] = []
 
+    @property
+    def index(self) -> int | None:
+        """Compatibility property - returns highlighted index."""
+        return self.highlighted
+
+    @index.setter
+    def index(self, value: int | None) -> None:
+        """Compatibility property - sets highlighted index."""
+        self.highlighted = value
+
     def load_tasks(self, tasks: list[Task]) -> None:
         """Load tasks into the list."""
         self.tasks = tasks
-        self.clear()
+        self.clear_options()
         for task in tasks:
-            self.append(TaskListItem(task))
+            # Build display text with dirty indicator
+            if task.is_dirty:
+                prompt = f"[red]●[/] {task.name} [red]({task.dirty_count})[/]"
+            else:
+                prompt = f"  {task.name}"
+            self.add_option(Option(prompt, id=task.name))
 
         # Select first item if available
-        if self.tasks and len(self.children) > 0:
-            self.index = 0
+        if self.tasks and self.option_count > 0:
+            self.action_first()
             self._emit_highlighted()
 
     def _emit_highlighted(self) -> None:
@@ -74,23 +62,23 @@ class TaskList(ListView):
 
     def get_selected_task(self) -> Task | None:
         """Get the currently selected task."""
-        if self.index is not None and 0 <= self.index < len(self.tasks):
-            return self.tasks[self.index]
+        if self.highlighted is not None and 0 <= self.highlighted < len(self.tasks):
+            return self.tasks[self.highlighted]
         return None
 
-    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+    def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
         """Handle item highlight."""
         self._emit_highlighted()
 
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle item selection."""
         task = self.get_selected_task()
         self.post_message(self.TaskSelected(task))
 
     def refresh_tasks(self, tasks: list[Task]) -> None:
         """Refresh the task list while preserving selection."""
-        current_index = self.index
+        current_index = self.highlighted
         self.load_tasks(tasks)
         if current_index is not None and current_index < len(tasks):
-            self.index = current_index
+            self.highlighted = current_index
             self._emit_highlighted()

@@ -97,6 +97,9 @@ class TaskManager:
                 tasks.append(task)
         return tasks
 
+    # Directories to skip when scanning for worktrees
+    IGNORED_PATHS = {".terraform", "node_modules", "vendor", ".git"}
+
     def _get_worktrees(self, task: Task) -> list[Worktree]:
         """Get all worktrees for a task (recursively scans subdirectories)."""
         worktrees = []
@@ -108,6 +111,12 @@ class TaskManager:
             if git_dir.is_dir() or git_dir.is_file():
                 # Get the parent directory (the actual worktree)
                 worktree_path = git_dir.parent
+
+                # Skip if path contains ignored directories
+                path_parts = worktree_path.relative_to(task.path).parts
+                if any(part in self.IGNORED_PATHS for part in path_parts):
+                    continue
+
                 # Get relative path from task directory for the name
                 try:
                     rel_path = worktree_path.relative_to(task.path)

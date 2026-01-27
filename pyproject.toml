@@ -31,6 +31,10 @@ packages = ["tasktree"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "memory: marks memory-intensive tests",
+]
 
 [tool.ruff]
 line-length = 100
