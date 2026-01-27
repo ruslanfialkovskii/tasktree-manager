@@ -42,13 +42,24 @@ class WorktreeList(OptionList):
         """Load worktrees into the list."""
         self.worktrees = worktrees
         self.clear_options()
+
+        if not worktrees:
+            return
+
+        # Calculate column widths for alignment
+        max_name_len = max(len(wt.name) for wt in worktrees)
+        max_branch_len = max(len(wt.branch or "unknown") for wt in worktrees)
+
         for worktree in worktrees:
             branch = worktree.branch or "unknown"
-            # Build display text
+            # Build display text with aligned columns
+            name_col = f"{worktree.name:<{max_name_len}}"
+            branch_col = f"{branch:<{max_branch_len}}"
+
             if worktree.is_dirty:
-                prompt = f"  {worktree.name:<20} [cyan]{branch:<15}[/] [red]✗ {worktree.changed_files} files[/]"
+                prompt = f"  {name_col}  [cyan]{branch_col}[/]  [red]✗ {worktree.changed_files} files[/]"
             else:
-                prompt = f"  {worktree.name:<20} [cyan]{branch:<15}[/] [green]✓[/]"
+                prompt = f"  {name_col}  [cyan]{branch_col}[/]  [green]✓[/]"
             self.add_option(Option(prompt, id=worktree.name))
 
         # Select first item if available
