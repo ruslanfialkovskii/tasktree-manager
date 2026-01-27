@@ -283,11 +283,22 @@ All keybindings can be customized in [`config.toml`](configuration.md).
 - Progress shown with loading indicators
 - Results summarized when complete
 
+### Folder Operations
+
+| Key     | Action             | Description                                          |
+|---------|--------------------|------------------------------------------------------|
+| `o`     | Open folder        | Open task/worktree folder in new terminal tab        |
+
+**Context-aware behavior:**
+- When focused on task list: Opens the task folder (`~/tasks/TASK-NAME`)
+- When focused on worktree list: Opens the selected worktree folder
+
 ### General
 
 | Key     | Action                  | Description                                  |
 |---------|-------------------------|----------------------------------------------|
 | `Ctrl+P`| Open Command Palette    | Switch themes and run commands               |
+| `o`     | Open folder             | Open current folder in new terminal tab      |
 | `?`     | Show help               | Display help modal with keybindings          |
 | `q`     | Quit                    | Exit tasktree                                |
 

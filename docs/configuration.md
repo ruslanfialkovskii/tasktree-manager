@@ -152,6 +152,7 @@ delete_task = "d"       # Delete/finish task
 
 # Git operations
 open_lazygit = "g"      # Open lazygit in selected worktree
+open_folder = "o"       # Open folder in new terminal tab
 open_shell = "enter"    # Open shell in selected worktree
 push_all = "p"          # Push all worktrees in current task
 pull_all = "P"          # Pull all worktrees in current task (shift+p)
@@ -276,7 +277,7 @@ Currently unused (reserved for future file browser features).
 
 ## Keybindings Reference
 
-All 14 customizable keybindings with descriptions:
+All 15 customizable keybindings with descriptions:
 
 ### Application Control
 
@@ -298,6 +299,7 @@ All 14 customizable keybindings with descriptions:
 | Action         | Default  | Description                           | Customization Example       |
 |----------------|----------|---------------------------------------|-----------------------------|
 | `open_lazygit` | `g`      | Open lazygit in selected worktree     | `open_lazygit = "ctrl+g"`   |
+| `open_folder`  | `o`      | Open folder in new terminal tab       | `open_folder = "ctrl+o"`    |
 | `open_shell`   | `enter`  | Open shell in selected worktree       | `open_shell = "ctrl+t"`     |
 | `push_all`     | `p`      | Push all worktrees in current task    | `push_all = "ctrl+p"`       |
 | `pull_all`     | `P`      | Pull all worktrees in current task    | `pull_all = "ctrl+shift+p"` |

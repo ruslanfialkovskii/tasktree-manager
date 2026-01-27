@@ -237,12 +237,13 @@ class TaskTreeApp(App):
     """
 
     # Default bindings - will be overridden in __init__ with config values
-    # Footer order: n, a, d, g, p, r, m, q, ?
+    # Footer order: n, a, d, g, o, p, r, m, q, ?
     BINDINGS = [
         Binding("n", "new_task", "New Task"),
         Binding("a", "add_repo", "Add Repo"),
         Binding("d", "delete_task", "Delete Task"),
         Binding("g", "open_lazygit", "Lazygit"),
+        Binding("o", "open_folder", "Open"),
         Binding("p", "push_all", "Push All"),
         Binding("r", "refresh", "Refresh"),
         Binding("m", "toggle_messages", "Messages"),
@@ -278,12 +279,13 @@ class TaskTreeApp(App):
             List of Binding objects with keys from config
         """
         kb = self.config.keybindings
-        # Footer order: n, a, d, g, p, r, m, q, ?
+        # Footer order: n, a, d, g, o, p, r, m, q, ?
         return [
             Binding(kb.get("new_task", "n"), "new_task", "New Task"),
             Binding(kb.get("add_repo", "a"), "add_repo", "Add Repo"),
             Binding(kb.get("delete_task", "d"), "delete_task", "Delete Task"),
             Binding(kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit"),
+            Binding(kb.get("open_folder", "o"), "open_folder", "Open"),
             Binding(kb.get("push_all", "p"), "push_all", "Push All"),
             Binding(kb.get("refresh", "r"), "refresh", "Refresh"),
             Binding(kb.get("toggle_messages", "m"), "toggle_messages", "Messages"),
@@ -799,6 +801,47 @@ class TaskTreeApp(App):
         # Refresh status after shell exits
         self._load_tasks()
         self._refresh_current_task()
+
+    def action_open_folder(self) -> None:
+        """Open current folder in a new terminal tab."""
+        from pathlib import Path
+
+        focused = self.focused
+
+        # Determine which folder to open based on focus
+        folder_path: Path | None = None
+        if isinstance(focused, TaskList) and self.current_task:
+            folder_path = self.current_task.path
+        elif isinstance(focused, WorktreeList) and self.current_worktree:
+            folder_path = self.current_worktree.path
+        else:
+            self.notify("No folder selected", severity="warning")
+            return
+
+        if not folder_path.exists():
+            self.notify("Folder not found", severity="error")
+            return
+
+        # Open in new terminal tab
+        self._open_terminal_tab(folder_path)
+
+    def _open_terminal_tab(self, path) -> None:
+        """Open a new terminal tab at the given path (Ghostty)."""
+        # Ghostty: Use AppleScript to activate and open new tab, then cd
+        script = f'''
+        tell application "Ghostty"
+            activate
+        end tell
+        tell application "System Events"
+            tell process "Ghostty"
+                keystroke "t" using command down
+                delay 0.1
+                keystroke "cd '{path}' && clear"
+                key code 36
+            end tell
+        end tell
+        '''
+        subprocess.run(["osascript", "-e", script], capture_output=True)
 
     def action_push_all(self) -> None:
         """Push all worktrees in the current task."""

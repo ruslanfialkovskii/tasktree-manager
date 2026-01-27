@@ -29,6 +29,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [x] Improved error messages
 - [x] Loading indicators for slow operations
 - [x] Help text improvements
+- [x] Open folder in terminal (Ghostty support)
 
 #### Improvements
 

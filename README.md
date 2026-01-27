@@ -82,10 +82,11 @@ For detailed workflows and examples, see the [User Guide](docs/user-guide.md).
 | Key | Action | Key | Action |
 |-----|--------|-----|--------|
 | `n` | New task | `g` | Open lazygit |
-| `a` | Add repo | `Enter` | Open shell |
-| `d` | Delete task | `p` | Push all |
-| `r` | Refresh | `?` | Show help |
-| `Tab` | Next panel | `q` | Quit |
+| `a` | Add repo | `o` | Open folder |
+| `d` | Delete task | `Enter` | Open shell |
+| `p` | Push all | `r` | Refresh |
+| `Tab` | Next panel | `?` | Show help |
+| `q` | Quit |  |  |
 
 **Themes:** Press `Ctrl+P` to switch between 7 built-in themes (textual-dark, nord, gruvbox, tokyo-night, monokai, dracula, textual-light).
 
