@@ -36,7 +36,7 @@ class StatusPanel(Static):
         text = Text()
 
         # Header
-        text.append("Status: ", style="cyan")
+        text.append("Repository: ", style="cyan")
         text.append(f"{self._worktree_name}\n")
 
         # Show error state if present

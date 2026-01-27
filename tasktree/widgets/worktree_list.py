@@ -13,6 +13,15 @@ class WorktreeListItem(ListItem):
     def __init__(self, worktree: Worktree, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.worktree = worktree
+        # Add contextual tooltip
+        branch = worktree.branch or "unknown"
+        status_hint = ""
+        if worktree.is_dirty:
+            status_hint = " | Has uncommitted changes"
+        self.tooltip = (
+            f"Branch: {branch}{status_hint}\n"
+            "Press g for lazygit, Enter for shell, o to open folder"
+        )
 
     def compose(self):
         """Compose the worktree item."""

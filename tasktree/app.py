@@ -76,8 +76,8 @@ class TaskTreeApp(App):
     /* Status panel */
     #status-panel {
         height: auto;
-        min-height: 6;
-        max-height: 12;
+        min-height: 8;
+        max-height: 20;
         border: round $primary;
         background: $background;
         padding: 0;
@@ -107,19 +107,21 @@ class TaskTreeApp(App):
             color: $text;
 
             &.--highlight {
-                background: $surface;
+                background: $background;
 
                 & .task-item-text {
-                    background: $surface;
+                    background: $background;
                 }
             }
         }
 
         &:focus > ListItem.--highlight {
-            background: $accent;
+            background: $primary;
 
             & .task-item-text {
-                background: $accent;
+                background: $primary;
+                color: $background;
+                text-style: bold reverse;
             }
         }
     }
@@ -143,19 +145,21 @@ class TaskTreeApp(App):
             color: $text;
 
             &.--highlight {
-                background: $surface;
+                background: $background;
 
                 & .worktree-item-text {
-                    background: $surface;
+                    background: $background;
                 }
             }
         }
 
         &:focus > ListItem.--highlight {
-            background: $accent;
+            background: $primary;
 
             & .worktree-item-text {
-                background: $accent;
+                background: $primary;
+                color: $background;
+                text-style: bold reverse;
             }
         }
     }
@@ -233,6 +237,14 @@ class TaskTreeApp(App):
 
     ListItem {
         height: 1;
+    }
+
+    /* Tooltip styling */
+    Tooltip {
+        background: $surface;
+        color: $text;
+        border: round $primary;
+        padding: 0 1;
     }
     """
 
@@ -312,10 +324,14 @@ class TaskTreeApp(App):
         with Container(id="main-container"):
             with Horizontal(id="top-panels"):
                 with Vertical(id="task-panel"):
-                    yield Static("Tasks", classes="panel-title")
+                    task_title = Static("Tasks", classes="panel-title")
+                    task_title.tooltip = "Your active development tasks (n to create new)"
+                    yield task_title
                     yield TaskList(id="task-list")
                 with Vertical(id="worktree-panel"):
-                    yield Static("Worktrees", classes="panel-title")
+                    worktree_title = Static("Worktrees", classes="panel-title")
+                    worktree_title.tooltip = "Git worktrees for the selected task (a to add repo)"
+                    yield worktree_title
                     yield WorktreeList(id="worktree-list")
             with Vertical(id="status-panel"):
                 yield StatusPanel(id="status-display")

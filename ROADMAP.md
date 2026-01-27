@@ -48,9 +48,9 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 
 #### Quality
 
-- [ ] Increase test coverage to 85%
-- [ ] Add integration tests for git workflows
-- [ ] Memory leak testing
+- [x] Increase test coverage to 85%
+- [x] Add integration tests for git workflows
+- [x] Memory leak testing
 
 #### CI/CD
 
@@ -73,7 +73,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [ ] Task templates (create from existing tasks)
 - [ ] Task archiving (preserve history)
 - [ ] Recent tasks list (quick switch)
-- [ ] Recent messages
+- [x] Recent messages
 
 #### Git Operations
 
@@ -87,7 +87,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [ ] Sort tasks (by name, date, status)
 - [ ] Worktree groups (by repo, status)
 - [ ] Quick actions menu (?)
-- [ ] Contextual help tooltips
+- [x] Contextual help tooltips
 
 ---
 

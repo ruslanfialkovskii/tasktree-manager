@@ -13,6 +13,13 @@ class TaskListItem(ListItem):
     def __init__(self, task_data: Task, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.task_data = task_data
+        # Add contextual tooltip
+        dirty_hint = " (has uncommitted changes)" if task_data.is_dirty else ""
+        worktree_count = len(task_data.worktrees)
+        self.tooltip = (
+            f"{task_data.name}: {worktree_count} worktree(s){dirty_hint}\n"
+            "Press d to delete, Tab to view worktrees"
+        )
 
     def compose(self):
         """Compose the task item."""
