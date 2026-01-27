@@ -1,0 +1,13 @@
+# Changelog
+
+{% for version, commits in context.history.items() %}
+## {{ version.tag }} ({{ version.date.strftime('%Y-%m-%d') }})
+
+{% for type, type_commits in commits|groupby('type') %}
+### {{ type|capitalize }}
+
+{% for commit in type_commits %}
+- {{ commit.message }} ([{{ commit.short_hash }}]({{ commit.url }}))
+{% endfor %}
+{% endfor %}
+{% endfor %}

@@ -591,6 +591,7 @@ class HelpModal(ThemedModalScreen[None]):
         # General section
         general_section = "[bold $primary]General[/]\n"
         general_section += "  [bold cyan]Ctrl+P      [/] Open command palette (themes)\n"
+        general_section += self._format_binding("toggle_messages", "m", "Toggle activity log") + "\n"
         general_section += self._format_binding("help", "?", "Show this help") + "\n"
         general_section += self._format_binding("quit", "q", "Quit tasktree")
         sections.append(general_section)

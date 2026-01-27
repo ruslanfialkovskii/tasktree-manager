@@ -199,43 +199,54 @@ class TaskManager:
             worktree: The worktree to remove
             branch_name: The branch name to delete (usually the task name)
         """
-        if not worktree.path.exists():
+        main_repo = None
+
+        # Try to find main repo from the worktree itself (if it exists and is valid)
+        if worktree.path.exists():
+            result = subprocess.run(
+                ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                cwd=worktree.path,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                main_git_dir = Path(result.stdout.strip())
+                main_repo = main_git_dir.parent if main_git_dir.name == ".git" else main_git_dir
+
+        # Fallback: derive main repo from worktree.name (which is the repo relative path)
+        if main_repo is None:
+            fallback_repo = self.config.repos_dir / worktree.name
+            if fallback_repo.exists() and (fallback_repo / ".git").exists():
+                main_repo = fallback_repo
+
+        if main_repo is None:
+            # Can't find main repo - just clean up the directory if it exists
             return
 
-        # Use git to find the main repo (more reliable than parsing paths)
-        result = subprocess.run(
-            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            cwd=worktree.path,
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode == 0:
-            main_git_dir = Path(result.stdout.strip())
-            main_repo = main_git_dir.parent if main_git_dir.name == ".git" else main_git_dir
-
-            # Remove the worktree using git
-            wt_result = subprocess.run(
+        # Remove the worktree using git (if path exists)
+        if worktree.path.exists():
+            subprocess.run(
                 ["git", "worktree", "remove", "--force", str(worktree.path)],
                 cwd=main_repo,
                 capture_output=True,
                 text=True,
             )
-            # Log warning but continue - worktree dir might already be removed
-            if wt_result.returncode != 0:
-                # Not critical - directory cleanup will happen anyway
-                pass
 
-            # Delete the branch
-            br_result = subprocess.run(
-                ["git", "branch", "-D", branch_name],
-                cwd=main_repo,
-                capture_output=True,
-                text=True,
-            )
-            # Branch might not exist or be checked out elsewhere - not critical
-            if br_result.returncode != 0:
-                pass
+        # Prune stale worktree references (handles case where path was already deleted)
+        subprocess.run(
+            ["git", "worktree", "prune"],
+            cwd=main_repo,
+            capture_output=True,
+            text=True,
+        )
+
+        # Delete the branch
+        subprocess.run(
+            ["git", "branch", "-D", branch_name],
+            cwd=main_repo,
+            capture_output=True,
+            text=True,
+        )
 
     def get_repos_not_in_task(self, task: Task) -> list[str]:
         """Get list of repos that are not yet in the task."""

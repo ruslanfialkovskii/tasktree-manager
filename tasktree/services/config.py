@@ -27,6 +27,7 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "push_all": "p",
     "pull_all": "P",
     "refresh": "r",
+    "toggle_messages": "m",
     "focus_next": "tab",
     "focus_previous": "shift+tab",
     "cursor_down": "j",
@@ -265,6 +266,7 @@ open_shell = "{self.keybindings.get("open_shell", "enter")}"
 push_all = "{self.keybindings.get("push_all", "p")}"
 pull_all = "{self.keybindings.get("pull_all", "P")}"
 refresh = "{self.keybindings.get("refresh", "r")}"
+toggle_messages = "{self.keybindings.get("toggle_messages", "m")}"
 focus_next = "{self.keybindings.get("focus_next", "tab")}"
 focus_previous = "{self.keybindings.get("focus_previous", "shift+tab")}"
 cursor_down = "{self.keybindings.get("cursor_down", "j")}"

@@ -1,6 +1,7 @@
 """Widget components for tasktree TUI."""
 
 from .create_modal import AddRepoModal, ConfirmModal, CreateTaskModal, HelpModal
+from .messages_panel import ActivityMessage, MessageLevel, MessagesPanel
 from .status_panel import StatusPanel
 from .task_list import TaskList
 from .worktree_list import WorktreeList
@@ -13,4 +14,7 @@ __all__ = [
     "AddRepoModal",
     "ConfirmModal",
     "HelpModal",
+    "MessagesPanel",
+    "MessageLevel",
+    "ActivityMessage",
 ]

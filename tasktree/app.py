@@ -19,6 +19,7 @@ from .widgets.create_modal import (
     PushResultModal,
     SafeDeleteModal,
 )
+from .widgets.messages_panel import MessageLevel, MessagesPanel
 from .widgets.setup_modal import SetupModal
 from .widgets.status_panel import StatusPanel
 from .widgets.task_list import TaskList
@@ -174,6 +175,35 @@ class TaskTreeApp(App):
         scrollbar-gutter: stable;
     }
 
+    /* Status panel hidden state */
+    #status-panel.-hidden {
+        display: none;
+    }
+
+    /* Messages panel */
+    #messages-panel {
+        height: auto;
+        min-height: 6;
+        max-height: 12;
+        border: round $primary;
+        background: $background;
+        padding: 0;
+        display: none;
+    }
+
+    #messages-panel.-visible {
+        display: block;
+    }
+
+    #messages-display {
+        height: 100%;
+        padding: 0 1;
+        background: $background;
+        color: $text;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+    }
+
     /* Header */
     Header {
         background: $surface;
@@ -207,17 +237,19 @@ class TaskTreeApp(App):
     """
 
     # Default bindings - will be overridden in __init__ with config values
+    # Footer order: n, a, d, g, p, r, m, q, ?
     BINDINGS = [
-        Binding("q", "quit", "Quit"),
-        Binding("?", "help", "Help"),
         Binding("n", "new_task", "New Task"),
         Binding("a", "add_repo", "Add Repo"),
         Binding("d", "delete_task", "Delete Task"),
         Binding("g", "open_lazygit", "Lazygit"),
-        Binding("enter", "open_shell", "Shell", show=False),
         Binding("p", "push_all", "Push All"),
-        Binding("P", "pull_all", "Pull All", show=False),
         Binding("r", "refresh", "Refresh"),
+        Binding("m", "toggle_messages", "Messages"),
+        Binding("q", "quit", "Quit"),
+        Binding("?", "help", "Help"),
+        Binding("enter", "open_shell", "Shell", show=False),
+        Binding("P", "pull_all", "Pull All", show=False),
         Binding("tab", "focus_next", "Next Panel", show=False),
         Binding("shift+tab", "focus_previous", "Prev Panel", show=False),
         Binding("j", "cursor_down", "Down", show=False),
@@ -237,6 +269,7 @@ class TaskTreeApp(App):
         self.current_task: Task | None = None
         self.current_worktree: Worktree | None = None
         self.current_status: GitStatus | None = None
+        self._show_messages_panel: bool = False
 
     def _build_bindings_from_config(self) -> list[Binding]:
         """Build keybindings list from config.
@@ -245,17 +278,19 @@ class TaskTreeApp(App):
             List of Binding objects with keys from config
         """
         kb = self.config.keybindings
+        # Footer order: n, a, d, g, p, r, m, q, ?
         return [
-            Binding(kb.get("quit", "q"), "quit", "Quit"),
-            Binding(kb.get("help", "?"), "help", "Help"),
             Binding(kb.get("new_task", "n"), "new_task", "New Task"),
             Binding(kb.get("add_repo", "a"), "add_repo", "Add Repo"),
             Binding(kb.get("delete_task", "d"), "delete_task", "Delete Task"),
             Binding(kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit"),
-            Binding(kb.get("open_shell", "enter"), "open_shell", "Shell", show=False),
             Binding(kb.get("push_all", "p"), "push_all", "Push All"),
-            Binding(kb.get("pull_all", "P"), "pull_all", "Pull All", show=False),
             Binding(kb.get("refresh", "r"), "refresh", "Refresh"),
+            Binding(kb.get("toggle_messages", "m"), "toggle_messages", "Messages"),
+            Binding(kb.get("quit", "q"), "quit", "Quit"),
+            Binding(kb.get("help", "?"), "help", "Help"),
+            Binding(kb.get("open_shell", "enter"), "open_shell", "Shell", show=False),
+            Binding(kb.get("pull_all", "P"), "pull_all", "Pull All", show=False),
             Binding(kb.get("focus_next", "tab"), "focus_next", "Next Panel", show=False),
             Binding(
                 kb.get("focus_previous", "shift+tab"), "focus_previous", "Prev Panel", show=False
@@ -282,6 +317,8 @@ class TaskTreeApp(App):
                     yield WorktreeList(id="worktree-list")
             with Vertical(id="status-panel"):
                 yield StatusPanel(id="status-display")
+            with Vertical(id="messages-panel"):
+                yield MessagesPanel(id="messages-display")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -447,15 +484,28 @@ class TaskTreeApp(App):
                     self.task_manager.create_task(name, repos, base_branch)
                     self._load_tasks()
                     self.notify(f"Created task: {name}")
+                    self._log_activity(
+                        f"Task '{name}' created with {len(repos)} repo(s)",
+                        MessageLevel.SUCCESS,
+                        name,
+                    )
                 except FileNotFoundError as e:
                     self.notify(f"Repository not found: {e}", severity="error")
+                    self._log_activity(
+                        f"Failed to create task: {e}", MessageLevel.ERROR, name
+                    )
                 except PermissionError:
                     self.notify("Permission denied: check directory permissions", severity="error")
+                    self._log_activity(
+                        "Failed to create task: permission denied", MessageLevel.ERROR, name
+                    )
                 except ValueError as e:
                     # ValueError from task_manager has good messages
                     self.notify(str(e), severity="error")
+                    self._log_activity(f"Failed to create task: {e}", MessageLevel.ERROR, name)
                 except Exception as e:
                     self.notify(f"Failed to create task: {type(e).__name__}: {e}", severity="error")
+                    self._log_activity(f"Failed to create task: {e}", MessageLevel.ERROR, name)
                 finally:
                     task_list.loading = False
 
@@ -479,21 +529,35 @@ class TaskTreeApp(App):
                 worktree_list = self.query_one("#worktree-list", WorktreeList)
                 task_list.loading = True
                 worktree_list.loading = True
+                task_name = self.current_task.name
                 try:
                     for repo in repos:
                         self.task_manager.add_repo_to_task(self.current_task, repo, base_branch)
                     self._load_tasks()
                     self._refresh_current_task()
                     self.notify(f"Added {len(repos)} repo(s) to task")
+                    self._log_activity(
+                        f"Added {len(repos)} repo(s) to task '{task_name}'",
+                        MessageLevel.SUCCESS,
+                        task_name,
+                    )
                 except FileNotFoundError as e:
                     self.notify(f"Repository not found: {e}", severity="error")
+                    self._log_activity(
+                        f"Failed to add repos: {e}", MessageLevel.ERROR, task_name
+                    )
                 except PermissionError:
                     self.notify("Permission denied: check directory permissions", severity="error")
+                    self._log_activity(
+                        "Failed to add repos: permission denied", MessageLevel.ERROR, task_name
+                    )
                 except ValueError as e:
                     # ValueError from task_manager has good messages
                     self.notify(str(e), severity="error")
+                    self._log_activity(f"Failed to add repos: {e}", MessageLevel.ERROR, task_name)
                 except Exception as e:
                     self.notify(f"Failed to add repos: {type(e).__name__}: {e}", severity="error")
+                    self._log_activity(f"Failed to add repos: {e}", MessageLevel.ERROR, task_name)
                 finally:
                     task_list.loading = False
                     worktree_list.loading = False
@@ -521,8 +585,14 @@ class TaskTreeApp(App):
                         self.task_manager.finish_task(task)
                         self._load_tasks()
                         self.notify(f"Deleted task: {task.name}")
+                        self._log_activity(
+                            f"Task '{task.name}' deleted", MessageLevel.SUCCESS, task.name
+                        )
                     except Exception as e:
                         self.notify(f"Failed to delete task: {e}", severity="error")
+                        self._log_activity(
+                            f"Failed to delete task: {e}", MessageLevel.ERROR, task.name
+                        )
 
             self.push_screen(ConfirmModal("Delete Task", message), handle_confirm)
         else:
@@ -547,9 +617,19 @@ class TaskTreeApp(App):
                                             self.task_manager.finish_task(task)
                                             self._load_tasks()
                                             self.notify(f"Deleted task: {task.name}")
+                                            self._log_activity(
+                                                f"Task '{task.name}' deleted",
+                                                MessageLevel.SUCCESS,
+                                                task.name,
+                                            )
                                         except Exception as e:
                                             self.notify(
                                                 f"Failed to delete task: {e}", severity="error"
+                                            )
+                                            self._log_activity(
+                                                f"Failed to delete task: {e}",
+                                                MessageLevel.ERROR,
+                                                task.name,
                                             )
 
                                 self.push_screen(
@@ -578,8 +658,18 @@ class TaskTreeApp(App):
                                         self.task_manager.finish_task(task)
                                         self._load_tasks()
                                         self.notify(f"Deleted task: {task.name}")
+                                        self._log_activity(
+                                            f"Task '{task.name}' deleted",
+                                            MessageLevel.SUCCESS,
+                                            task.name,
+                                        )
                                     except Exception as e:
                                         self.notify(f"Failed to delete task: {e}", severity="error")
+                                        self._log_activity(
+                                            f"Failed to delete task: {e}",
+                                            MessageLevel.ERROR,
+                                            task.name,
+                                        )
 
                             self.push_screen(
                                 ConfirmModal("Delete Task", f"Delete task '{task.name}'?"),
@@ -607,8 +697,18 @@ class TaskTreeApp(App):
                                 self.task_manager.finish_task(task)
                                 self._load_tasks()
                                 self.notify(f"Deleted task: {task.name}")
+                                self._log_activity(
+                                    f"Task '{task.name}' deleted (force)",
+                                    MessageLevel.SUCCESS,
+                                    task.name,
+                                )
                             except Exception as e:
                                 self.notify(f"Failed to delete task: {e}", severity="error")
+                                self._log_activity(
+                                    f"Failed to delete task: {e}",
+                                    MessageLevel.ERROR,
+                                    task.name,
+                                )
 
                     self.push_screen(ConfirmModal("Force Delete", message), handle_force_confirm)
 
@@ -706,10 +806,11 @@ class TaskTreeApp(App):
             self.notify("No task selected", severity="warning")
             return
 
+        task_name = self.current_task.name
         worktree_list = self.query_one("#worktree-list", WorktreeList)
         worktree_list.loading = True
         try:
-            self.notify(f"Pushing all worktrees in {self.current_task.name}...")
+            self.notify(f"Pushing all worktrees in {task_name}...")
             results = GitOps.push_all_parallel(self.current_task)
 
             success_count = sum(1 for _, success, _ in results if success)
@@ -717,8 +818,18 @@ class TaskTreeApp(App):
 
             if fail_count == 0:
                 self.notify(f"Pushed {success_count} worktree(s) successfully")
+                self._log_activity(
+                    f"Pushed {success_count} worktree(s) for '{task_name}'",
+                    MessageLevel.SUCCESS,
+                    task_name,
+                )
             else:
                 self.notify(f"Pushed {success_count}, failed {fail_count}", severity="warning")
+                self._log_activity(
+                    f"Push: {success_count} succeeded, {fail_count} failed for '{task_name}'",
+                    MessageLevel.WARNING,
+                    task_name,
+                )
 
             self._refresh_current_task()
         finally:
@@ -730,10 +841,11 @@ class TaskTreeApp(App):
             self.notify("No task selected", severity="warning")
             return
 
+        task_name = self.current_task.name
         worktree_list = self.query_one("#worktree-list", WorktreeList)
         worktree_list.loading = True
         try:
-            self.notify(f"Pulling all worktrees in {self.current_task.name}...")
+            self.notify(f"Pulling all worktrees in {task_name}...")
             results = GitOps.pull_all_parallel(self.current_task)
 
             success_count = sum(1 for _, success, _ in results if success)
@@ -741,8 +853,18 @@ class TaskTreeApp(App):
 
             if fail_count == 0:
                 self.notify(f"Pulled {success_count} worktree(s) successfully")
+                self._log_activity(
+                    f"Pulled {success_count} worktree(s) for '{task_name}'",
+                    MessageLevel.SUCCESS,
+                    task_name,
+                )
             else:
                 self.notify(f"Pulled {success_count}, failed {fail_count}", severity="warning")
+                self._log_activity(
+                    f"Pull: {success_count} succeeded, {fail_count} failed for '{task_name}'",
+                    MessageLevel.WARNING,
+                    task_name,
+                )
 
             self._refresh_current_task()
         finally:
@@ -753,6 +875,33 @@ class TaskTreeApp(App):
         self._load_tasks()
         self._refresh_current_task()
         self.notify("Refreshed")
+
+    def action_toggle_messages(self) -> None:
+        """Toggle between status and messages panel."""
+        self._show_messages_panel = not self._show_messages_panel
+
+        status_panel = self.query_one("#status-panel")
+        messages_panel = self.query_one("#messages-panel")
+
+        if self._show_messages_panel:
+            status_panel.add_class("-hidden")
+            messages_panel.add_class("-visible")
+        else:
+            status_panel.remove_class("-hidden")
+            messages_panel.remove_class("-visible")
+
+    def _log_activity(
+        self, message: str, level: MessageLevel, task_name: str | None = None
+    ) -> None:
+        """Log an activity message to the messages panel.
+
+        Args:
+            message: The message to log
+            level: Message severity level
+            task_name: Optional associated task name
+        """
+        messages_panel = self.query_one("#messages-display", MessagesPanel)
+        messages_panel.add_message(message, level, task_name)
 
     def action_cursor_down(self) -> None:
         """Move cursor down in the focused list."""

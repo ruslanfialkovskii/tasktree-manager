@@ -53,12 +53,11 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 
 #### CI/CD
 
-[] Create pipelines
-
-- add check linters
-- add check test
-- add PR pipeline
-- add release pipeline
+- [x] Linting pipeline (ruff check + format)
+- [x] Test pipeline (multi-Python matrix)
+- [x] Coverage reporting (Codecov)
+- [x] Build verification pipeline
+- [x] Automated semantic releases (python-semantic-release + hatch-vcs)
 
 ---
 
@@ -73,6 +72,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [ ] Task templates (create from existing tasks)
 - [ ] Task archiving (preserve history)
 - [ ] Recent tasks list (quick switch)
+- [ ] Recent messages
 
 #### Git Operations
 
