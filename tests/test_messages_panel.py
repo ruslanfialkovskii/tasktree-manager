@@ -1,15 +1,16 @@
 """Tests for MessagesPanel widget."""
 
-import pytest
 from datetime import datetime
 
+import pytest
+
+from tasktree.app import TaskTreeApp
 from tasktree.widgets.messages_panel import (
     ActivityMessage,
     MessageLevel,
     MessagesPanel,
     MessagesStore,
 )
-from tasktree.app import TaskTreeApp
 
 
 class TestMessageLevel:

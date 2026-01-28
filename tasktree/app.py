@@ -204,14 +204,6 @@ class TaskTreeApp(App):
     ListItem {
         height: 1;
     }
-
-    /* Tooltip styling */
-    Tooltip {
-        background: $surface;
-        color: $text;
-        border: round $primary;
-        padding: 0 1;
-    }
     """
 
     # Default bindings - will be overridden in __init__ with config values
@@ -291,14 +283,10 @@ class TaskTreeApp(App):
             # Left column: Tasks (top) and Worktrees (bottom)
             with Vertical(id="left-column"):
                 with Vertical(id="task-panel"):
-                    task_title = Static("Tasks", classes="panel-title")
-                    task_title.tooltip = "Your active development tasks (n to create new)"
-                    yield task_title
+                    yield Static("Tasks", classes="panel-title")
                     yield TaskList(id="task-list")
                 with Vertical(id="worktree-panel"):
-                    worktree_title = Static("Worktrees", classes="panel-title")
-                    worktree_title.tooltip = "Git worktrees for the selected task (a to add repo)"
-                    yield worktree_title
+                    yield Static("Worktrees", classes="panel-title")
                     yield WorktreeList(id="worktree-list")
             # Right column: Info/Status panel
             with Vertical(id="right-column"):

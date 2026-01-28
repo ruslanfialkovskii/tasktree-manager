@@ -187,6 +187,62 @@ class TaskManager:
             error_msg = result.stderr.strip() or result.stdout.strip()
             raise ValueError(f"Failed to create worktree for {repo_name}: {error_msg}")
 
+        # Create symlinks for gitignored files
+        self._create_gitignore_symlinks(repo_path, worktree_path)
+
+    def _parse_gitignore(self, gitignore_path: Path) -> list[str]:
+        """Parse .gitignore and return glob patterns for files (not directories).
+
+        Args:
+            gitignore_path: Path to the .gitignore file
+
+        Returns:
+            List of glob patterns to match files
+        """
+        patterns = []
+        for line in gitignore_path.read_text().splitlines():
+            line = line.strip()
+            # Skip comments and empty lines
+            if not line or line.startswith("#"):
+                continue
+            # Skip negation patterns
+            if line.startswith("!"):
+                continue
+            # Skip directory-only patterns (ending with /)
+            if line.endswith("/"):
+                continue
+            # Convert to glob pattern
+            patterns.append(line)
+        return patterns
+
+    def _create_gitignore_symlinks(self, source_repo: Path, worktree_path: Path) -> None:
+        """Create symlinks for gitignored files from source repo to worktree.
+
+        This allows gitignored files like .env to be shared between the main repo
+        and worktrees without having to manually copy them.
+
+        Args:
+            source_repo: Path to the source repository
+            worktree_path: Path to the new worktree
+        """
+        gitignore_path = source_repo / ".gitignore"
+        if not gitignore_path.exists():
+            return
+
+        # Parse .gitignore patterns
+        patterns = self._parse_gitignore(gitignore_path)
+
+        # Find matching files in source repo (not directories, not nested in .git)
+        for pattern in patterns:
+            for match in source_repo.glob(pattern):
+                if match.is_file() and ".git" not in match.parts:
+                    # Create symlink in worktree
+                    rel_path = match.relative_to(source_repo)
+                    link_path = worktree_path / rel_path
+                    if not link_path.exists():
+                        link_path.parent.mkdir(parents=True, exist_ok=True)
+                        link_path.symlink_to(match)
+
     def add_repo_to_task(self, task: Task, repo_name: str, base_branch: str = "master") -> None:
         """Add a repo worktree to an existing task."""
         self._create_worktree(task, repo_name, base_branch)

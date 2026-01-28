@@ -74,6 +74,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [ ] Task archiving (preserve history)
 - [ ] Recent tasks list (quick switch)
 - [x] Recent messages
+- [ ] claude code integration
 
 #### Git Operations
 
@@ -87,7 +88,6 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [ ] Sort tasks (by name, date, status)
 - [ ] Worktree groups (by repo, status)
 - [ ] Quick actions menu (?)
-- [x] Contextual help tooltips
 
 ---
 
@@ -174,28 +174,6 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - Conflict prediction
 - Dependency detection across repos
 - Usage analytics and insights
-
----
-
-## Success Metrics
-
-### Adoption Goals
-
-| Metric               | v0.3 | v0.5 | v1.0 |
-| -------------------- | ---- | ---- | ---- |
-| GitHub Stars         | 100  | 250  | 500  |
-| PyPI Downloads/month | 500  | 2000 | 5000 |
-| Active Contributors  | 3    | 5    | 10   |
-| Issues Closed        | 20   | 50   | 100  |
-
-### Quality Goals
-
-| Metric            | Target |
-| ----------------- | ------ |
-| Test Coverage     | >85%   |
-| Bug Reports/month | <10    |
-| Response Time     | <48h   |
-| User Satisfaction | 4.5+/5 |
 
 ---
 
