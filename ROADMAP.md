@@ -69,25 +69,13 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 #### Features
 
 - [ ] Search tasks by name (/)
-- [ ] Filter worktrees by status (dirty/clean)
-- [ ] Task templates (create from existing tasks)
-- [ ] Task archiving (preserve history)
-- [ ] Recent tasks list (quick switch)
 - [x] Recent messages
-- [ ] claude code integration
-
-#### Git Operations
-
-- [ ] Stash management
-- [ ] Branch comparison (diff between worktrees)
-- [ ] Commit history view
-- [ ] Cherry-pick support
+- [ ] Claude code integration
 
 #### UI/UX
 
 - [ ] Sort tasks (by name, date, status)
 - [ ] Worktree groups (by repo, status)
-- [ ] Quick actions menu (?)
 
 ---
 
@@ -101,14 +89,6 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [ ] JIRA/GitHub issue linking
 - [ ] Tags/labels
 - [ ] Due dates
-- [ ] Custom fields
-
-#### Collaboration
-
-- [ ] Export/import task configs
-- [ ] Team templates repository
-- [ ] Shared task definitions
-- [ ] Task handoff workflow
 
 #### Automation
 

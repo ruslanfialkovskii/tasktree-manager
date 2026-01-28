@@ -570,3 +570,121 @@ config.local.json
         assert "# Comment" not in patterns
         assert "!negation" not in patterns
         assert "node_modules/" not in patterns
+
+    def test_symlinks_skip_blocklisted_files(self, task_manager, sample_repo):
+        """Test that files matching blocklist patterns are not symlinked."""
+        repo_path, branch = sample_repo
+
+        # Create .gitignore with both wanted and blocklisted patterns
+        gitignore = repo_path / ".gitignore"
+        gitignore.write_text(".env\n*.pyc\n.coverage\n*.log\n")
+
+        # Create files - some should be linked, some blocked
+        (repo_path / ".env").write_text("SECRET=value\n")
+        (repo_path / "test.pyc").write_text("compiled\n")
+        (repo_path / ".coverage").write_text("coverage data\n")
+        (repo_path / "app.log").write_text("log content\n")
+
+        # Create task (worktree)
+        task = task_manager.create_task("BLOCKLIST-TEST", ["sample-repo"], branch)
+        worktree_path = task.worktrees[0].path
+
+        # .env should be symlinked (not in default blocklist)
+        assert (worktree_path / ".env").exists()
+        assert (worktree_path / ".env").is_symlink()
+
+        # Blocklisted files should NOT be symlinked
+        assert not (worktree_path / "test.pyc").exists()
+        assert not (worktree_path / ".coverage").exists()
+        assert not (worktree_path / "app.log").exists()
+
+    def test_symlinks_with_empty_blocklist(self, temp_dirs, sample_repo):
+        """Test that empty blocklist allows all files to be symlinked."""
+        from tasktree.services.config import Config
+        from tasktree.services.task_manager import TaskManager
+
+        repos_dir, tasks_dir = temp_dirs
+        repo_path, branch = sample_repo
+
+        # Create config with empty blocklist
+        config = Config(
+            repos_dir=repos_dir,
+            tasks_dir=tasks_dir,
+            config_dir=repos_dir.parent / ".config" / "tasktree",
+            symlink_blocklist=[],  # Empty blocklist
+        )
+        manager = TaskManager(config)
+
+        # Create .gitignore with patterns that would normally be blocked
+        gitignore = repo_path / ".gitignore"
+        gitignore.write_text(".env\n*.pyc\n.coverage\n")
+
+        # Create files
+        (repo_path / ".env").write_text("SECRET=value\n")
+        (repo_path / "test.pyc").write_text("compiled\n")
+        (repo_path / ".coverage").write_text("coverage data\n")
+
+        # Create task (worktree)
+        task = manager.create_task("EMPTY-BLOCKLIST", ["sample-repo"], branch)
+        worktree_path = task.worktrees[0].path
+
+        # All files should be symlinked with empty blocklist
+        assert (worktree_path / ".env").is_symlink()
+        assert (worktree_path / "test.pyc").is_symlink()
+        assert (worktree_path / ".coverage").is_symlink()
+
+    def test_symlinks_custom_blocklist(self, temp_dirs, sample_repo):
+        """Test that custom blocklist patterns are respected."""
+        from tasktree.services.config import Config
+        from tasktree.services.task_manager import TaskManager
+
+        repos_dir, tasks_dir = temp_dirs
+        repo_path, branch = sample_repo
+
+        # Create config with custom blocklist (block .env but allow *.pyc)
+        config = Config(
+            repos_dir=repos_dir,
+            tasks_dir=tasks_dir,
+            config_dir=repos_dir.parent / ".config" / "tasktree",
+            symlink_blocklist=[".env*", "*.secret"],  # Custom blocklist
+        )
+        manager = TaskManager(config)
+
+        # Create .gitignore
+        gitignore = repo_path / ".gitignore"
+        gitignore.write_text(".env\n.env.local\ntest.pyc\napi.secret\n")
+
+        # Create files
+        (repo_path / ".env").write_text("blocked\n")
+        (repo_path / ".env.local").write_text("also blocked\n")
+        (repo_path / "test.pyc").write_text("allowed now\n")
+        (repo_path / "api.secret").write_text("blocked\n")
+
+        # Create task (worktree)
+        task = manager.create_task("CUSTOM-BLOCKLIST", ["sample-repo"], branch)
+        worktree_path = task.worktrees[0].path
+
+        # .env files should be blocked
+        assert not (worktree_path / ".env").exists()
+        assert not (worktree_path / ".env.local").exists()
+        assert not (worktree_path / "api.secret").exists()
+
+        # .pyc should be allowed with this custom blocklist
+        assert (worktree_path / "test.pyc").is_symlink()
+
+    def test_matches_blocklist_method(self, task_manager):
+        """Test the _matches_blocklist helper method."""
+        blocklist = ["*.pyc", ".coverage", "__pycache__", "*.log"]
+
+        # These should match
+        assert task_manager._matches_blocklist("test.pyc", blocklist)
+        assert task_manager._matches_blocklist(".coverage", blocklist)
+        assert task_manager._matches_blocklist("__pycache__", blocklist)
+        assert task_manager._matches_blocklist("app.log", blocklist)
+        assert task_manager._matches_blocklist("debug.log", blocklist)
+
+        # These should not match
+        assert not task_manager._matches_blocklist(".env", blocklist)
+        assert not task_manager._matches_blocklist("config.json", blocklist)
+        assert not task_manager._matches_blocklist(".mise.toml", blocklist)
+        assert not task_manager._matches_blocklist("README.md", blocklist)

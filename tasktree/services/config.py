@@ -68,6 +68,26 @@ class Config:
     # Keybindings (action -> key mapping)
     keybindings: dict[str, str] = field(default_factory=lambda: DEFAULT_KEYBINDINGS.copy())
 
+    # Symlink settings - patterns to exclude from symlinking gitignored files
+    symlink_blocklist: list[str] = field(default_factory=lambda: [
+        "*.pyc",
+        "*.pyo",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".coverage",
+        "*.log",
+        "*.egg-info",
+        ".eggs",
+        "dist",
+        "build",
+        ".tox",
+        ".nox",
+        "*.so",
+        "*.dylib",
+    ])
+
     @classmethod
     def load(cls) -> "Config":
         """Load configuration from config file and environment variables.
@@ -114,6 +134,15 @@ class Config:
             if action in keybindings and isinstance(key, str):
                 keybindings[action] = key
 
+        # Symlink settings
+        symlink_config = config_data.get("symlinks", {})
+        default_blocklist = [
+            "*.pyc", "*.pyo", "__pycache__", ".pytest_cache", ".mypy_cache",
+            ".ruff_cache", ".coverage", "*.log", "*.egg-info", ".eggs",
+            "dist", "build", ".tox", ".nox", "*.so", "*.dylib",
+        ]
+        symlink_blocklist = symlink_config.get("blocklist", default_blocklist)
+
         # Environment variables override config file
         if "REPOS_DIR" in os.environ:
             repos_dir = Path(os.environ["REPOS_DIR"])
@@ -141,6 +170,7 @@ class Config:
             lazygit_path=lazygit_path,
             shell=shell,
             keybindings=keybindings,
+            symlink_blocklist=symlink_blocklist,
         )
 
     @staticmethod
@@ -273,6 +303,14 @@ focus_next = "{self.keybindings.get("focus_next", "tab")}"
 focus_previous = "{self.keybindings.get("focus_previous", "shift+tab")}"
 cursor_down = "{self.keybindings.get("cursor_down", "j")}"
 cursor_up = "{self.keybindings.get("cursor_up", "k")}"
+
+# ============================================================================
+# Symlinks
+# ============================================================================
+# When creating worktrees, tasktree symlinks gitignored files from the source repo.
+# This blocklist specifies patterns to exclude from symlinking (e.g., cache files).
+[symlinks]
+blocklist = {self.symlink_blocklist}
 '''
         config_file.write_text(config_content)
 

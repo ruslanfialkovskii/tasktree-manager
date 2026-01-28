@@ -1,5 +1,6 @@
 """Task management service for tasktree."""
 
+import fnmatch
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -215,11 +216,24 @@ class TaskManager:
             patterns.append(line)
         return patterns
 
+    def _matches_blocklist(self, filename: str, blocklist: list[str]) -> bool:
+        """Check if filename matches any blocklist pattern.
+
+        Args:
+            filename: The filename to check
+            blocklist: List of glob patterns to match against
+
+        Returns:
+            True if the filename matches any blocklist pattern
+        """
+        return any(fnmatch.fnmatch(filename, pattern) for pattern in blocklist)
+
     def _create_gitignore_symlinks(self, source_repo: Path, worktree_path: Path) -> None:
         """Create symlinks for gitignored files from source repo to worktree.
 
         This allows gitignored files like .env to be shared between the main repo
-        and worktrees without having to manually copy them.
+        and worktrees without having to manually copy them. Files matching the
+        symlink_blocklist in config are excluded.
 
         Args:
             source_repo: Path to the source repository
@@ -231,11 +245,15 @@ class TaskManager:
 
         # Parse .gitignore patterns
         patterns = self._parse_gitignore(gitignore_path)
+        blocklist = self.config.symlink_blocklist
 
         # Find matching files in source repo (not directories, not nested in .git)
         for pattern in patterns:
             for match in source_repo.glob(pattern):
                 if match.is_file() and ".git" not in match.parts:
+                    # Skip files matching the blocklist
+                    if self._matches_blocklist(match.name, blocklist):
+                        continue
                     # Create symlink in worktree
                     rel_path = match.relative_to(source_repo)
                     link_path = worktree_path / rel_path
