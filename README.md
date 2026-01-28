@@ -13,6 +13,7 @@
 - 🎯 **Task-Based Workflow** - Group related worktrees across multiple repositories
 - 🌳 **Git Worktree Management** - Create, delete, and manage worktrees seamlessly
 - 📊 **Real-Time Status** - See uncommitted changes, branch info, and sync status at a glance
+- 🔀 **Sorting & Grouping** - Sort tasks by name/date/status, group worktrees by dirty/clean
 - 🎨 **Beautiful Themes** - 7 built-in themes via Command Palette (Ctrl+P)
 - ⌨️ **Keyboard-First** - Navigate and control everything without touching the mouse
 - 🚀 **Fast & Responsive** - Parallel git operations with loading indicators
@@ -85,6 +86,7 @@ For detailed workflows and examples, see the [User Guide](docs/user-guide.md).
 | `a` | Add repo | `o` | Open folder |
 | `d` | Delete task | `Enter` | Open shell |
 | `p` | Push all | `r` | Refresh |
+| `s` | Sort tasks | `S` | Group worktrees |
 | `Tab` | Next panel | `?` | Show help |
 | `q` | Quit |  |  |
 

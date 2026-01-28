@@ -178,9 +178,11 @@ Shows all your tasks:
 - **Name**: Task identifier (e.g., `FEAT-123`)
 - **Count**: Number of worktrees in parentheses (e.g., `(3)`)
 - **Dirty indicator** `●`: Task has uncommitted changes
+- **Sort mode**: Press `s` to cycle through sort modes (name ↑/↓, date ↑/↓, dirty/clean first)
 
 **Navigation:**
 - `j/k` or arrow keys: Move up/down
+- `s`: Cycle sort mode (panel title shows current sort)
 - Highlighting a task: Shows its worktrees in right panel
 
 ### Right Panel: Worktree List
@@ -195,9 +197,11 @@ Shows worktrees for the selected task:
   - `↑N` - N commits ahead of remote
   - `↓N` - N commits behind remote
   - `✓` - Clean (no changes, in sync)
+- **Grouping**: Press `S` (Shift+S) to group worktrees by dirty/clean status
 
 **Navigation:**
 - `j/k` or arrow keys: Move up/down
+- `S`: Toggle grouping by dirty/clean (panel title shows "(grouped)" when active)
 - Highlighting a worktree: Shows detailed status in bottom panel
 
 ### Bottom Panel: Status Display
@@ -242,6 +246,26 @@ All keybindings can be customized in [`config.toml`](configuration.md).
 **Tips:**
 - You can also click with mouse (if terminal supports it)
 - Focused panel has a highlighted border (accent color)
+
+### Sorting & Grouping
+
+| Key | Action                | Description                                                |
+|-----|-----------------------|------------------------------------------------------------|
+| `s` | Cycle sort mode       | Cycle through: name ↑/↓, date ↑/↓, dirty first, clean first |
+| `S` | Toggle grouping       | Group worktrees by dirty/clean status (Shift+S)            |
+
+**Sort modes:**
+- `by name ↑` - Alphabetical A-Z (default)
+- `by name ↓` - Alphabetical Z-A
+- `by date ↓` - Newest first
+- `by date ↑` - Oldest first
+- `dirty first` - Tasks with changes at top
+- `clean first` - Clean tasks at top
+
+**Grouping:**
+- When enabled, worktrees are grouped under "Dirty" and "Clean" headers
+- Headers are non-selectable; navigation skips them automatically
+- Panel title shows "(grouped)" when active
 
 ### Task Management
 

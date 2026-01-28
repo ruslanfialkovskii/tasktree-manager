@@ -68,14 +68,13 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 
 #### Features
 
-- [ ] Search tasks by name (/)
 - [x] Recent messages
 - [ ] Claude code integration
 
 #### UI/UX
 
-- [ ] Sort tasks (by name, date, status)
-- [ ] Worktree groups (by repo, status)
+- [x] Sort tasks (by name, date, status) - press `s` to cycle
+- [x] Worktree groups (by dirty/clean status) - press `S` to toggle
 
 ---
 

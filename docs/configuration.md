@@ -165,6 +165,10 @@ focus_previous = "shift+tab" # Switch to previous panel
 cursor_down = "j"           # Move cursor down
 cursor_up = "k"             # Move cursor up
 
+# Sorting and grouping
+cycle_sort = "s"            # Cycle task sort mode
+toggle_grouping = "S"       # Toggle worktree grouping (shift+s)
+
 # ============================================================================
 # Symlinks
 # ============================================================================
@@ -385,7 +389,7 @@ blocklist = ["*"]
 
 ## Keybindings Reference
 
-All 15 customizable keybindings with descriptions:
+All 17 customizable keybindings with descriptions:
 
 ### Application Control
 
@@ -421,6 +425,13 @@ All 15 customizable keybindings with descriptions:
 | `focus_previous`  | `shift+tab` | Switch to previous panel       | `focus_previous = "ctrl+["`      |
 | `cursor_down`     | `j`         | Move cursor down in lists      | `cursor_down = "down"`           |
 | `cursor_up`       | `k`         | Move cursor up in lists        | `cursor_up = "up"`               |
+
+### Sorting & Grouping
+
+| Action            | Default | Description                              | Customization Example            |
+|-------------------|---------|------------------------------------------|----------------------------------|
+| `cycle_sort`      | `s`     | Cycle task sort mode                     | `cycle_sort = "ctrl+s"`          |
+| `toggle_grouping` | `S`     | Toggle worktree grouping by dirty/clean  | `toggle_grouping = "ctrl+g"`     |
 
 ### Available Key Syntax
 
