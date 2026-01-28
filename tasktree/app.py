@@ -225,6 +225,8 @@ class TaskTreeApp(App):
         Binding("shift+tab", "focus_previous", "Prev Panel", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
+        Binding("s", "cycle_sort", "Sort", show=False),
+        Binding("S", "toggle_grouping", "Group", show=False),
     ]
 
     def __init__(self):
@@ -269,6 +271,8 @@ class TaskTreeApp(App):
             ),
             Binding(kb.get("cursor_down", "j"), "cursor_down", "Down", show=False),
             Binding(kb.get("cursor_up", "k"), "cursor_up", "Up", show=False),
+            Binding(kb.get("cycle_sort", "s"), "cycle_sort", "Sort", show=False),
+            Binding(kb.get("toggle_grouping", "S"), "toggle_grouping", "Group", show=False),
         ]
 
     @property
@@ -283,10 +287,10 @@ class TaskTreeApp(App):
             # Left column: Tasks (top) and Worktrees (bottom)
             with Vertical(id="left-column"):
                 with Vertical(id="task-panel"):
-                    yield Static("Tasks", classes="panel-title")
+                    yield Static("Tasks", classes="panel-title", id="task-panel-title")
                     yield TaskList(id="task-list")
                 with Vertical(id="worktree-panel"):
-                    yield Static("Worktrees", classes="panel-title")
+                    yield Static("Worktrees", classes="panel-title", id="worktree-panel-title")
                     yield WorktreeList(id="worktree-list")
             # Right column: Info/Status panel
             with Vertical(id="right-column"):
@@ -944,6 +948,31 @@ class TaskTreeApp(App):
         focused = self.focused
         if isinstance(focused, (TaskList, WorktreeList)):
             focused.action_cursor_up()
+
+    def action_cycle_sort(self) -> None:
+        """Cycle through task sort modes."""
+        task_list = self.query_one("#task-list", TaskList)
+        task_list.cycle_sort_mode()
+
+    def on_task_list_sort_mode_changed(self, event: TaskList.SortModeChanged) -> None:
+        """Handle sort mode change in task list."""
+        title = self.query_one("#task-panel-title", Static)
+        title.update(f"Tasks ({event.label})")
+
+    def action_toggle_grouping(self) -> None:
+        """Toggle worktree grouping mode."""
+        worktree_list = self.query_one("#worktree-list", WorktreeList)
+        worktree_list.toggle_grouping()
+
+    def on_worktree_list_grouping_changed(
+        self, event: WorktreeList.GroupingChanged
+    ) -> None:
+        """Handle grouping mode change in worktree list."""
+        title = self.query_one("#worktree-panel-title", Static)
+        if event.enabled:
+            title.update("Worktrees (grouped)")
+        else:
+            title.update("Worktrees")
 
 
 def main():
