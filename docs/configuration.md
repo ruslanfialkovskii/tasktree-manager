@@ -153,6 +153,7 @@ delete_task = "d"       # Delete/finish task
 
 # Git operations
 open_lazygit = "g"      # Open lazygit in selected worktree
+open_editor = "e"       # Open editor in selected task/worktree
 open_folder = "o"       # Open folder in new terminal tab
 open_shell = "enter"    # Open shell in selected worktree
 push_all = "p"          # Push all worktrees in current task
@@ -284,7 +285,7 @@ Currently unused (reserved for future file browser features).
 - Leave empty (`""`) to use `$EDITOR` environment variable
 - Fallback: `vi`
 - Examples: `"vim"`, `"nvim"`, `"code"`, `"emacs -nw"`
-- Currently reserved for future features
+- Used when pressing `e` to open editor in task/worktree folder
 
 **`lazygit_path`:**
 - Default `"lazygit"` searches PATH
@@ -389,7 +390,7 @@ blocklist = ["*"]
 
 ## Keybindings Reference
 
-All 17 customizable keybindings with descriptions:
+All 18 customizable keybindings with descriptions:
 
 ### Application Control
 
@@ -411,6 +412,7 @@ All 17 customizable keybindings with descriptions:
 | Action         | Default  | Description                           | Customization Example       |
 |----------------|----------|---------------------------------------|-----------------------------|
 | `open_lazygit` | `g`      | Open lazygit in selected worktree     | `open_lazygit = "ctrl+g"`   |
+| `open_editor`  | `e`      | Open editor in task/worktree folder   | `open_editor = "ctrl+e"`    |
 | `open_folder`  | `o`      | Open folder in new terminal tab       | `open_folder = "ctrl+o"`    |
 | `open_shell`   | `enter`  | Open shell in selected worktree       | `open_shell = "ctrl+t"`     |
 | `push_all`     | `p`      | Push all worktrees in current task    | `push_all = "ctrl+p"`       |

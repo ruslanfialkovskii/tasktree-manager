@@ -297,6 +297,7 @@ All keybindings can be customized in [`config.toml`](configuration.md).
 | Key     | Action             | Description                                          |
 |---------|--------------------|------------------------------------------------------|
 | `g`     | Open lazygit       | Open lazygit in the selected worktree                |
+| `e`     | Open editor        | Open editor in task/worktree folder (runs `$EDITOR .`) |
 | `Enter` | Open shell         | Open a shell in the selected worktree                |
 | `p`     | Push all           | Push all worktrees in the current task (parallel)    |
 | `P`     | Pull all           | Pull all worktrees in the current task (parallel)    |
@@ -541,8 +542,9 @@ d (delete task)
 - Detailed status appears in bottom panel
 
 **Working in worktree:**
+- Press `e` to open editor directly in worktree
 - Press `g` for lazygit (recommended for git operations)
-- Press `Enter` for shell (for editing, building, testing)
+- Press `Enter` for shell (for building, testing, or other commands)
 
 **Git operations:**
 - **Staging/committing**: Use lazygit (`g`)
@@ -623,10 +625,23 @@ apt install lazygit
 
 ### Editors
 
-**Opening editor in worktree:**
-1. Highlight worktree
-2. Press `Enter` (open shell)
-3. In shell:
+**Direct editor integration:**
+1. Highlight task or worktree
+2. Press `e` to open your configured editor
+3. tasktree suspends while editor runs
+4. Selection is preserved when you return
+
+**Configure your editor** in `~/.config/tasktree/config.toml`:
+```toml
+[tools]
+editor = "nvim"  # or "vim", "code", "emacs", etc.
+```
+
+Or set the `$EDITOR` environment variable.
+
+**Alternative: Open shell first:**
+1. Press `Enter` (open shell)
+2. In shell:
    ```bash
    vim .               # Vim
    nvim .              # Neovim

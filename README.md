@@ -64,7 +64,7 @@ On first run, you'll configure:
 ### Basic Workflow
 
 1. **Create a task** - Press `n`, enter task name, select repositories
-2. **Work on code** - Press `g` for lazygit or `Enter` for shell
+2. **Work on code** - Press `e` for editor, `g` for lazygit, or `Enter` for shell
 3. **Push changes** - Press `p` to push all worktrees
 4. **Delete task** - Press `d` when finished
 
@@ -83,12 +83,12 @@ For detailed workflows and examples, see the [User Guide](docs/user-guide.md).
 | Key | Action | Key | Action |
 |-----|--------|-----|--------|
 | `n` | New task | `g` | Open lazygit |
-| `a` | Add repo | `o` | Open folder |
-| `d` | Delete task | `Enter` | Open shell |
-| `p` | Push all | `r` | Refresh |
-| `s` | Sort tasks | `S` | Group worktrees |
-| `Tab` | Next panel | `?` | Show help |
-| `q` | Quit |  |  |
+| `a` | Add repo | `e` | Open editor |
+| `d` | Delete task | `o` | Open folder |
+| `p` | Push all | `Enter` | Open shell |
+| `r` | Refresh | `s` | Sort tasks |
+| `S` | Group worktrees | `Tab` | Next panel |
+| `?` | Show help | `q` | Quit |
 
 **Themes:** Press `Ctrl+P` to switch between 7 built-in themes (textual-dark, nord, gruvbox, tokyo-night, monokai, dracula, textual-light).
 
