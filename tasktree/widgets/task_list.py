@@ -4,7 +4,7 @@ from enum import Enum, auto
 
 from textual.message import Message
 from textual.widgets import OptionList
-from textual.widgets.option_list import Option
+from textual.widgets.option_list import Option, OptionDoesNotExist
 
 from ..services.task_manager import Task
 
@@ -60,8 +60,15 @@ class TaskList(OptionList):
         """Compatibility property - sets highlighted index."""
         self.highlighted = value
 
-    def load_tasks(self, tasks: list[Task]) -> None:
-        """Load tasks into the list."""
+    def load_tasks(
+        self, tasks: list[Task], preserve_selection: str | None = None
+    ) -> None:
+        """Load tasks into the list.
+
+        Args:
+            tasks: List of tasks to load
+            preserve_selection: Optional task name to preserve selection for
+        """
         sorted_tasks = self._sort_tasks(tasks)
         self.tasks = sorted_tasks
         self.clear_options()
@@ -73,9 +80,23 @@ class TaskList(OptionList):
                 prompt = f"  {task.name}"
             self.add_option(Option(prompt, id=task.name))
 
-        # Select first item if available
+        # Select item - preserve previous selection if specified
         if self.tasks and self.option_count > 0:
-            self.action_first()
+            if preserve_selection:
+                try:
+                    # Use option ID to find the correct index
+                    idx = self.get_option_index(preserve_selection)
+                    # Defer highlight setting to next event loop cycle
+                    def set_highlight():
+                        self.highlighted = idx
+                        self.scroll_to_highlight()
+                        self._emit_highlighted()
+                    self.call_later(set_highlight)
+                    return  # Don't emit here, will be done in callback
+                except OptionDoesNotExist:
+                    self.action_first()
+            else:
+                self.action_first()
             self._emit_highlighted()
 
     def _emit_highlighted(self) -> None:

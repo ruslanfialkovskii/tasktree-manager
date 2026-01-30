@@ -243,6 +243,8 @@ class TaskTreeApp(App):
         self.current_worktree: Worktree | None = None
         self.current_status: GitStatus | None = None
         self._show_messages_panel: bool = False
+        # Used to preserve worktree selection during task list reload
+        self._preserved_worktree_name: str | None = None
 
     def _build_bindings_from_config(self) -> list[Binding]:
         """Build keybindings list from config.
@@ -354,10 +356,21 @@ class TaskTreeApp(App):
 
         self.push_screen(SetupModal(), handle_setup)
 
-    def _load_tasks(self) -> None:
-        """Load tasks and update git status."""
+    def _load_tasks(self, preserve_selection: bool = False) -> None:
+        """Load tasks and update git status.
+
+        Args:
+            preserve_selection: If True, preserve the current task and worktree selection
+        """
         task_list = self.query_one("#task-list", TaskList)
         task_list.loading = True
+
+        # Remember current selection if preserving
+        current_task_name = self.current_task.name if preserve_selection and self.current_task else None
+        # Store worktree name for event handler to use
+        if preserve_selection and self.current_worktree:
+            self._preserved_worktree_name = self.current_worktree.name
+
         try:
             tasks = self.task_manager.list_tasks()
 
@@ -365,19 +378,61 @@ class TaskTreeApp(App):
             all_worktrees = [wt for task in tasks for wt in task.worktrees]
             GitOps.update_all_worktree_statuses(all_worktrees)
 
-            task_list.load_tasks(tasks)
+            task_list.load_tasks(tasks, preserve_selection=current_task_name)
         finally:
             task_list.loading = False
 
-    def _refresh_current_task(self) -> None:
-        """Refresh the current task's worktrees and status."""
+    def _load_tasks_with_selection(
+        self, task_name: str | None, worktree_name: str | None
+    ) -> None:
+        """Load tasks and restore selection by explicit names.
+
+        This is used after suspend/resume to restore exact selection state.
+
+        Args:
+            task_name: Name of task to select
+            worktree_name: Name of worktree to select
+        """
+        task_list = self.query_one("#task-list", TaskList)
+        task_list.loading = True
+
+        # Store worktree name for event handler to use
+        if worktree_name:
+            self._preserved_worktree_name = worktree_name
+
+        try:
+            tasks = self.task_manager.list_tasks()
+
+            # Collect all worktrees and update in parallel
+            all_worktrees = [wt for task in tasks for wt in task.worktrees]
+            GitOps.update_all_worktree_statuses(all_worktrees)
+
+            task_list.load_tasks(tasks, preserve_selection=task_name)
+        finally:
+            task_list.loading = False
+
+    def _refresh_current_task(self, preserve_selection: bool = False) -> None:
+        """Refresh the current task's worktrees and status.
+
+        Args:
+            preserve_selection: If True, preserve the current worktree selection
+        """
         if self.current_task:
+            # Remember current selection if preserving
+            current_worktree_name = (
+                self.current_worktree.name
+                if preserve_selection and self.current_worktree
+                else None
+            )
+
             task = self.task_manager.get_task(self.current_task.name)
             if task:
                 GitOps.update_all_worktree_statuses(task.worktrees)
                 self.current_task = task
                 worktree_list = self.query_one("#worktree-list", WorktreeList)
-                worktree_list.load_worktrees(task.worktrees)
+                worktree_list.load_worktrees(
+                    task.worktrees, preserve_selection=current_worktree_name
+                )
 
     def _run_external_command(
         self, cmd: list[str], cwd, name: str, install_hint: str | None = None
@@ -422,7 +477,10 @@ class TaskTreeApp(App):
             return
 
         if event.task:
-            worktree_list.load_worktrees(event.task.worktrees)
+            # Use preserved worktree name if set (during reload after lazygit/shell)
+            preserved = self._preserved_worktree_name
+            self._preserved_worktree_name = None  # Clear after use
+            worktree_list.load_worktrees(event.task.worktrees, preserve_selection=preserved)
         else:
             worktree_list.clear_worktrees()
             status_panel.clear_status()
@@ -715,6 +773,10 @@ class TaskTreeApp(App):
         Args:
             task: The task whose worktrees to check
         """
+        # Save selection state BEFORE suspend (as local variables)
+        saved_task_name = self.current_task.name if self.current_task else None
+        saved_worktree_name = self.current_worktree.name if self.current_worktree else None
+
         # Get safety report to find first problematic worktree
         safety_report = self.task_manager.check_task_safety(task)
 
@@ -737,9 +799,10 @@ class TaskTreeApp(App):
                     install_hint="brew install lazygit",
                 )
 
-            # Refresh status after lazygit exits
-            self._load_tasks()
-            self._refresh_current_task()
+            # Refresh status after lazygit exits, restoring saved selection
+            self._load_tasks_with_selection(saved_task_name, saved_worktree_name)
+            # Restore focus to worktree list
+            self.query_one("#worktree-list", WorktreeList).focus()
         else:
             self.notify("No problematic worktree found", severity="warning")
 
@@ -754,6 +817,10 @@ class TaskTreeApp(App):
             self.notify("Worktree directory not found", severity="error")
             return
 
+        # Save selection state BEFORE suspend (as local variables)
+        saved_task_name = self.current_task.name if self.current_task else None
+        saved_worktree_name = self.current_worktree.name
+
         self.notify("Opening lazygit...")
 
         # Suspend app and run lazygit
@@ -765,9 +832,10 @@ class TaskTreeApp(App):
                 install_hint="brew install lazygit",
             )
 
-        # Refresh status after lazygit exits
-        self._load_tasks()
-        self._refresh_current_task()
+        # Refresh status after lazygit exits, restoring saved selection
+        self._load_tasks_with_selection(saved_task_name, saved_worktree_name)
+        # Restore focus to worktree list
+        self.query_one("#worktree-list", WorktreeList).focus()
 
     def action_open_shell(self) -> None:
         """Open a shell in the current worktree."""
@@ -780,6 +848,10 @@ class TaskTreeApp(App):
             self.notify("Worktree directory not found", severity="error")
             return
 
+        # Save selection state BEFORE suspend (as local variables)
+        saved_task_name = self.current_task.name if self.current_task else None
+        saved_worktree_name = self.current_worktree.name
+
         # Get shell from config
         shell = self.config.get_shell()
 
@@ -789,9 +861,10 @@ class TaskTreeApp(App):
         with self.suspend():
             self._run_external_command([shell], cwd=worktree_path, name="shell")
 
-        # Refresh status after shell exits
-        self._load_tasks()
-        self._refresh_current_task()
+        # Refresh status after shell exits, restoring saved selection
+        self._load_tasks_with_selection(saved_task_name, saved_worktree_name)
+        # Restore focus to worktree list
+        self.query_one("#worktree-list", WorktreeList).focus()
 
     def action_open_folder(self) -> None:
         """Open current folder in a new terminal tab."""

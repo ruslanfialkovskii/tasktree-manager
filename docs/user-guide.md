@@ -607,7 +607,7 @@ rm -rf ~/tasks/TASK-NAME
 3. tasktree suspends, lazygit opens
 4. Do your git work
 5. Press `q` in lazygit to return to tasktree
-6. Status auto-refreshes
+6. Status auto-refreshes and selection is preserved
 
 **Install lazygit:**
 ```bash

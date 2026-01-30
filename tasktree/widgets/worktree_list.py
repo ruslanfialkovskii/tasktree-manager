@@ -2,7 +2,7 @@
 
 from textual.message import Message
 from textual.widgets import OptionList
-from textual.widgets.option_list import Option
+from textual.widgets.option_list import Option, OptionDoesNotExist
 
 from ..services.task_manager import Worktree
 
@@ -48,8 +48,15 @@ class WorktreeList(OptionList):
         """Compatibility property - sets highlighted index."""
         self.highlighted = value
 
-    def load_worktrees(self, worktrees: list[Worktree]) -> None:
-        """Load worktrees into the list."""
+    def load_worktrees(
+        self, worktrees: list[Worktree], preserve_selection: str | None = None
+    ) -> None:
+        """Load worktrees into the list.
+
+        Args:
+            worktrees: List of worktrees to load
+            preserve_selection: Optional worktree name to preserve selection for
+        """
         self.worktrees = worktrees
         self._option_to_worktree.clear()
         self.clear_options()
@@ -66,9 +73,23 @@ class WorktreeList(OptionList):
         else:
             self._load_flat_worktrees(worktrees, max_name_len, max_branch_len)
 
-        # Select first selectable item if available
+        # Select item - preserve previous selection if specified
         if self.worktrees and self.option_count > 0:
-            self.action_first()
+            if preserve_selection:
+                try:
+                    # Use option ID to find the correct index
+                    idx = self.get_option_index(preserve_selection)
+                    # Defer highlight setting to next event loop cycle
+                    def set_highlight():
+                        self.highlighted = idx
+                        self.scroll_to_highlight()
+                        self._emit_highlighted()
+                    self.call_later(set_highlight)
+                    return  # Don't emit here, will be done in callback
+                except OptionDoesNotExist:
+                    self.action_first()
+            else:
+                self.action_first()
             self._emit_highlighted()
 
     def _load_flat_worktrees(
