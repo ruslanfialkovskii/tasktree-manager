@@ -25,6 +25,7 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "open_lazygit": "g",
     "open_folder": "o",
     "open_shell": "enter",
+    "open_editor": "e",
     "push_all": "p",
     "pull_all": "P",
     "refresh": "r",
@@ -295,6 +296,7 @@ delete_task = "{self.keybindings.get("delete_task", "d")}"
 open_lazygit = "{self.keybindings.get("open_lazygit", "g")}"
 open_folder = "{self.keybindings.get("open_folder", "o")}"
 open_shell = "{self.keybindings.get("open_shell", "enter")}"
+open_editor = "{self.keybindings.get("open_editor", "e")}"
 push_all = "{self.keybindings.get("push_all", "p")}"
 pull_all = "{self.keybindings.get("pull_all", "P")}"
 refresh = "{self.keybindings.get("refresh", "r")}"

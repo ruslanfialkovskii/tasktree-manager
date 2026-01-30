@@ -213,6 +213,7 @@ class TaskTreeApp(App):
         Binding("a", "add_repo", "Add Repo"),
         Binding("d", "delete_task", "Delete Task"),
         Binding("g", "open_lazygit", "Lazygit"),
+        Binding("e", "open_editor", "Editor"),
         Binding("o", "open_folder", "Open"),
         Binding("p", "push_all", "Push All"),
         Binding("r", "refresh", "Refresh"),
@@ -259,6 +260,7 @@ class TaskTreeApp(App):
             Binding(kb.get("add_repo", "a"), "add_repo", "Add Repo"),
             Binding(kb.get("delete_task", "d"), "delete_task", "Delete Task"),
             Binding(kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit"),
+            Binding(kb.get("open_editor", "e"), "open_editor", "Editor"),
             Binding(kb.get("open_folder", "o"), "open_folder", "Open"),
             Binding(kb.get("push_all", "p"), "push_all", "Push All"),
             Binding(kb.get("refresh", "r"), "refresh", "Refresh"),
@@ -865,6 +867,45 @@ class TaskTreeApp(App):
         self._load_tasks_with_selection(saved_task_name, saved_worktree_name)
         # Restore focus to worktree list
         self.query_one("#worktree-list", WorktreeList).focus()
+
+    def action_open_editor(self) -> None:
+        """Open editor in the current folder (task or worktree based on focus)."""
+        from pathlib import Path
+
+        focused = self.focused
+
+        # Determine folder based on focus (like open_folder does)
+        folder_path: Path | None = None
+        if isinstance(focused, TaskList) and self.current_task:
+            folder_path = self.current_task.path
+        elif isinstance(focused, WorktreeList) and self.current_worktree:
+            folder_path = self.current_worktree.path
+        else:
+            self.notify("No folder selected", severity="warning")
+            return
+
+        if not folder_path.exists():
+            self.notify("Folder not found", severity="error")
+            return
+
+        # Save selection state BEFORE suspend
+        saved_task_name = self.current_task.name if self.current_task else None
+        saved_worktree_name = self.current_worktree.name if self.current_worktree else None
+
+        editor = self.config.get_editor()
+        self.notify(f"Opening {editor}...")
+
+        # Suspend app and run editor with "." to open directory
+        with self.suspend():
+            self._run_external_command([editor, "."], cwd=folder_path, name="editor")
+
+        # Refresh status after editor exits, restoring saved selection
+        self._load_tasks_with_selection(saved_task_name, saved_worktree_name)
+        # Restore focus to the panel that was focused
+        if isinstance(focused, TaskList):
+            self.query_one("#task-list", TaskList).focus()
+        else:
+            self.query_one("#worktree-list", WorktreeList).focus()
 
     def action_open_folder(self) -> None:
         """Open current folder in a new terminal tab."""
