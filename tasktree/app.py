@@ -2,7 +2,7 @@
 
 import subprocess
 
-from textual import events, work
+from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -250,8 +250,6 @@ class TaskTreeApp(App):
         self._show_messages_panel: bool = False
         # Used to preserve worktree selection during task list reload
         self._preserved_worktree_name: str | None = None
-        # Track shift key state for dynamic footer
-        self._shift_pressed: bool = False
 
     def _build_bindings_from_config(self) -> list[Binding]:
         """Build keybindings list from config.
@@ -331,60 +329,6 @@ class TaskTreeApp(App):
             # Focus the task list initially
             task_list = self.query_one("#task-list", TaskList)
             task_list.focus()
-
-    def on_key(self, event: events.Key) -> None:
-        """Handle key events to track shift state."""
-        # Track shift press/release for dynamic footer
-        if event.key == "shift":
-            if not self._shift_pressed:
-                self._shift_pressed = True
-                self._update_footer_for_shift(True)
-        elif self._shift_pressed and event.key != "shift":
-            # Any other key while shift is tracked - check if it's an uppercase binding
-            pass
-
-    def on_blur(self, event: events.Blur) -> None:
-        """Handle blur to reset shift state."""
-        if self._shift_pressed:
-            self._shift_pressed = False
-            self._update_footer_for_shift(False)
-
-    def _update_footer_for_shift(self, shift_pressed: bool) -> None:
-        """Update footer to show/hide uppercase bindings."""
-        if shift_pressed:
-            # Show uppercase bindings in footer
-            self._custom_bindings = [
-                Binding("n", "new_task", "New Task"),
-                Binding("a", "add_repo", "Add Repo"),
-                Binding("d", "delete_task", "Delete Task"),
-                Binding("g", "open_lazygit", "Lazygit"),
-                Binding("e", "open_editor", "Editor"),
-                Binding("o", "open_folder", "Open"),
-                Binding("C", "open_claude_new", "New Claude"),
-                Binding("P", "pull_all", "Pull All"),
-                Binding("r", "refresh", "Refresh"),
-                Binding("S", "toggle_grouping", "Group"),
-                Binding("q", "quit", "Quit"),
-                Binding("?", "help", "Help"),
-            ]
-        else:
-            # Show lowercase bindings in footer
-            kb = self.config.keybindings
-            self._custom_bindings = [
-                Binding(kb.get("new_task", "n"), "new_task", "New Task"),
-                Binding(kb.get("add_repo", "a"), "add_repo", "Add Repo"),
-                Binding(kb.get("delete_task", "d"), "delete_task", "Delete Task"),
-                Binding(kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit"),
-                Binding(kb.get("open_editor", "e"), "open_editor", "Editor"),
-                Binding(kb.get("open_folder", "o"), "open_folder", "Open"),
-                Binding(kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude"),
-                Binding(kb.get("push_all", "p"), "push_all", "Push All"),
-                Binding(kb.get("refresh", "r"), "refresh", "Refresh"),
-                Binding(kb.get("toggle_messages", "m"), "toggle_messages", "Messages"),
-                Binding(kb.get("quit", "q"), "quit", "Quit"),
-                Binding(kb.get("help", "?"), "help", "Help"),
-            ]
-        self.refresh_bindings()
 
     def watch_theme(self, theme: str) -> None:
         """Save theme to config when changed."""
@@ -654,35 +598,32 @@ class TaskTreeApp(App):
                 task_list.loading = True
                 worktree_list.loading = True
                 task_name = self.current_task.name
-                try:
-                    for repo in repos:
+                added = []
+                failed = []
+                for repo in repos:
+                    try:
                         self.task_manager.add_repo_to_task(self.current_task, repo, base_branch)
-                    self._load_tasks()
-                    self._refresh_current_task()
-                    self.notify(f"Added {len(repos)} repo(s) to task")
+                        added.append(repo)
+                    except Exception as e:
+                        failed.append((repo, e))
+
+                self._load_tasks()
+                self._refresh_current_task()
+
+                if added:
+                    self.notify(f"Added {len(added)} repo(s) to task")
                     self._log_activity(
-                        f"Added {len(repos)} repo(s) to task '{task_name}'",
+                        f"Added {len(added)} repo(s) to task '{task_name}'",
                         MessageLevel.SUCCESS,
                         task_name,
                     )
-                except FileNotFoundError as e:
-                    self.notify(f"Repository not found: {e}", severity="error")
-                    self._log_activity(f"Failed to add repos: {e}", MessageLevel.ERROR, task_name)
-                except PermissionError:
-                    self.notify("Permission denied: check directory permissions", severity="error")
+                for repo, err in failed:
+                    self.notify(f"Failed to add {repo}: {err}", severity="error")
                     self._log_activity(
-                        "Failed to add repos: permission denied", MessageLevel.ERROR, task_name
+                        f"Failed to add {repo}: {err}", MessageLevel.ERROR, task_name
                     )
-                except ValueError as e:
-                    # ValueError from task_manager has good messages
-                    self.notify(str(e), severity="error")
-                    self._log_activity(f"Failed to add repos: {e}", MessageLevel.ERROR, task_name)
-                except Exception as e:
-                    self.notify(f"Failed to add repos: {type(e).__name__}: {e}", severity="error")
-                    self._log_activity(f"Failed to add repos: {e}", MessageLevel.ERROR, task_name)
-                finally:
-                    task_list.loading = False
-                    worktree_list.loading = False
+                task_list.loading = False
+                worktree_list.loading = False
 
         self.push_screen(AddRepoModal(self.current_task.name, available_repos), handle_result)
 

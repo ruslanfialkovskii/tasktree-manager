@@ -184,7 +184,10 @@ class TaskManager:
             # Skip directory-only patterns (ending with /)
             if line.endswith("/"):
                 continue
-            # Convert to glob pattern
+            # Strip leading / (gitignore root-relative marker) since we glob from repo root
+            line = line.lstrip("/")
+            if not line:
+                continue
             patterns.append(line)
         return patterns
 
