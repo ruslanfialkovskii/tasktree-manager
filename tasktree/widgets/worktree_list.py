@@ -135,11 +135,12 @@ class WorktreeList(OptionList):
         branch = worktree.branch or "unknown"
         name_col = f"{worktree.name:<{max_name_len}}"
         branch_col = f"{branch:<{max_branch_len}}"
+        claude_indicator = "[blue]◆[/]" if worktree.has_claude_md else " "
 
         if worktree.is_dirty:
-            prompt = f"  {name_col}  [cyan]{branch_col}[/]  [red]✗ {worktree.changed_files} files[/]"
+            prompt = f" {claude_indicator}{name_col}  [cyan]{branch_col}[/]  [red]✗ {worktree.changed_files} files[/]"
         else:
-            prompt = f"  {name_col}  [cyan]{branch_col}[/]  [green]✓[/]"
+            prompt = f" {claude_indicator}{name_col}  [cyan]{branch_col}[/]  [green]✓[/]"
         self.add_option(Option(prompt, id=worktree.name))
 
     def _emit_highlighted(self) -> None:

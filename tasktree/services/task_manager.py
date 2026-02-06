@@ -24,6 +24,11 @@ class Worktree:
         """Check if the worktree directory exists."""
         return self.path.exists()
 
+    @property
+    def has_claude_md(self) -> bool:
+        """Check if the worktree has a CLAUDE.md file."""
+        return (self.path / "CLAUDE.md").exists()
+
 
 @dataclass
 class Task:
@@ -42,6 +47,11 @@ class Task:
     def dirty_count(self) -> int:
         """Count of dirty worktrees."""
         return sum(1 for wt in self.worktrees if wt.is_dirty)
+
+    @property
+    def has_claude_md(self) -> bool:
+        """Check if the task has a CLAUDE.md file."""
+        return (self.path / "CLAUDE.md").exists()
 
 
 @dataclass
@@ -175,6 +185,24 @@ class TaskManager:
 
         # Use -B to reset branch if it exists, -b if it doesn't
         branch_flag = "-B" if branch_check.returncode == 0 else "-b"
+
+        # Fetch and pull base branch to ensure worktree starts from latest code
+        subprocess.run(
+            ["git", "fetch", "origin", base_branch],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        # Pull to fast-forward the local base branch if possible
+        subprocess.run(
+            ["git", "pull", "--ff-only", "origin", base_branch],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
 
         # Create git worktree with task name as branch
         result = subprocess.run(
@@ -423,3 +451,56 @@ class TaskManager:
                 failed_repos.append(worktree.name)
 
         return success_repos, failed_repos
+
+    def ensure_claude_md_files(self, task: Task) -> None:
+        """Create CLAUDE.md files if they don't exist (never overwrite).
+
+        Args:
+            task: The task to create CLAUDE.md files for
+        """
+        task_claude_md = task.path / "CLAUDE.md"
+        if not task_claude_md.exists():
+            self._create_task_claude_md(task)
+
+        for worktree in task.worktrees:
+            wt_claude_md = worktree.path / "CLAUDE.md"
+            if not wt_claude_md.exists():
+                self._create_worktree_claude_md(task, worktree)
+
+    def _create_task_claude_md(self, task: Task) -> None:
+        """Generate task CLAUDE.md with task name + worktree paths.
+
+        Args:
+            task: The task to create CLAUDE.md for
+        """
+        content = f"""# Task: {task.name}
+
+## Worktrees
+
+"""
+        for wt in task.worktrees:
+            content += f"- **{wt.name}**: `{wt.path}`\n"
+            if wt.branch:
+                content += f"  - Branch: `{wt.branch}`\n"
+
+        content += "\n## Notes\n\nAdd task-specific context here.\n"
+        (task.path / "CLAUDE.md").write_text(content)
+
+    def _create_worktree_claude_md(self, task: Task, worktree: Worktree) -> None:
+        """Generate worktree CLAUDE.md with branch/path info.
+
+        Args:
+            task: The parent task
+            worktree: The worktree to create CLAUDE.md for
+        """
+        content = f"""# Worktree: {worktree.name}
+
+- **Path**: `{worktree.path}`
+- **Branch**: `{worktree.branch or 'unknown'}`
+- **Task**: {task.name}
+
+## Notes
+
+Add worktree-specific context here.
+"""
+        (worktree.path / "CLAUDE.md").write_text(content)

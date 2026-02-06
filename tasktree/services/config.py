@@ -26,6 +26,7 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "open_folder": "o",
     "open_shell": "enter",
     "open_editor": "e",
+    "open_claude": "c",
     "push_all": "p",
     "pull_all": "P",
     "refresh": "r",
@@ -64,6 +65,7 @@ class Config:
     # External tools
     editor: str = ""
     lazygit_path: str = "lazygit"
+    claude_path: str = "claude"
     shell: str = ""
 
     # Keybindings (action -> key mapping)
@@ -126,6 +128,7 @@ class Config:
         tools_config = config_data.get("tools", {})
         editor = tools_config.get("editor", "")
         lazygit_path = tools_config.get("lazygit_path", "lazygit")
+        claude_path = tools_config.get("claude_path", "claude")
         shell = tools_config.get("shell", "")
 
         # Keybindings - start with defaults and override with config
@@ -169,6 +172,7 @@ class Config:
             git_timeout=git_timeout,
             editor=editor,
             lazygit_path=lazygit_path,
+            claude_path=claude_path,
             shell=shell,
             keybindings=keybindings,
             symlink_blocklist=symlink_blocklist,
@@ -278,6 +282,9 @@ editor = "{self.editor}"
 # Path to lazygit executable
 lazygit_path = "{self.lazygit_path}"
 
+# Path to claude CLI executable
+claude_path = "{self.claude_path}"
+
 # Preferred shell (leave empty to use $SHELL)
 shell = "{self.shell}"
 
@@ -297,6 +304,7 @@ open_lazygit = "{self.keybindings.get("open_lazygit", "g")}"
 open_folder = "{self.keybindings.get("open_folder", "o")}"
 open_shell = "{self.keybindings.get("open_shell", "enter")}"
 open_editor = "{self.keybindings.get("open_editor", "e")}"
+open_claude = "{self.keybindings.get("open_claude", "c")}"
 push_all = "{self.keybindings.get("push_all", "p")}"
 pull_all = "{self.keybindings.get("pull_all", "P")}"
 refresh = "{self.keybindings.get("refresh", "r")}"

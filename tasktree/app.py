@@ -221,6 +221,7 @@ class TaskTreeApp(App):
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
         Binding("enter", "open_shell", "Shell", show=False),
+        Binding("c", "open_claude", "Claude"),
         Binding("P", "pull_all", "Pull All", show=False),
         Binding("tab", "focus_next", "Next Panel", show=False),
         Binding("shift+tab", "focus_previous", "Prev Panel", show=False),
@@ -268,6 +269,7 @@ class TaskTreeApp(App):
             Binding(kb.get("quit", "q"), "quit", "Quit"),
             Binding(kb.get("help", "?"), "help", "Help"),
             Binding(kb.get("open_shell", "enter"), "open_shell", "Shell", show=False),
+            Binding(kb.get("open_claude", "c"), "open_claude", "Claude"),
             Binding(kb.get("pull_all", "P"), "pull_all", "Pull All", show=False),
             Binding(kb.get("focus_next", "tab"), "focus_next", "Next Panel", show=False),
             Binding(
@@ -906,6 +908,39 @@ class TaskTreeApp(App):
             self.query_one("#task-list", TaskList).focus()
         else:
             self.query_one("#worktree-list", WorktreeList).focus()
+
+    def action_open_claude(self) -> None:
+        """Open Claude Code in the current task folder."""
+        if not self.current_task:
+            self.notify("No task selected", severity="warning")
+            return
+
+        task_path = self.current_task.path
+        if not task_path.exists():
+            self.notify("Task directory not found", severity="error")
+            return
+
+        saved_task_name = self.current_task.name
+        saved_worktree_name = self.current_worktree.name if self.current_worktree else None
+
+        # Fetch fresh task data to ensure worktrees are up-to-date
+        fresh_task = self.task_manager.get_task(saved_task_name)
+        if fresh_task:
+            # Create claude.md files if they don't exist
+            self.task_manager.ensure_claude_md_files(fresh_task)
+
+        self.notify("Opening Claude Code...")
+
+        with self.suspend():
+            self._run_external_command(
+                [self.config.claude_path],
+                cwd=task_path,
+                name="Claude Code",
+                install_hint="npm install -g @anthropic-ai/claude-code",
+            )
+
+        self._load_tasks_with_selection(saved_task_name, saved_worktree_name)
+        self.query_one("#task-list", TaskList).focus()
 
     def action_open_folder(self) -> None:
         """Open current folder in a new terminal tab."""

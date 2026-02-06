@@ -73,11 +73,12 @@ class TaskList(OptionList):
         self.tasks = sorted_tasks
         self.clear_options()
         for task in sorted_tasks:
-            # Build display text with dirty indicator
+            # Build display text with dirty indicator and claude.md indicator
+            claude_indicator = "[blue]◆[/]" if task.has_claude_md else " "
             if task.is_dirty:
-                prompt = f"[red]●[/] {task.name} [red]({task.dirty_count})[/]"
+                prompt = f"[red]●[/]{claude_indicator}{task.name} [red]({task.dirty_count})[/]"
             else:
-                prompt = f"  {task.name}"
+                prompt = f"  {claude_indicator}{task.name}"
             self.add_option(Option(prompt, id=task.name))
 
         # Select item - preserve previous selection if specified
@@ -139,10 +140,11 @@ class TaskList(OptionList):
             self.tasks = sorted_tasks
             self.clear_options()
             for task in sorted_tasks:
+                claude_indicator = "[blue]◆[/]" if task.has_claude_md else " "
                 if task.is_dirty:
-                    prompt = f"[red]●[/] {task.name} [red]({task.dirty_count})[/]"
+                    prompt = f"[red]●[/]{claude_indicator}{task.name} [red]({task.dirty_count})[/]"
                 else:
-                    prompt = f"  {task.name}"
+                    prompt = f"  {claude_indicator}{task.name}"
                 self.add_option(Option(prompt, id=task.name))
 
             if self.tasks and self.option_count > 0:
