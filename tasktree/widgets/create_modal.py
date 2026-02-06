@@ -1,5 +1,6 @@
 """Modal widgets for creating tasks and adding repos."""
 
+import re
 from typing import TypeVar
 
 from textual.app import ComposeResult
@@ -182,6 +183,16 @@ class CreateTaskModal(ThemedModalScreen[tuple[str, list[str], str] | None]):
 
         if not name:
             self.notify("Task name is required", severity="error")
+            return
+
+        # Validate task name for safety
+        if name.startswith("-"):
+            self.notify("Task name cannot start with '-'", severity="error")
+            return
+        if not re.match(r"^[a-zA-Z0-9._/\-]+$", name):
+            self.notify(
+                "Task name can only contain letters, numbers, '.', '_', '/', '-'", severity="error"
+            )
             return
 
         if not selected_repos:
@@ -594,7 +605,9 @@ class HelpModal(ThemedModalScreen[None]):
         general_section += (
             self._format_binding("open_folder", "o", "Open folder in terminal") + "\n"
         )
-        general_section += self._format_binding("toggle_messages", "m", "Toggle activity log") + "\n"
+        general_section += (
+            self._format_binding("toggle_messages", "m", "Toggle activity log") + "\n"
+        )
         general_section += self._format_binding("help", "?", "Show this help") + "\n"
         general_section += self._format_binding("quit", "q", "Quit tasktree")
         sections.append(general_section)

@@ -1,16 +1,17 @@
 """Main application for tasktree."""
 
-import shutil
 import subprocess
 
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Static
 
 from .services.config import Config
-from .services.git_ops import GitOps, GitStatus
-from .services.task_manager import Task, TaskManager, Worktree
+from .services.git_ops import GitOps
+from .services.models import GitStatus, Task, Worktree
+from .services.task_manager import TaskManager
 from .widgets.create_modal import (
     AddRepoModal,
     ConfirmModal,
@@ -207,7 +208,8 @@ class TaskTreeApp(App):
     """
 
     # Default bindings - will be overridden in __init__ with config values
-    # Footer order: n, a, d, g, o, p, r, m, q, ?
+    # Footer order: n, a, d, g, o, c, p, r, m, q, ?
+    # Uppercase shown only when shift is pressed: C, P, S
     BINDINGS = [
         Binding("n", "new_task", "New Task"),
         Binding("a", "add_repo", "Add Repo"),
@@ -215,20 +217,21 @@ class TaskTreeApp(App):
         Binding("g", "open_lazygit", "Lazygit"),
         Binding("e", "open_editor", "Editor"),
         Binding("o", "open_folder", "Open"),
+        Binding("c", "open_claude_resume", "Claude"),
         Binding("p", "push_all", "Push All"),
         Binding("r", "refresh", "Refresh"),
         Binding("m", "toggle_messages", "Messages"),
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
         Binding("enter", "open_shell", "Shell", show=False),
-        Binding("c", "open_claude", "Claude"),
+        Binding("C", "open_claude_new", "New Claude", show=False),
         Binding("P", "pull_all", "Pull All", show=False),
+        Binding("S", "toggle_grouping", "Group", show=False),
         Binding("tab", "focus_next", "Next Panel", show=False),
         Binding("shift+tab", "focus_previous", "Prev Panel", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
         Binding("s", "cycle_sort", "Sort", show=False),
-        Binding("S", "toggle_grouping", "Group", show=False),
     ]
 
     def __init__(self):
@@ -247,6 +250,8 @@ class TaskTreeApp(App):
         self._show_messages_panel: bool = False
         # Used to preserve worktree selection during task list reload
         self._preserved_worktree_name: str | None = None
+        # Track shift key state for dynamic footer
+        self._shift_pressed: bool = False
 
     def _build_bindings_from_config(self) -> list[Binding]:
         """Build keybindings list from config.
@@ -255,7 +260,8 @@ class TaskTreeApp(App):
             List of Binding objects with keys from config
         """
         kb = self.config.keybindings
-        # Footer order: n, a, d, g, o, p, r, m, q, ?
+        # Footer order: n, a, d, g, o, c, p, r, m, q, ?
+        # Uppercase shown only when shift is pressed: C, P, S
         return [
             Binding(kb.get("new_task", "n"), "new_task", "New Task"),
             Binding(kb.get("add_repo", "a"), "add_repo", "Add Repo"),
@@ -263,14 +269,16 @@ class TaskTreeApp(App):
             Binding(kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit"),
             Binding(kb.get("open_editor", "e"), "open_editor", "Editor"),
             Binding(kb.get("open_folder", "o"), "open_folder", "Open"),
+            Binding(kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude"),
             Binding(kb.get("push_all", "p"), "push_all", "Push All"),
             Binding(kb.get("refresh", "r"), "refresh", "Refresh"),
             Binding(kb.get("toggle_messages", "m"), "toggle_messages", "Messages"),
             Binding(kb.get("quit", "q"), "quit", "Quit"),
             Binding(kb.get("help", "?"), "help", "Help"),
             Binding(kb.get("open_shell", "enter"), "open_shell", "Shell", show=False),
-            Binding(kb.get("open_claude", "c"), "open_claude", "Claude"),
+            Binding(kb.get("open_claude_new", "C"), "open_claude_new", "New Claude", show=False),
             Binding(kb.get("pull_all", "P"), "pull_all", "Pull All", show=False),
+            Binding(kb.get("toggle_grouping", "S"), "toggle_grouping", "Group", show=False),
             Binding(kb.get("focus_next", "tab"), "focus_next", "Next Panel", show=False),
             Binding(
                 kb.get("focus_previous", "shift+tab"), "focus_previous", "Prev Panel", show=False
@@ -278,7 +286,6 @@ class TaskTreeApp(App):
             Binding(kb.get("cursor_down", "j"), "cursor_down", "Down", show=False),
             Binding(kb.get("cursor_up", "k"), "cursor_up", "Up", show=False),
             Binding(kb.get("cycle_sort", "s"), "cycle_sort", "Sort", show=False),
-            Binding(kb.get("toggle_grouping", "S"), "toggle_grouping", "Group", show=False),
         ]
 
     @property
@@ -325,6 +332,60 @@ class TaskTreeApp(App):
             task_list = self.query_one("#task-list", TaskList)
             task_list.focus()
 
+    def on_key(self, event: events.Key) -> None:
+        """Handle key events to track shift state."""
+        # Track shift press/release for dynamic footer
+        if event.key == "shift":
+            if not self._shift_pressed:
+                self._shift_pressed = True
+                self._update_footer_for_shift(True)
+        elif self._shift_pressed and event.key != "shift":
+            # Any other key while shift is tracked - check if it's an uppercase binding
+            pass
+
+    def on_blur(self, event: events.Blur) -> None:
+        """Handle blur to reset shift state."""
+        if self._shift_pressed:
+            self._shift_pressed = False
+            self._update_footer_for_shift(False)
+
+    def _update_footer_for_shift(self, shift_pressed: bool) -> None:
+        """Update footer to show/hide uppercase bindings."""
+        if shift_pressed:
+            # Show uppercase bindings in footer
+            self._custom_bindings = [
+                Binding("n", "new_task", "New Task"),
+                Binding("a", "add_repo", "Add Repo"),
+                Binding("d", "delete_task", "Delete Task"),
+                Binding("g", "open_lazygit", "Lazygit"),
+                Binding("e", "open_editor", "Editor"),
+                Binding("o", "open_folder", "Open"),
+                Binding("C", "open_claude_new", "New Claude"),
+                Binding("P", "pull_all", "Pull All"),
+                Binding("r", "refresh", "Refresh"),
+                Binding("S", "toggle_grouping", "Group"),
+                Binding("q", "quit", "Quit"),
+                Binding("?", "help", "Help"),
+            ]
+        else:
+            # Show lowercase bindings in footer
+            kb = self.config.keybindings
+            self._custom_bindings = [
+                Binding(kb.get("new_task", "n"), "new_task", "New Task"),
+                Binding(kb.get("add_repo", "a"), "add_repo", "Add Repo"),
+                Binding(kb.get("delete_task", "d"), "delete_task", "Delete Task"),
+                Binding(kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit"),
+                Binding(kb.get("open_editor", "e"), "open_editor", "Editor"),
+                Binding(kb.get("open_folder", "o"), "open_folder", "Open"),
+                Binding(kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude"),
+                Binding(kb.get("push_all", "p"), "push_all", "Push All"),
+                Binding(kb.get("refresh", "r"), "refresh", "Refresh"),
+                Binding(kb.get("toggle_messages", "m"), "toggle_messages", "Messages"),
+                Binding(kb.get("quit", "q"), "quit", "Quit"),
+                Binding(kb.get("help", "?"), "help", "Help"),
+            ]
+        self.refresh_bindings()
+
     def watch_theme(self, theme: str) -> None:
         """Save theme to config when changed."""
         if hasattr(self, "config") and self.config.theme != theme:
@@ -370,7 +431,9 @@ class TaskTreeApp(App):
         task_list.loading = True
 
         # Remember current selection if preserving
-        current_task_name = self.current_task.name if preserve_selection and self.current_task else None
+        current_task_name = (
+            self.current_task.name if preserve_selection and self.current_task else None
+        )
         # Store worktree name for event handler to use
         if preserve_selection and self.current_worktree:
             self._preserved_worktree_name = self.current_worktree.name
@@ -386,9 +449,7 @@ class TaskTreeApp(App):
         finally:
             task_list.loading = False
 
-    def _load_tasks_with_selection(
-        self, task_name: str | None, worktree_name: str | None
-    ) -> None:
+    def _load_tasks_with_selection(self, task_name: str | None, worktree_name: str | None) -> None:
         """Load tasks and restore selection by explicit names.
 
         This is used after suspend/resume to restore exact selection state.
@@ -424,9 +485,7 @@ class TaskTreeApp(App):
         if self.current_task:
             # Remember current selection if preserving
             current_worktree_name = (
-                self.current_worktree.name
-                if preserve_selection and self.current_worktree
-                else None
+                self.current_worktree.name if preserve_selection and self.current_worktree else None
             )
 
             task = self.task_manager.get_task(self.current_task.name)
@@ -452,15 +511,11 @@ class TaskTreeApp(App):
         Returns:
             True if command ran successfully, False otherwise
         """
-        if not shutil.which(cmd[0]):
-            hint = f" Install with: {install_hint}" if install_hint else ""
-            self.notify(f"{name} not found.{hint}", severity="error")
-            return False
+        hint = f" Install with: {install_hint}" if install_hint else ""
         try:
             subprocess.run(cmd, cwd=cwd)
             return True
         except FileNotFoundError:
-            hint = f" Install with: {install_hint}" if install_hint else ""
             self.notify(f"{name} not found.{hint}", severity="error")
             return False
         except PermissionError:
@@ -502,12 +557,28 @@ class TaskTreeApp(App):
 
         if event.worktree:
             status_panel.set_loading(True)
-            status = GitOps.get_status(event.worktree)
-            self.current_status = status
-            status_panel.update_status(event.worktree, status)
+            self._update_worktree_status(event.worktree)
         else:
             self.current_status = None
             status_panel.clear_status()
+
+    @work(thread=True, exclusive=True, group="status_update")
+    def _update_worktree_status(self, worktree: Worktree) -> None:
+        """Fetch git status in background thread."""
+        status = GitOps.get_status(worktree)
+        # Call back to main thread to update UI
+        self.call_from_thread(self._apply_worktree_status, worktree, status)
+
+    def _apply_worktree_status(self, worktree: Worktree, status: GitStatus) -> None:
+        """Apply fetched status to the UI (called on main thread)."""
+        # Only update if this worktree is still selected
+        if self.current_worktree and self.current_worktree.path == worktree.path:
+            self.current_status = status
+            try:
+                status_panel = self.query_one("#status-display", StatusPanel)
+                status_panel.update_status(worktree, status)
+            except Exception:
+                pass
 
     def action_quit(self) -> None:
         """Quit the application."""
@@ -546,9 +617,7 @@ class TaskTreeApp(App):
                     )
                 except FileNotFoundError as e:
                     self.notify(f"Repository not found: {e}", severity="error")
-                    self._log_activity(
-                        f"Failed to create task: {e}", MessageLevel.ERROR, name
-                    )
+                    self._log_activity(f"Failed to create task: {e}", MessageLevel.ERROR, name)
                 except PermissionError:
                     self.notify("Permission denied: check directory permissions", severity="error")
                     self._log_activity(
@@ -598,9 +667,7 @@ class TaskTreeApp(App):
                     )
                 except FileNotFoundError as e:
                     self.notify(f"Repository not found: {e}", severity="error")
-                    self._log_activity(
-                        f"Failed to add repos: {e}", MessageLevel.ERROR, task_name
-                    )
+                    self._log_activity(f"Failed to add repos: {e}", MessageLevel.ERROR, task_name)
                 except PermissionError:
                     self.notify("Permission denied: check directory permissions", severity="error")
                     self._log_activity(
@@ -909,8 +976,8 @@ class TaskTreeApp(App):
         else:
             self.query_one("#worktree-list", WorktreeList).focus()
 
-    def action_open_claude(self) -> None:
-        """Open Claude Code in the current task folder."""
+    def action_open_claude_resume(self) -> None:
+        """Open Claude Code with session list (claude -r) in the current task folder."""
         if not self.current_task:
             self.notify("No task selected", severity="warning")
             return
@@ -929,7 +996,40 @@ class TaskTreeApp(App):
             # Create claude.md files if they don't exist
             self.task_manager.ensure_claude_md_files(fresh_task)
 
-        self.notify("Opening Claude Code...")
+        self.notify("Opening Claude Code (resume)...")
+
+        with self.suspend():
+            self._run_external_command(
+                [self.config.claude_path, "-r"],
+                cwd=task_path,
+                name="Claude Code",
+                install_hint="npm install -g @anthropic-ai/claude-code",
+            )
+
+        self._load_tasks_with_selection(saved_task_name, saved_worktree_name)
+        self.query_one("#task-list", TaskList).focus()
+
+    def action_open_claude_new(self) -> None:
+        """Open a new Claude Code session in the current task folder."""
+        if not self.current_task:
+            self.notify("No task selected", severity="warning")
+            return
+
+        task_path = self.current_task.path
+        if not task_path.exists():
+            self.notify("Task directory not found", severity="error")
+            return
+
+        saved_task_name = self.current_task.name
+        saved_worktree_name = self.current_worktree.name if self.current_worktree else None
+
+        # Fetch fresh task data to ensure worktrees are up-to-date
+        fresh_task = self.task_manager.get_task(saved_task_name)
+        if fresh_task:
+            # Create claude.md files if they don't exist
+            self.task_manager.ensure_claude_md_files(fresh_task)
+
+        self.notify("Opening new Claude Code session...")
 
         with self.suspend():
             self._run_external_command(
@@ -963,12 +1063,18 @@ class TaskTreeApp(App):
             return
 
         # Open in new terminal tab
-        self._open_terminal_tab(folder_path)
+        self._open_ghostty_tab(folder_path)
 
-    def _open_terminal_tab(self, path) -> None:
-        """Open a new terminal tab at the given path (Ghostty)."""
+    def _open_ghostty_tab(self, path) -> None:
+        """Open a new terminal tab at the given path.
+
+        NOTE: This implementation is specific to the Ghostty terminal emulator
+        on macOS, using AppleScript. It will silently fail on other terminals.
+        """
         # Ghostty: Use AppleScript to activate and open new tab, then cd
-        script = f'''
+        # Escape single quotes for AppleScript string interpolation
+        safe_path = str(path).replace("'", "'\\''")
+        script = f"""
         tell application "Ghostty"
             activate
         end tell
@@ -976,11 +1082,11 @@ class TaskTreeApp(App):
             tell process "Ghostty"
                 keystroke "t" using command down
                 delay 0.1
-                keystroke "cd '{path}' && clear"
+                keystroke "cd '{safe_path}' && clear"
                 key code 36
             end tell
         end tell
-        '''
+        """
         subprocess.run(["osascript", "-e", script], capture_output=True)
 
     def action_push_all(self) -> None:
@@ -1113,9 +1219,7 @@ class TaskTreeApp(App):
         worktree_list = self.query_one("#worktree-list", WorktreeList)
         worktree_list.toggle_grouping()
 
-    def on_worktree_list_grouping_changed(
-        self, event: WorktreeList.GroupingChanged
-    ) -> None:
+    def on_worktree_list_grouping_changed(self, event: WorktreeList.GroupingChanged) -> None:
         """Handle grouping mode change in worktree list."""
         title = self.query_one("#worktree-panel-title", Static)
         if event.enabled:

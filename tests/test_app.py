@@ -507,5 +507,3 @@ class TestAppConfiguration:
         assert "quit" in binding_actions
         assert "help" in binding_actions
         assert "new_task" in binding_actions
-
-

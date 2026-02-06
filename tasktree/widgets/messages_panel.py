@@ -84,9 +84,7 @@ class MessagesPanel(Static):
         super().__init__(*args, **kwargs)
         self._store = MessagesStore(max_messages=max_messages)
 
-    def add_message(
-        self, message: str, level: MessageLevel, task_name: str | None = None
-    ) -> None:
+    def add_message(self, message: str, level: MessageLevel, task_name: str | None = None) -> None:
         """Add a new message to the activity log.
 
         Args:

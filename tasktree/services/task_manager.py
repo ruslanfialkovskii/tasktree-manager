@@ -1,99 +1,38 @@
 """Task management service for tasktree."""
 
 import fnmatch
+import os
+import re
 import shutil
 import subprocess
-from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from .config import Config
-
-
-@dataclass
-class Worktree:
-    """Represents a git worktree for a task."""
-
-    name: str
-    path: Path
-    branch: str = ""
-    is_dirty: bool = False
-    changed_files: int = 0
-
-    @property
-    def exists(self) -> bool:
-        """Check if the worktree directory exists."""
-        return self.path.exists()
-
-    @property
-    def has_claude_md(self) -> bool:
-        """Check if the worktree has a CLAUDE.md file."""
-        return (self.path / "CLAUDE.md").exists()
-
-
-@dataclass
-class Task:
-    """Represents a task with associated worktrees."""
-
-    name: str
-    path: Path
-    worktrees: list[Worktree] = field(default_factory=list)
-
-    @property
-    def is_dirty(self) -> bool:
-        """Check if any worktree in the task is dirty."""
-        return any(wt.is_dirty for wt in self.worktrees)
-
-    @property
-    def dirty_count(self) -> int:
-        """Count of dirty worktrees."""
-        return sum(1 for wt in self.worktrees if wt.is_dirty)
-
-    @property
-    def has_claude_md(self) -> bool:
-        """Check if the task has a CLAUDE.md file."""
-        return (self.path / "CLAUDE.md").exists()
-
-
-@dataclass
-class RepoIssue:
-    """Represents an issue with a specific repo."""
-
-    repo_name: str
-    worktree_path: Path
-    issue_type: str  # "unpushed", "unmerged", "dirty"
-    details: str  # "3 commits ahead", "not merged to main", "2 files changed"
-
-
-@dataclass
-class TaskSafetyReport:
-    """Report of safety issues for a task."""
-
-    unpushed: list[RepoIssue] = field(default_factory=list)
-    unmerged: list[RepoIssue] = field(default_factory=list)
-    dirty: list[RepoIssue] = field(default_factory=list)
-
-    def is_safe(self) -> bool:
-        """True if no issues found."""
-        return not (self.unpushed or self.unmerged or self.dirty)
-
-    def has_unpushed(self) -> bool:
-        """True if there are unpushed commits."""
-        return bool(self.unpushed)
-
-    def has_unmerged(self) -> bool:
-        """True if there are unmerged branches."""
-        return bool(self.unmerged)
-
-    def has_dirty(self) -> bool:
-        """True if there are uncommitted changes."""
-        return bool(self.dirty)
+from .models import RepoIssue, Task, TaskSafetyReport, Worktree
 
 
 class TaskManager:
     """Manages tasks and worktrees."""
 
+    # Task name validation pattern
+    TASK_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9._/\-]+$")
+
     def __init__(self, config: Config):
         self.config = config
+
+    def _validate_task_name(self, name: str) -> None:
+        """Validate task name for safety.
+
+        Raises:
+            ValueError: If task name is invalid
+        """
+        if not name:
+            raise ValueError("Task name cannot be empty")
+        if name.startswith("-"):
+            raise ValueError("Task name cannot start with '-'")
+        if not self.TASK_NAME_PATTERN.match(name):
+            raise ValueError("Task name can only contain letters, numbers, '.', '_', '/', '-'")
 
     def list_tasks(self) -> list[Task]:
         """List all tasks in the tasks directory."""
@@ -112,32 +51,32 @@ class TaskManager:
     IGNORED_PATHS = {".terraform", "node_modules", "vendor", ".git"}
 
     def _get_worktrees(self, task: Task) -> list[Worktree]:
-        """Get all worktrees for a task (recursively scans subdirectories)."""
+        """Get all worktrees for a task (with directory pruning)."""
         worktrees = []
         if not task.path.exists():
             return worktrees
 
-        # Recursively find all directories containing .git
-        for git_dir in sorted(task.path.rglob(".git")):
-            if git_dir.is_dir() or git_dir.is_file():
-                # Get the parent directory (the actual worktree)
-                worktree_path = git_dir.parent
+        for dirpath, dirnames, filenames in os.walk(task.path):
+            # Prune ignored directories in-place
+            dirnames[:] = [d for d in dirnames if d not in self.IGNORED_PATHS]
 
-                # Skip if path contains ignored directories
-                path_parts = worktree_path.relative_to(task.path).parts
-                if any(part in self.IGNORED_PATHS for part in path_parts):
-                    continue
+            # Check if this directory has .git (file or directory)
+            if ".git" in dirnames or ".git" in filenames:
+                worktree_path = Path(dirpath)
+                # Don't descend into .git directories
+                if ".git" in dirnames:
+                    dirnames[:] = [d for d in dirnames if d != ".git"]
 
-                # Get relative path from task directory for the name
                 try:
                     rel_path = worktree_path.relative_to(task.path)
-                    worktree = Worktree(name=str(rel_path), path=worktree_path)
-                    worktrees.append(worktree)
+                    # Skip the task root itself if it has .git
+                    if str(rel_path) == ".":
+                        continue
+                    worktrees.append(Worktree(name=str(rel_path), path=worktree_path))
                 except ValueError:
-                    # Skip if not relative to task path
                     continue
 
-        return worktrees
+        return sorted(worktrees, key=lambda w: w.name)
 
     def get_task(self, name: str) -> Task | None:
         """Get a specific task by name."""
@@ -151,6 +90,9 @@ class TaskManager:
 
     def create_task(self, name: str, repos: list[str], base_branch: str = "master") -> Task:
         """Create a new task with worktrees for specified repos."""
+        # Validate task name
+        self._validate_task_name(name)
+
         task_path = self.config.tasks_dir / name
         task_path.mkdir(parents=True, exist_ok=True)
 
@@ -181,6 +123,7 @@ class TaskManager:
             ["git", "rev-parse", "--verify", f"refs/heads/{task.name}"],
             cwd=repo_path,
             capture_output=True,
+            timeout=10,
         )
 
         # Use -B to reset branch if it exists, -b if it doesn't
@@ -210,6 +153,7 @@ class TaskManager:
             cwd=repo_path,
             capture_output=True,
             text=True,
+            timeout=60,
         )
 
         if result.returncode != 0:
@@ -366,7 +310,7 @@ class TaskManager:
         return sorted(all_repos - task_repos)
 
     def check_task_safety(self, task: Task) -> TaskSafetyReport:
-        """Check if task is safe to delete.
+        """Check if task is safe to delete (parallel version).
 
         Checks for:
         - Unpushed commits (ahead of remote)
@@ -382,51 +326,67 @@ class TaskManager:
         from .git_ops import GitOps
 
         report = TaskSafetyReport()
+        valid_worktrees = [wt for wt in task.worktrees if wt.path.exists()]
 
-        for worktree in task.worktrees:
-            if not worktree.path.exists():
-                continue
+        if not valid_worktrees:
+            return report
 
-            # Get git status
+        def _check_worktree(worktree: Worktree) -> list[RepoIssue]:
+            """Check a single worktree and return list of issues."""
+            issues = []
+
+            # Get fresh git status
             status = GitOps.get_status(worktree)
 
             # Check for uncommitted changes
             if status.is_dirty:
-                issue = RepoIssue(
-                    repo_name=worktree.name,
-                    worktree_path=worktree.path,
-                    issue_type="dirty",
-                    details=f"{status.changed_files} file{'s' if status.changed_files != 1 else ''} changed",
+                issues.append(
+                    RepoIssue(
+                        repo_name=worktree.name,
+                        worktree_path=worktree.path,
+                        issue_type="dirty",
+                        details=f"{status.changed_files} file{'s' if status.changed_files != 1 else ''} changed",
+                    )
                 )
-                report.dirty.append(issue)
 
-            # Check for unpushed commits
             if status.ahead > 0:
-                issue = RepoIssue(
-                    repo_name=worktree.name,
-                    worktree_path=worktree.path,
-                    issue_type="unpushed",
-                    details=f"{status.ahead} commit{'s' if status.ahead != 1 else ''} ahead",
+                issues.append(
+                    RepoIssue(
+                        repo_name=worktree.name,
+                        worktree_path=worktree.path,
+                        issue_type="unpushed",
+                        details=f"{status.ahead} commit{'s' if status.ahead != 1 else ''} ahead",
+                    )
                 )
-                report.unpushed.append(issue)
 
-            # Check if branch is merged to default branch
             default_branch = GitOps.get_default_branch(worktree)
-            is_merged = GitOps.check_merged(worktree, default_branch)
-
-            if not is_merged:
-                issue = RepoIssue(
-                    repo_name=worktree.name,
-                    worktree_path=worktree.path,
-                    issue_type="unmerged",
-                    details=f"not merged to {default_branch}",
+            if not GitOps.check_merged(worktree, default_branch):
+                issues.append(
+                    RepoIssue(
+                        repo_name=worktree.name,
+                        worktree_path=worktree.path,
+                        issue_type="unmerged",
+                        details=f"not merged to {default_branch}",
+                    )
                 )
-                report.unmerged.append(issue)
+
+            return issues
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(_check_worktree, wt): wt for wt in valid_worktrees}
+            for future in as_completed(futures):
+                for issue in future.result():
+                    if issue.issue_type == "dirty":
+                        report.dirty.append(issue)
+                    elif issue.issue_type == "unpushed":
+                        report.unpushed.append(issue)
+                    elif issue.issue_type == "unmerged":
+                        report.unmerged.append(issue)
 
         return report
 
     def push_all_branches(self, task: Task) -> tuple[list[str], list[str]]:
-        """Push all branches for task to origin.
+        """Push all branches for task to origin (parallel).
 
         Args:
             task: The task whose branches to push
@@ -439,16 +399,24 @@ class TaskManager:
         success_repos = []
         failed_repos = []
 
-        for worktree in task.worktrees:
-            if not worktree.path.exists():
-                failed_repos.append(worktree.name)
-                continue
-
-            success, message = GitOps.push(worktree)
-            if success:
-                success_repos.append(worktree.name)
+        # Handle nonexistent worktrees
+        valid_worktrees = []
+        for wt in task.worktrees:
+            if wt.path.exists():
+                valid_worktrees.append(wt)
             else:
-                failed_repos.append(worktree.name)
+                failed_repos.append(wt.name)
+
+        if valid_worktrees:
+            # Use parallel push for valid worktrees
+            results = GitOps.push_all_parallel(
+                Task(name=task.name, path=task.path, worktrees=valid_worktrees)
+            )
+            for name, success, _ in results:
+                if success:
+                    success_repos.append(name)
+                else:
+                    failed_repos.append(name)
 
         return success_repos, failed_repos
 
@@ -496,7 +464,7 @@ class TaskManager:
         content = f"""# Worktree: {worktree.name}
 
 - **Path**: `{worktree.path}`
-- **Branch**: `{worktree.branch or 'unknown'}`
+- **Branch**: `{worktree.branch or "unknown"}`
 - **Task**: {task.name}
 
 ## Notes

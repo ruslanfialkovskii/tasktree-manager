@@ -4,7 +4,7 @@ from textual.message import Message
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option, OptionDoesNotExist
 
-from ..services.task_manager import Worktree
+from ..services.models import Worktree
 
 
 class WorktreeList(OptionList):
@@ -79,11 +79,13 @@ class WorktreeList(OptionList):
                 try:
                     # Use option ID to find the correct index
                     idx = self.get_option_index(preserve_selection)
+
                     # Defer highlight setting to next event loop cycle
                     def set_highlight():
                         self.highlighted = idx
                         self.scroll_to_highlight()
                         self._emit_highlighted()
+
                     self.call_later(set_highlight)
                     return  # Don't emit here, will be done in callback
                 except OptionDoesNotExist:

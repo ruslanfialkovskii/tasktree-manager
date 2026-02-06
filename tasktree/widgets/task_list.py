@@ -6,7 +6,7 @@ from textual.message import Message
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option, OptionDoesNotExist
 
-from ..services.task_manager import Task
+from ..services.models import Task
 
 
 class SortMode(Enum):
@@ -60,9 +60,16 @@ class TaskList(OptionList):
         """Compatibility property - sets highlighted index."""
         self.highlighted = value
 
-    def load_tasks(
-        self, tasks: list[Task], preserve_selection: str | None = None
-    ) -> None:
+    def _format_task_option(self, task: Task) -> Option:
+        """Format a task as an Option for display."""
+        claude_indicator = "[blue]◆[/]" if task.has_claude_md else " "
+        if task.is_dirty:
+            prompt = f"[red]●[/]{claude_indicator}{task.name} [red]({task.dirty_count})[/]"
+        else:
+            prompt = f"  {claude_indicator}{task.name}"
+        return Option(prompt, id=task.name)
+
+    def load_tasks(self, tasks: list[Task], preserve_selection: str | None = None) -> None:
         """Load tasks into the list.
 
         Args:
@@ -73,13 +80,7 @@ class TaskList(OptionList):
         self.tasks = sorted_tasks
         self.clear_options()
         for task in sorted_tasks:
-            # Build display text with dirty indicator and claude.md indicator
-            claude_indicator = "[blue]◆[/]" if task.has_claude_md else " "
-            if task.is_dirty:
-                prompt = f"[red]●[/]{claude_indicator}{task.name} [red]({task.dirty_count})[/]"
-            else:
-                prompt = f"  {claude_indicator}{task.name}"
-            self.add_option(Option(prompt, id=task.name))
+            self.add_option(self._format_task_option(task))
 
         # Select item - preserve previous selection if specified
         if self.tasks and self.option_count > 0:
@@ -87,11 +88,13 @@ class TaskList(OptionList):
                 try:
                     # Use option ID to find the correct index
                     idx = self.get_option_index(preserve_selection)
+
                     # Defer highlight setting to next event loop cycle
                     def set_highlight():
                         self.highlighted = idx
                         self.scroll_to_highlight()
                         self._emit_highlighted()
+
                     self.call_later(set_highlight)
                     return  # Don't emit here, will be done in callback
                 except OptionDoesNotExist:
@@ -140,12 +143,7 @@ class TaskList(OptionList):
             self.tasks = sorted_tasks
             self.clear_options()
             for task in sorted_tasks:
-                claude_indicator = "[blue]◆[/]" if task.has_claude_md else " "
-                if task.is_dirty:
-                    prompt = f"[red]●[/]{claude_indicator}{task.name} [red]({task.dirty_count})[/]"
-                else:
-                    prompt = f"  {claude_indicator}{task.name}"
-                self.add_option(Option(prompt, id=task.name))
+                self.add_option(self._format_task_option(task))
 
             if self.tasks and self.option_count > 0:
                 self.action_first()
