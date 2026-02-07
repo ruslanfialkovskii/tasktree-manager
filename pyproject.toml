@@ -3,7 +3,7 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "tasktree"
+name = "tasktree-manager"
 dynamic = ["version"]
 description = "TUI application for managing worktree-based tasks"
 requires-python = ">=3.10"

@@ -270,7 +270,7 @@ jobs:
           ## Installation
 
           \`\`\`bash
-          pip install tasktree==${version}
+          pip install tasktree-manager==${version}
           \`\`\`
 
           Or upgrade:
