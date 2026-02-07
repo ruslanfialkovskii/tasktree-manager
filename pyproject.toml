@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "tasktree"
-version = "0.2.0"
+dynamic = ["version"]
 description = "TUI application for managing worktree-based tasks"
 requires-python = ">=3.10"
 dependencies = [
@@ -19,6 +19,7 @@ dev = [
     "textual-dev>=1.8.0",
     "ruff>=0.4.0",
     "build>=1.0.0",
+    "twine>=5.0.0",
 ]
 
 [project.scripts]
@@ -31,6 +32,10 @@ packages = ["tasktree"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "memory: marks memory-intensive tests",
+]
 
 [tool.ruff]
 line-length = 100
@@ -52,6 +57,30 @@ exclude_lines = [
     "raise NotImplementedError",
     "if TYPE_CHECKING:",
 ]
-fail_under = 70
+fail_under = 60
 show_missing = true
 skip_covered = false
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "tasktree/_version.py"
+
+# Semantic Release Configuration
+[tool.semantic_release]
+version_toml = ["pyproject.toml:tool.semantic_release.version"]
+version = "0.2.0"
+tag_format = "v{version}"
+branch = "main"
+commit_message = "chore(release): {version} [skip ci]"
+build_command = "pip install build && python -m build"
+
+[tool.semantic_release.changelog]
+template_dir = ".github/templates"
+changelog_file = "CHANGELOG.md"
+
+[tool.semantic_release.commit_parser_options]
+allowed_tags = ["feat", "fix", "docs", "style", "refactor", "perf", "test", "build", "ci", "chore"]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf"]

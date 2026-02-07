@@ -1,5 +1,6 @@
 """Modal widgets for creating tasks and adding repos."""
 
+import re
 from typing import TypeVar
 
 from textual.app import ComposeResult
@@ -182,6 +183,16 @@ class CreateTaskModal(ThemedModalScreen[tuple[str, list[str], str] | None]):
 
         if not name:
             self.notify("Task name is required", severity="error")
+            return
+
+        # Validate task name for safety
+        if name.startswith("-"):
+            self.notify("Task name cannot start with '-'", severity="error")
+            return
+        if not re.match(r"^[a-zA-Z0-9._/\-]+$", name):
+            self.notify(
+                "Task name can only contain letters, numbers, '.', '_', '/', '-'", severity="error"
+            )
             return
 
         if not selected_repos:
@@ -579,10 +590,23 @@ class HelpModal(ThemedModalScreen[None]):
         task_section += self._format_binding("delete_task", "d", "Delete/finish current task")
         sections.append(task_section)
 
+        # Tools section
+        tools_section = "[bold $primary]Tools[/]\n"
+        tools_section += (
+            self._format_binding("open_lazygit", "g", "Open lazygit in worktree") + "\n"
+        )
+        tools_section += (
+            self._format_binding("open_shell", "enter", "Open shell in worktree") + "\n"
+        )
+        tools_section += self._format_binding("open_editor", "e", "Open editor in folder") + "\n"
+        tools_section += (
+            self._format_binding("open_claude_resume", "c", "Open Claude (session list)") + "\n"
+        )
+        tools_section += self._format_binding("open_claude_new", "C", "Open new Claude session")
+        sections.append(tools_section)
+
         # Git operations section
         git_section = "[bold $primary]Git Operations[/]\n"
-        git_section += self._format_binding("open_lazygit", "g", "Open lazygit in worktree") + "\n"
-        git_section += self._format_binding("open_shell", "enter", "Open shell in worktree") + "\n"
         git_section += self._format_binding("push_all", "p", "Push all worktrees in task") + "\n"
         git_section += self._format_binding("pull_all", "P", "Pull all worktrees in task") + "\n"
         git_section += self._format_binding("refresh", "r", "Refresh git status")
@@ -591,6 +615,16 @@ class HelpModal(ThemedModalScreen[None]):
         # General section
         general_section = "[bold $primary]General[/]\n"
         general_section += "  [bold cyan]Ctrl+P      [/] Open command palette (themes)\n"
+        general_section += (
+            self._format_binding("open_folder", "o", "Open folder in terminal") + "\n"
+        )
+        general_section += (
+            self._format_binding("toggle_messages", "m", "Toggle activity log") + "\n"
+        )
+        general_section += self._format_binding("cycle_sort", "s", "Cycle task sort mode") + "\n"
+        general_section += (
+            self._format_binding("toggle_grouping", "S", "Toggle worktree grouping") + "\n"
+        )
         general_section += self._format_binding("help", "?", "Show this help") + "\n"
         general_section += self._format_binding("quit", "q", "Quit tasktree")
         sections.append(general_section)

@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Config file support (`~/.config/tasktree/config.toml`)
 - Custom keybindings configuration (14 customizable actions)
+- Selection state preservation when returning from lazygit or shell
 - Parallel git operations (push/pull all worktrees simultaneously)
 - Loading indicators for async operations
 - 7 built-in themes (textual-dark, textual-light, nord, gruvbox, tokyo-night, monokai, dracula)
@@ -62,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Real-time status updates
 - Basic configuration (REPOS_DIR, TASKS_DIR)
 - Setup wizard for first-time configuration
-- 64 test suite with pytest
+- 228 tests with pytest
 
 ### Technical
 - Built with Textual 7.0+

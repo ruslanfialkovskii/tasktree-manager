@@ -2,52 +2,8 @@
 
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
 
-from .task_manager import Task, Worktree
-
-
-@dataclass
-class GitStatus:
-    """Represents the git status of a worktree."""
-
-    branch: str = ""
-    staged: list[str] = None
-    modified: list[str] = None
-    untracked: list[str] = None
-    ahead: int = 0
-    behind: int = 0
-    error: str | None = None  # Error message if status fetch failed
-
-    def __post_init__(self):
-        if self.staged is None:
-            self.staged = []
-        if self.modified is None:
-            self.modified = []
-        if self.untracked is None:
-            self.untracked = []
-
-    @property
-    def is_dirty(self) -> bool:
-        """Check if there are any uncommitted changes."""
-        return bool(self.staged or self.modified or self.untracked)
-
-    @property
-    def changed_files(self) -> int:
-        """Total number of changed files."""
-        return len(self.staged) + len(self.modified) + len(self.untracked)
-
-    @property
-    def all_changes(self) -> list[tuple[str, str]]:
-        """All changes as (status, filename) tuples."""
-        changes = []
-        for f in self.staged:
-            changes.append(("A ", f))
-        for f in self.modified:
-            changes.append((" M", f))
-        for f in self.untracked:
-            changes.append(("??", f))
-        return changes
+from .models import GitStatus, Task, Worktree
 
 
 class GitOps:
@@ -181,24 +137,6 @@ class GitOps:
             return False, "Pull timed out"
         except subprocess.SubprocessError as e:
             return False, str(e)
-
-    @staticmethod
-    def push_all(task: Task) -> list[tuple[str, bool, str]]:
-        """Push all worktrees in a task."""
-        results = []
-        for worktree in task.worktrees:
-            success, message = GitOps.push(worktree)
-            results.append((worktree.name, success, message))
-        return results
-
-    @staticmethod
-    def pull_all(task: Task) -> list[tuple[str, bool, str]]:
-        """Pull all worktrees in a task."""
-        results = []
-        for worktree in task.worktrees:
-            success, message = GitOps.pull(worktree)
-            results.append((worktree.name, success, message))
-        return results
 
     @staticmethod
     def get_default_branch(worktree: Worktree) -> str:

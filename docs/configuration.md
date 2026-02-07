@@ -11,6 +11,7 @@ Complete reference for all tasktree configuration options.
 - [UI Settings](#ui-settings)
 - [Git Settings](#git-settings)
 - [External Tools](#external-tools)
+- [Symlinks](#symlinks)
 - [Keybindings Reference](#keybindings-reference)
 - [Environment Variables](#environment-variables)
 - [Themes](#themes)
@@ -152,6 +153,8 @@ delete_task = "d"       # Delete/finish task
 
 # Git operations
 open_lazygit = "g"      # Open lazygit in selected worktree
+open_editor = "e"       # Open editor in selected task/worktree
+open_folder = "o"       # Open folder in new terminal tab
 open_shell = "enter"    # Open shell in selected worktree
 push_all = "p"          # Push all worktrees in current task
 pull_all = "P"          # Pull all worktrees in current task (shift+p)
@@ -162,6 +165,27 @@ focus_next = "tab"          # Switch to next panel
 focus_previous = "shift+tab" # Switch to previous panel
 cursor_down = "j"           # Move cursor down
 cursor_up = "k"             # Move cursor up
+
+# Sorting and grouping
+cycle_sort = "s"            # Cycle task sort mode
+toggle_grouping = "S"       # Toggle worktree grouping (shift+s)
+
+# ============================================================================
+# Symlinks
+# ============================================================================
+# When creating worktrees, gitignored files are symlinked from the source repo.
+# Blocklist specifies patterns to exclude (e.g., cache files).
+[symlinks]
+blocklist = [
+    "*.pyc",
+    "*.pyo",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".coverage",
+    "*.log",
+]
 ```
 
 ## Directory Settings
@@ -261,7 +285,7 @@ Currently unused (reserved for future file browser features).
 - Leave empty (`""`) to use `$EDITOR` environment variable
 - Fallback: `vi`
 - Examples: `"vim"`, `"nvim"`, `"code"`, `"emacs -nw"`
-- Currently reserved for future features
+- Used when pressing `e` to open editor in task/worktree folder
 
 **`lazygit_path`:**
 - Default `"lazygit"` searches PATH
@@ -274,9 +298,99 @@ Currently unused (reserved for future file browser features).
 - Examples: `"/bin/zsh"`, `"/bin/fish"`, `"/usr/local/bin/bash"`
 - Used when pressing `Enter` to open shell in worktree
 
+## Symlinks
+
+When creating worktrees, tasktree automatically symlinks gitignored files (like `.env`) from the source repository. This allows environment files to be shared without copying.
+
+| Option      | Type       | Default        | Description                                    |
+|-------------|------------|----------------|------------------------------------------------|
+| `blocklist` | array[str] | (see below)    | Glob patterns for files to exclude from symlinking |
+
+### Default Blocklist
+
+By default, these patterns are excluded from symlinking:
+
+```toml
+[symlinks]
+blocklist = [
+    "*.pyc",
+    "*.pyo",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".coverage",
+    "*.log",
+    "*.egg-info",
+    ".eggs",
+    "dist",
+    "build",
+    ".tox",
+    ".nox",
+    "*.so",
+    "*.dylib",
+]
+```
+
+### How It Works
+
+1. When a worktree is created, tasktree reads the source repo's `.gitignore`
+2. For each gitignored file pattern, it finds matching files
+3. Files matching the blocklist are skipped
+4. Remaining files are symlinked to the worktree
+
+### Customizing the Blocklist
+
+**Allow all gitignored files (empty blocklist):**
+```toml
+[symlinks]
+blocklist = []
+```
+
+**Block specific patterns:**
+```toml
+[symlinks]
+blocklist = [
+    ".env*",        # Block all .env files
+    "*.secret",     # Block secret files
+    "credentials*", # Block credential files
+]
+```
+
+**Add to default blocklist (must include all patterns):**
+```toml
+[symlinks]
+blocklist = [
+    # Default patterns
+    "*.pyc",
+    "*.pyo",
+    "__pycache__",
+    ".coverage",
+    "*.log",
+    # Your additions
+    "*.tmp",
+    ".DS_Store",
+]
+```
+
+### Common Use Cases
+
+**Symlink environment files, block caches:**
+```toml
+[symlinks]
+blocklist = ["*.pyc", "__pycache__", ".coverage", "*.log"]
+```
+This allows `.env`, `.mise.toml` to be symlinked while blocking cache files.
+
+**Block everything (disable symlinks):**
+```toml
+[symlinks]
+blocklist = ["*"]
+```
+
 ## Keybindings Reference
 
-All 14 customizable keybindings with descriptions:
+All 18 customizable keybindings with descriptions:
 
 ### Application Control
 
@@ -298,6 +412,8 @@ All 14 customizable keybindings with descriptions:
 | Action         | Default  | Description                           | Customization Example       |
 |----------------|----------|---------------------------------------|-----------------------------|
 | `open_lazygit` | `g`      | Open lazygit in selected worktree     | `open_lazygit = "ctrl+g"`   |
+| `open_editor`  | `e`      | Open editor in task/worktree folder   | `open_editor = "ctrl+e"`    |
+| `open_folder`  | `o`      | Open folder in new terminal tab       | `open_folder = "ctrl+o"`    |
 | `open_shell`   | `enter`  | Open shell in selected worktree       | `open_shell = "ctrl+t"`     |
 | `push_all`     | `p`      | Push all worktrees in current task    | `push_all = "ctrl+p"`       |
 | `pull_all`     | `P`      | Pull all worktrees in current task    | `pull_all = "ctrl+shift+p"` |
@@ -311,6 +427,13 @@ All 14 customizable keybindings with descriptions:
 | `focus_previous`  | `shift+tab` | Switch to previous panel       | `focus_previous = "ctrl+["`      |
 | `cursor_down`     | `j`         | Move cursor down in lists      | `cursor_down = "down"`           |
 | `cursor_up`       | `k`         | Move cursor up in lists        | `cursor_up = "up"`               |
+
+### Sorting & Grouping
+
+| Action            | Default | Description                              | Customization Example            |
+|-------------------|---------|------------------------------------------|----------------------------------|
+| `cycle_sort`      | `s`     | Cycle task sort mode                     | `cycle_sort = "ctrl+s"`          |
+| `toggle_grouping` | `S`     | Toggle worktree grouping by dirty/clean  | `toggle_grouping = "ctrl+g"`     |
 
 ### Available Key Syntax
 

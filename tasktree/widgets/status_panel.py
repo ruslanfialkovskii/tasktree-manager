@@ -3,8 +3,7 @@
 from rich.text import Text
 from textual.widgets import Static
 
-from ..services.git_ops import GitStatus
-from ..services.task_manager import Worktree
+from ..services.models import GitStatus, Worktree
 
 
 class StatusPanel(Static):
@@ -36,7 +35,7 @@ class StatusPanel(Static):
         text = Text()
 
         # Header
-        text.append("Status: ", style="cyan")
+        text.append("Repository: ", style="cyan")
         text.append(f"{self._worktree_name}\n")
 
         # Show error state if present

@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-64%20passed-green.svg)](./tests/)
+[![Tests](https://img.shields.io/badge/tests-228%20passed-green.svg)](./tests/)
 
 **tasktree** is a terminal user interface (TUI) application for managing development tasks that span multiple git repositories. Create tasks, organize worktrees, and track status across your entire codebase—all from a beautiful, keyboard-driven interface inspired by [lazygit](https://github.com/jesseduffield/lazygit).
 
@@ -13,6 +13,7 @@
 - 🎯 **Task-Based Workflow** - Group related worktrees across multiple repositories
 - 🌳 **Git Worktree Management** - Create, delete, and manage worktrees seamlessly
 - 📊 **Real-Time Status** - See uncommitted changes, branch info, and sync status at a glance
+- 🔀 **Sorting & Grouping** - Sort tasks by name/date/status, group worktrees by dirty/clean
 - 🎨 **Beautiful Themes** - 7 built-in themes via Command Palette (Ctrl+P)
 - ⌨️ **Keyboard-First** - Navigate and control everything without touching the mouse
 - 🚀 **Fast & Responsive** - Parallel git operations with loading indicators
@@ -63,7 +64,7 @@ On first run, you'll configure:
 ### Basic Workflow
 
 1. **Create a task** - Press `n`, enter task name, select repositories
-2. **Work on code** - Press `g` for lazygit or `Enter` for shell
+2. **Work on code** - Press `e` for editor, `g` for lazygit, or `Enter` for shell
 3. **Push changes** - Press `p` to push all worktrees
 4. **Delete task** - Press `d` when finished
 
@@ -82,10 +83,12 @@ For detailed workflows and examples, see the [User Guide](docs/user-guide.md).
 | Key | Action | Key | Action |
 |-----|--------|-----|--------|
 | `n` | New task | `g` | Open lazygit |
-| `a` | Add repo | `Enter` | Open shell |
-| `d` | Delete task | `p` | Push all |
-| `r` | Refresh | `?` | Show help |
-| `Tab` | Next panel | `q` | Quit |
+| `a` | Add repo | `e` | Open editor |
+| `d` | Delete task | `o` | Open folder |
+| `p` | Push all | `Enter` | Open shell |
+| `r` | Refresh | `s` | Sort tasks |
+| `S` | Group worktrees | `Tab` | Next panel |
+| `?` | Show help | `q` | Quit |
 
 **Themes:** Press `Ctrl+P` to switch between 7 built-in themes (textual-dark, nord, gruvbox, tokyo-night, monokai, dracula, textual-light).
 

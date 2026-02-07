@@ -23,10 +23,17 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "add_repo": "a",
     "delete_task": "d",
     "open_lazygit": "g",
+    "open_folder": "o",
     "open_shell": "enter",
+    "open_editor": "e",
+    "open_claude_resume": "c",
+    "open_claude_new": "C",
     "push_all": "p",
     "pull_all": "P",
     "refresh": "r",
+    "toggle_messages": "m",
+    "toggle_grouping": "S",
+    "cycle_sort": "s",
     "focus_next": "tab",
     "focus_previous": "shift+tab",
     "cursor_down": "j",
@@ -61,10 +68,33 @@ class Config:
     # External tools
     editor: str = ""
     lazygit_path: str = "lazygit"
+    claude_path: str = "claude"
     shell: str = ""
 
     # Keybindings (action -> key mapping)
     keybindings: dict[str, str] = field(default_factory=lambda: DEFAULT_KEYBINDINGS.copy())
+
+    # Symlink settings - patterns to exclude from symlinking gitignored files
+    symlink_blocklist: list[str] = field(
+        default_factory=lambda: [
+            "*.pyc",
+            "*.pyo",
+            "__pycache__",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            ".coverage",
+            "*.log",
+            "*.egg-info",
+            ".eggs",
+            "dist",
+            "build",
+            ".tox",
+            ".nox",
+            "*.so",
+            "*.dylib",
+        ]
+    )
 
     @classmethod
     def load(cls) -> "Config":
@@ -103,6 +133,7 @@ class Config:
         tools_config = config_data.get("tools", {})
         editor = tools_config.get("editor", "")
         lazygit_path = tools_config.get("lazygit_path", "lazygit")
+        claude_path = tools_config.get("claude_path", "claude")
         shell = tools_config.get("shell", "")
 
         # Keybindings - start with defaults and override with config
@@ -111,6 +142,28 @@ class Config:
         for action, key in keybindings_config.items():
             if action in keybindings and isinstance(key, str):
                 keybindings[action] = key
+
+        # Symlink settings
+        symlink_config = config_data.get("symlinks", {})
+        default_blocklist = [
+            "*.pyc",
+            "*.pyo",
+            "__pycache__",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            ".coverage",
+            "*.log",
+            "*.egg-info",
+            ".eggs",
+            "dist",
+            "build",
+            ".tox",
+            ".nox",
+            "*.so",
+            "*.dylib",
+        ]
+        symlink_blocklist = symlink_config.get("blocklist", default_blocklist)
 
         # Environment variables override config file
         if "REPOS_DIR" in os.environ:
@@ -137,8 +190,10 @@ class Config:
             git_timeout=git_timeout,
             editor=editor,
             lazygit_path=lazygit_path,
+            claude_path=claude_path,
             shell=shell,
             keybindings=keybindings,
+            symlink_blocklist=symlink_blocklist,
         )
 
     @staticmethod
@@ -191,6 +246,17 @@ class Config:
             pass
         return config_data
 
+    @staticmethod
+    def _toml_escape(value: str) -> str:
+        """Escape a string value for TOML output."""
+        return value.replace("\\", "\\\\").replace('"', '\\"')
+
+    @staticmethod
+    def _toml_list(items: list[str]) -> str:
+        """Format a list of strings as a TOML array."""
+        escaped = [f'"{Config._toml_escape(item)}"' for item in items]
+        return "[" + ", ".join(escaped) + "]"
+
     def save(self) -> None:
         """Save configuration to config file."""
         self.config_dir.mkdir(parents=True, exist_ok=True)
@@ -204,10 +270,10 @@ class Config:
 # ============================================================================
 
 # Directory containing your git repositories
-repos_dir = "{self.repos_dir}"
+repos_dir = "{self._toml_escape(str(self.repos_dir))}"
 
 # Directory for task worktrees
-tasks_dir = "{self.tasks_dir}"
+tasks_dir = "{self._toml_escape(str(self.tasks_dir))}"
 
 # ============================================================================
 # UI Settings
@@ -215,7 +281,7 @@ tasks_dir = "{self.tasks_dir}"
 [ui]
 
 # Theme to use (textual-dark, textual-light, nord, gruvbox, tokyo-night, monokai, dracula)
-theme = "{self.theme}"
+theme = "{self._toml_escape(self.theme)}"
 
 # Show hidden files in file listings
 show_hidden_files = {str(self.show_hidden_files).lower()}
@@ -226,7 +292,7 @@ show_hidden_files = {str(self.show_hidden_files).lower()}
 [git]
 
 # Default base branch for new worktrees (main, master, develop, etc.)
-default_base_branch = "{self.default_base_branch}"
+default_base_branch = "{self._toml_escape(self.default_base_branch)}"
 
 # Automatically push after committing (not recommended for most workflows)
 auto_push = {str(self.auto_push).lower()}
@@ -240,13 +306,16 @@ timeout = {self.git_timeout}
 [tools]
 
 # Preferred editor (leave empty to use $EDITOR)
-editor = "{self.editor}"
+editor = "{self._toml_escape(self.editor)}"
 
 # Path to lazygit executable
-lazygit_path = "{self.lazygit_path}"
+lazygit_path = "{self._toml_escape(self.lazygit_path)}"
+
+# Path to claude CLI executable
+claude_path = "{self._toml_escape(self.claude_path)}"
 
 # Preferred shell (leave empty to use $SHELL)
-shell = "{self.shell}"
+shell = "{self._toml_escape(self.shell)}"
 
 # ============================================================================
 # Keybindings
@@ -255,20 +324,35 @@ shell = "{self.shell}"
 # Available modifiers: ctrl+, shift+, alt+
 # Special keys: enter, tab, escape, space, backspace, delete, up, down, left, right
 [keybindings]
-quit = "{self.keybindings.get("quit", "q")}"
-help = "{self.keybindings.get("help", "?")}"
-new_task = "{self.keybindings.get("new_task", "n")}"
-add_repo = "{self.keybindings.get("add_repo", "a")}"
-delete_task = "{self.keybindings.get("delete_task", "d")}"
-open_lazygit = "{self.keybindings.get("open_lazygit", "g")}"
-open_shell = "{self.keybindings.get("open_shell", "enter")}"
-push_all = "{self.keybindings.get("push_all", "p")}"
-pull_all = "{self.keybindings.get("pull_all", "P")}"
-refresh = "{self.keybindings.get("refresh", "r")}"
-focus_next = "{self.keybindings.get("focus_next", "tab")}"
-focus_previous = "{self.keybindings.get("focus_previous", "shift+tab")}"
-cursor_down = "{self.keybindings.get("cursor_down", "j")}"
-cursor_up = "{self.keybindings.get("cursor_up", "k")}"
+quit = "{self._toml_escape(self.keybindings.get("quit", "q"))}"
+help = "{self._toml_escape(self.keybindings.get("help", "?"))}"
+new_task = "{self._toml_escape(self.keybindings.get("new_task", "n"))}"
+add_repo = "{self._toml_escape(self.keybindings.get("add_repo", "a"))}"
+delete_task = "{self._toml_escape(self.keybindings.get("delete_task", "d"))}"
+open_lazygit = "{self._toml_escape(self.keybindings.get("open_lazygit", "g"))}"
+open_folder = "{self._toml_escape(self.keybindings.get("open_folder", "o"))}"
+open_shell = "{self._toml_escape(self.keybindings.get("open_shell", "enter"))}"
+open_editor = "{self._toml_escape(self.keybindings.get("open_editor", "e"))}"
+open_claude_resume = "{self._toml_escape(self.keybindings.get("open_claude_resume", "c"))}"
+open_claude_new = "{self._toml_escape(self.keybindings.get("open_claude_new", "C"))}"
+push_all = "{self._toml_escape(self.keybindings.get("push_all", "p"))}"
+pull_all = "{self._toml_escape(self.keybindings.get("pull_all", "P"))}"
+refresh = "{self._toml_escape(self.keybindings.get("refresh", "r"))}"
+toggle_messages = "{self._toml_escape(self.keybindings.get("toggle_messages", "m"))}"
+toggle_grouping = "{self._toml_escape(self.keybindings.get("toggle_grouping", "S"))}"
+cycle_sort = "{self._toml_escape(self.keybindings.get("cycle_sort", "s"))}"
+focus_next = "{self._toml_escape(self.keybindings.get("focus_next", "tab"))}"
+focus_previous = "{self._toml_escape(self.keybindings.get("focus_previous", "shift+tab"))}"
+cursor_down = "{self._toml_escape(self.keybindings.get("cursor_down", "j"))}"
+cursor_up = "{self._toml_escape(self.keybindings.get("cursor_up", "k"))}"
+
+# ============================================================================
+# Symlinks
+# ============================================================================
+# When creating worktrees, tasktree symlinks gitignored files from the source repo.
+# This blocklist specifies patterns to exclude from symlinking (e.g., cache files).
+[symlinks]
+blocklist = {self._toml_list(self.symlink_blocklist)}
 '''
         config_file.write_text(config_content)
 
@@ -284,23 +368,27 @@ cursor_up = "{self.keybindings.get("cursor_up", "k")}"
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
     def get_available_repos(self) -> list[str]:
-        """Get list of available repositories in REPOS_DIR (recursively scans subdirectories)."""
+        """Get list of available repositories in REPOS_DIR."""
         if not self.repos_dir.exists():
             return []
 
         repos = []
-        # Recursively find all directories containing .git
-        for git_dir in self.repos_dir.rglob(".git"):
-            if git_dir.is_dir():
-                # Get the parent directory (the actual repo)
-                repo_path = git_dir.parent
-                # Get relative path from repos_dir
+        skip_dirs = {".terraform", "node_modules", "vendor", ".git"}
+
+        for dirpath, dirnames, _ in os.walk(self.repos_dir):
+            # Prune directories we don't want to descend into
+            dirnames[:] = [d for d in dirnames if d not in skip_dirs]
+
+            # Check if current directory has a .git subdirectory
+            current = Path(dirpath)
+            if (current / ".git").is_dir():
                 try:
-                    rel_path = repo_path.relative_to(self.repos_dir)
+                    rel_path = current.relative_to(self.repos_dir)
                     repos.append(str(rel_path))
                 except ValueError:
-                    # Skip if not relative to repos_dir
                     continue
+                # Don't descend into this repo's subdirectories
+                dirnames.clear()
 
         return sorted(repos)
 

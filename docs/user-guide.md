@@ -178,9 +178,11 @@ Shows all your tasks:
 - **Name**: Task identifier (e.g., `FEAT-123`)
 - **Count**: Number of worktrees in parentheses (e.g., `(3)`)
 - **Dirty indicator** `●`: Task has uncommitted changes
+- **Sort mode**: Press `s` to cycle through sort modes (name ↑/↓, date ↑/↓, dirty/clean first)
 
 **Navigation:**
 - `j/k` or arrow keys: Move up/down
+- `s`: Cycle sort mode (panel title shows current sort)
 - Highlighting a task: Shows its worktrees in right panel
 
 ### Right Panel: Worktree List
@@ -195,9 +197,11 @@ Shows worktrees for the selected task:
   - `↑N` - N commits ahead of remote
   - `↓N` - N commits behind remote
   - `✓` - Clean (no changes, in sync)
+- **Grouping**: Press `S` (Shift+S) to group worktrees by dirty/clean status
 
 **Navigation:**
 - `j/k` or arrow keys: Move up/down
+- `S`: Toggle grouping by dirty/clean (panel title shows "(grouped)" when active)
 - Highlighting a worktree: Shows detailed status in bottom panel
 
 ### Bottom Panel: Status Display
@@ -243,6 +247,26 @@ All keybindings can be customized in [`config.toml`](configuration.md).
 - You can also click with mouse (if terminal supports it)
 - Focused panel has a highlighted border (accent color)
 
+### Sorting & Grouping
+
+| Key | Action                | Description                                                |
+|-----|-----------------------|------------------------------------------------------------|
+| `s` | Cycle sort mode       | Cycle through: name ↑/↓, date ↑/↓, dirty first, clean first |
+| `S` | Toggle grouping       | Group worktrees by dirty/clean status (Shift+S)            |
+
+**Sort modes:**
+- `by name ↑` - Alphabetical A-Z (default)
+- `by name ↓` - Alphabetical Z-A
+- `by date ↓` - Newest first
+- `by date ↑` - Oldest first
+- `dirty first` - Tasks with changes at top
+- `clean first` - Clean tasks at top
+
+**Grouping:**
+- When enabled, worktrees are grouped under "Dirty" and "Clean" headers
+- Headers are non-selectable; navigation skips them automatically
+- Panel title shows "(grouped)" when active
+
 ### Task Management
 
 | Key | Action           | Description                                               |
@@ -273,6 +297,7 @@ All keybindings can be customized in [`config.toml`](configuration.md).
 | Key     | Action             | Description                                          |
 |---------|--------------------|------------------------------------------------------|
 | `g`     | Open lazygit       | Open lazygit in the selected worktree                |
+| `e`     | Open editor        | Open editor in task/worktree folder (runs `$EDITOR .`) |
 | `Enter` | Open shell         | Open a shell in the selected worktree                |
 | `p`     | Push all           | Push all worktrees in the current task (parallel)    |
 | `P`     | Pull all           | Pull all worktrees in the current task (parallel)    |
@@ -283,11 +308,22 @@ All keybindings can be customized in [`config.toml`](configuration.md).
 - Progress shown with loading indicators
 - Results summarized when complete
 
+### Folder Operations
+
+| Key     | Action             | Description                                          |
+|---------|--------------------|------------------------------------------------------|
+| `o`     | Open folder        | Open task/worktree folder in new terminal tab        |
+
+**Context-aware behavior:**
+- When focused on task list: Opens the task folder (`~/tasks/TASK-NAME`)
+- When focused on worktree list: Opens the selected worktree folder
+
 ### General
 
 | Key     | Action                  | Description                                  |
 |---------|-------------------------|----------------------------------------------|
 | `Ctrl+P`| Open Command Palette    | Switch themes and run commands               |
+| `o`     | Open folder             | Open current folder in new terminal tab      |
 | `?`     | Show help               | Display help modal with keybindings          |
 | `q`     | Quit                    | Exit tasktree                                |
 
@@ -506,8 +542,9 @@ d (delete task)
 - Detailed status appears in bottom panel
 
 **Working in worktree:**
+- Press `e` to open editor directly in worktree
 - Press `g` for lazygit (recommended for git operations)
-- Press `Enter` for shell (for editing, building, testing)
+- Press `Enter` for shell (for building, testing, or other commands)
 
 **Git operations:**
 - **Staging/committing**: Use lazygit (`g`)
@@ -572,7 +609,7 @@ rm -rf ~/tasks/TASK-NAME
 3. tasktree suspends, lazygit opens
 4. Do your git work
 5. Press `q` in lazygit to return to tasktree
-6. Status auto-refreshes
+6. Status auto-refreshes and selection is preserved
 
 **Install lazygit:**
 ```bash
@@ -588,10 +625,23 @@ apt install lazygit
 
 ### Editors
 
-**Opening editor in worktree:**
-1. Highlight worktree
-2. Press `Enter` (open shell)
-3. In shell:
+**Direct editor integration:**
+1. Highlight task or worktree
+2. Press `e` to open your configured editor
+3. tasktree suspends while editor runs
+4. Selection is preserved when you return
+
+**Configure your editor** in `~/.config/tasktree/config.toml`:
+```toml
+[tools]
+editor = "nvim"  # or "vim", "code", "emacs", etc.
+```
+
+Or set the `$EDITOR` environment variable.
+
+**Alternative: Open shell first:**
+1. Press `Enter` (open shell)
+2. In shell:
    ```bash
    vim .               # Vim
    nvim .              # Neovim

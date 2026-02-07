@@ -29,6 +29,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [x] Improved error messages
 - [x] Loading indicators for slow operations
 - [x] Help text improvements
+- [x] Open folder in terminal (Ghostty support)
 
 #### Improvements
 
@@ -47,18 +48,17 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 
 #### Quality
 
-- [ ] Increase test coverage to 85%
-- [ ] Add integration tests for git workflows
-- [ ] Memory leak testing
+- [x] Increase test coverage to 85%
+- [x] Add integration tests for git workflows
+- [x] Memory leak testing
 
 #### CI/CD
 
-[] Create pipelines
-
-- add check linters
-- add check test
-- add PR pipeline
-- add release pipeline
+- [x] Linting pipeline (ruff check + format)
+- [x] Test pipeline (multi-Python matrix)
+- [x] Coverage reporting (Codecov)
+- [x] Build verification pipeline
+- [x] Automated semantic releases (python-semantic-release + hatch-vcs)
 
 ---
 
@@ -68,25 +68,13 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 
 #### Features
 
-- [ ] Search tasks by name (/)
-- [ ] Filter worktrees by status (dirty/clean)
-- [ ] Task templates (create from existing tasks)
-- [ ] Task archiving (preserve history)
-- [ ] Recent tasks list (quick switch)
-
-#### Git Operations
-
-- [ ] Stash management
-- [ ] Branch comparison (diff between worktrees)
-- [ ] Commit history view
-- [ ] Cherry-pick support
+- [x] Recent messages
+- [x] Claude code integration
 
 #### UI/UX
 
-- [ ] Sort tasks (by name, date, status)
-- [ ] Worktree groups (by repo, status)
-- [ ] Quick actions menu (?)
-- [ ] Contextual help tooltips
+- [x] Sort tasks (by name, date, status) - press `s` to cycle
+- [x] Worktree groups (by dirty/clean status) - press `S` to toggle
 
 ---
 
@@ -97,17 +85,9 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 #### Task Metadata
 
 - [ ] Task descriptions
-- [ ] JIRA/GitHub issue linking
+- [ ] JIRA/GitLab issue linking
 - [ ] Tags/labels
 - [ ] Due dates
-- [ ] Custom fields
-
-#### Collaboration
-
-- [ ] Export/import task configs
-- [ ] Team templates repository
-- [ ] Shared task definitions
-- [ ] Task handoff workflow
 
 #### Automation
 
@@ -131,7 +111,6 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [ ] API stability guarantee
 - [ ] Comprehensive error handling
 - [ ] Graceful degradation
-- [ ] Backup/restore functionality
 
 #### Performance
 
@@ -173,28 +152,6 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - Conflict prediction
 - Dependency detection across repos
 - Usage analytics and insights
-
----
-
-## Success Metrics
-
-### Adoption Goals
-
-| Metric               | v0.3 | v0.5 | v1.0 |
-| -------------------- | ---- | ---- | ---- |
-| GitHub Stars         | 100  | 250  | 500  |
-| PyPI Downloads/month | 500  | 2000 | 5000 |
-| Active Contributors  | 3    | 5    | 10   |
-| Issues Closed        | 20   | 50   | 100  |
-
-### Quality Goals
-
-| Metric            | Target |
-| ----------------- | ------ |
-| Test Coverage     | >85%   |
-| Bug Reports/month | <10    |
-| Response Time     | <48h   |
-| User Satisfaction | 4.5+/5 |
 
 ---
 

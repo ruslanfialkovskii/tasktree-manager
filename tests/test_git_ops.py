@@ -225,23 +225,23 @@ class TestParallelOperations:
         for wt in worktrees:
             assert wt.branch == branch
 
-    def test_push_all_sequential(self, repo_with_remote):
-        """Test sequential push all worktrees."""
+    def test_push_all_parallel_with_data(self, repo_with_remote):
+        """Test parallel push all worktrees."""
         local, remote = repo_with_remote
         worktree = Worktree(name="test", path=local)
         task = Task(name="test-task", path=local.parent, worktrees=[worktree])
 
-        results = GitOps.push_all(task)
+        results = GitOps.push_all_parallel(task)
         assert len(results) == 1
         assert results[0][0] == "test"
 
-    def test_pull_all_sequential(self, repo_with_remote):
-        """Test sequential pull all worktrees."""
+    def test_pull_all_parallel_with_data(self, repo_with_remote):
+        """Test parallel pull all worktrees."""
         local, remote = repo_with_remote
         worktree = Worktree(name="test", path=local)
         task = Task(name="test-task", path=local.parent, worktrees=[worktree])
 
-        results = GitOps.pull_all(task)
+        results = GitOps.pull_all_parallel(task)
         assert len(results) == 1
         assert results[0][0] == "test"
         assert results[0][1] is True  # Success
