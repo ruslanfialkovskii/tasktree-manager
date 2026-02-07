@@ -592,10 +592,16 @@ class HelpModal(ThemedModalScreen[None]):
 
         # Tools section
         tools_section = "[bold $primary]Tools[/]\n"
-        tools_section += self._format_binding("open_lazygit", "g", "Open lazygit in worktree") + "\n"
-        tools_section += self._format_binding("open_shell", "enter", "Open shell in worktree") + "\n"
+        tools_section += (
+            self._format_binding("open_lazygit", "g", "Open lazygit in worktree") + "\n"
+        )
+        tools_section += (
+            self._format_binding("open_shell", "enter", "Open shell in worktree") + "\n"
+        )
         tools_section += self._format_binding("open_editor", "e", "Open editor in folder") + "\n"
-        tools_section += self._format_binding("open_claude_resume", "c", "Open Claude (session list)") + "\n"
+        tools_section += (
+            self._format_binding("open_claude_resume", "c", "Open Claude (session list)") + "\n"
+        )
         tools_section += self._format_binding("open_claude_new", "C", "Open new Claude session")
         sections.append(tools_section)
 
@@ -616,7 +622,9 @@ class HelpModal(ThemedModalScreen[None]):
             self._format_binding("toggle_messages", "m", "Toggle activity log") + "\n"
         )
         general_section += self._format_binding("cycle_sort", "s", "Cycle task sort mode") + "\n"
-        general_section += self._format_binding("toggle_grouping", "S", "Toggle worktree grouping") + "\n"
+        general_section += (
+            self._format_binding("toggle_grouping", "S", "Toggle worktree grouping") + "\n"
+        )
         general_section += self._format_binding("help", "?", "Show this help") + "\n"
         general_section += self._format_binding("quit", "q", "Quit tasktree")
         sections.append(general_section)
