@@ -1,4 +1,4 @@
-"""Data models for tasktree."""
+"""Data models for tasktree-manager."""
 
 from dataclasses import dataclass, field
 from pathlib import Path

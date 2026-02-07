@@ -1,4 +1,4 @@
-"""Task management service for tasktree."""
+"""Task management service for tasktree-manager."""
 
 import fnmatch
 import os

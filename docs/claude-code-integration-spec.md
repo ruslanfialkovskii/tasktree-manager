@@ -5,7 +5,7 @@
 
 ## Overview
 
-Add two Claude Code integration features to tasktree:
+Add two Claude Code integration features to tasktree-manager:
 
 1. **Open Claude Code for Task** (`C` key) - Launch Claude Code in the task directory with access to all worktrees
 2. **AI-assisted repo selection** - When creating a task, optionally use Claude to suggest relevant repos based on task description
@@ -20,7 +20,7 @@ As a developer, I want to open Claude Code with context of all worktrees in my c
 
 ### Implementation
 
-#### 1. Config options (`tasktree/services/config.py`)
+#### 1. Config options (`tasktree_manager/services/config.py`)
 
 Add to dataclass fields:
 ```python
@@ -42,7 +42,7 @@ Update `save()` to write config:
 claude_path = "{self.claude_path}"
 ```
 
-#### 2. Action and binding (`tasktree/app.py`)
+#### 2. Action and binding (`tasktree_manager/app.py`)
 
 Add binding in `_build_bindings_from_config()`:
 ```python
@@ -76,7 +76,7 @@ def action_open_claude(self) -> None:
     self._refresh_current_task()
 ```
 
-#### 3. Help modal (`tasktree/widgets/create_modal.py`)
+#### 3. Help modal (`tasktree_manager/widgets/create_modal.py`)
 
 Add to Git Operations section in `_build_help_content()`:
 ```python
@@ -103,7 +103,7 @@ Uses `claude --print -p "prompt"` for non-interactive analysis.
 
 ### Implementation
 
-#### 1. AI service (`tasktree/services/ai_repo_analyzer.py`)
+#### 1. AI service (`tasktree_manager/services/ai_repo_analyzer.py`)
 
 New file with:
 - `RepoInfo` dataclass: name, readme_content, claude_md_content
@@ -112,7 +112,7 @@ New file with:
   - `gather_repo_info(repos)` - Read README/CLAUDE.md from each repo (parallel)
   - `analyze(description, repo_infos)` - Call Claude CLI with prompt, parse JSON response
 
-#### 2. Enhance CreateTaskModal (`tasktree/widgets/create_modal.py`)
+#### 2. Enhance CreateTaskModal (`tasktree_manager/widgets/create_modal.py`)
 
 Add to existing `CreateTaskModal`:
 - New input field: "Task Description" (optional)
@@ -138,10 +138,10 @@ claude_timeout: int = 60
 
 | File | Changes |
 |------|---------|
-| `tasktree/services/config.py` | Add `claude_path`, `claude_timeout`, keybinding |
-| `tasktree/app.py` | Add binding, `action_open_claude()` method |
-| `tasktree/widgets/create_modal.py` | Add description field, AI suggest button, help entry |
-| `tasktree/services/ai_repo_analyzer.py` | **New file**: AI analysis service |
+| `tasktree_manager/services/config.py` | Add `claude_path`, `claude_timeout`, keybinding |
+| `tasktree_manager/app.py` | Add binding, `action_open_claude()` method |
+| `tasktree_manager/widgets/create_modal.py` | Add description field, AI suggest button, help entry |
+| `tasktree_manager/services/ai_repo_analyzer.py` | **New file**: AI analysis service |
 
 ---
 

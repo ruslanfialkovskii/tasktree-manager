@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Version bumping script for tasktree.
+Version bumping script for tasktree-manager.
 
 Reads the current version from pyproject.toml [tool.semantic_release] version,
 calculates the new version, and updates pyproject.toml and CHANGELOG.md.
@@ -19,7 +19,7 @@ CHANGELOG_PATH = PROJECT_ROOT / "CHANGELOG.md"
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Bump version for tasktree")
+    parser = argparse.ArgumentParser(description="Bump version for tasktree-manager")
     parser.add_argument(
         "bump_type",
         choices=["patch", "minor", "major"],
@@ -132,7 +132,7 @@ def update_changelog(new_version: str, message: str = "", dry_run: bool = False)
         if not dry_run:
             CHANGELOG_PATH.write_text(
                 "# Changelog\n\n"
-                "All notable changes to tasktree will be documented in this file.\n\n"
+                "All notable changes to tasktree-manager will be documented in this file.\n\n"
                 "The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),\n"
                 "and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\n\n"
             )

@@ -1,8 +1,8 @@
-# OpenSpec: tasktree
+# OpenSpec: tasktree-manager
 
 ## Metadata
 
-- **Project**: tasktree
+- **Project**: tasktree-manager
 - **Version**: 0.1.0
 - **Spec Format**: OpenSpec 1.0
 - **Last Updated**: 2026-01-22
@@ -12,7 +12,7 @@
 ## System Overview
 
 ### Purpose
-tasktree is a terminal-based task management system for developers working with git worktrees across multiple repositories.
+tasktree-manager is a terminal-based task management system for developers working with git worktrees across multiple repositories.
 
 ### Architecture
 ```

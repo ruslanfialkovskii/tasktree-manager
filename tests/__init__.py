@@ -1,1 +1,1 @@
-"""Tests for tasktree."""
+"""Tests for tasktree-manager."""

@@ -1,4 +1,4 @@
-"""Configuration management for tasktree."""
+"""Configuration management for tasktree-manager."""
 
 import os
 import sys
@@ -43,18 +43,18 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
 
 @dataclass
 class Config:
-    """Configuration for tasktree application.
+    """Configuration for tasktree-manager application.
 
     Configuration is loaded from (in order of priority):
     1. Environment variables (highest priority)
-    2. Config file (~/.config/tasktree/config.toml)
+    2. Config file (~/.config/tasktree-manager/config.toml)
     3. Default values (lowest priority)
     """
 
     # Directory settings
     repos_dir: Path = field(default_factory=lambda: Path.home() / "repos")
     tasks_dir: Path = field(default_factory=lambda: Path.home() / "tasks")
-    config_dir: Path = field(default_factory=lambda: Path.home() / ".config" / "tasktree")
+    config_dir: Path = field(default_factory=lambda: Path.home() / ".config" / "tasktree-manager")
 
     # UI settings
     theme: str = "textual-dark"
@@ -103,7 +103,7 @@ class Config:
         Priority: Environment variables > Config file > Defaults
         """
         config_dir = (
-            Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "tasktree"
+            Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "tasktree-manager"
         )
         config_file = config_dir / "config.toml"
 
@@ -262,8 +262,8 @@ class Config:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         config_file = self.config_dir / "config.toml"
 
-        config_content = f'''# tasktree configuration
-# https://github.com/yourusername/tasktree
+        config_content = f'''# tasktree-manager configuration
+# https://github.com/ruslan/tasktree-manager
 
 # ============================================================================
 # Directory Settings
@@ -349,7 +349,7 @@ cursor_up = "{self._toml_escape(self.keybindings.get("cursor_up", "k"))}"
 # ============================================================================
 # Symlinks
 # ============================================================================
-# When creating worktrees, tasktree symlinks gitignored files from the source repo.
+# When creating worktrees, tasktree-manager symlinks gitignored files from the source repo.
 # This blocklist specifies patterns to exclude from symlinking (e.g., cache files).
 [symlinks]
 blocklist = {self._toml_list(self.symlink_blocklist)}

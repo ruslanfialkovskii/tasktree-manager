@@ -4,9 +4,9 @@ import subprocess
 
 import pytest
 
-from tasktree.services.config import Config
-from tasktree.services.git_ops import GitOps
-from tasktree.services.task_manager import TaskManager, Worktree
+from tasktree_manager.services.config import Config
+from tasktree_manager.services.git_ops import GitOps
+from tasktree_manager.services.task_manager import TaskManager, Worktree
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def integration_config(tmp_path):
     return Config(
         repos_dir=repos_dir,
         tasks_dir=tasks_dir,
-        config_dir=tmp_path / ".config" / "tasktree",
+        config_dir=tmp_path / ".config" / "tasktree-manager",
     )
 
 

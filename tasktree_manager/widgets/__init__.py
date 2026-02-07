@@ -1,4 +1,4 @@
-"""Widget components for tasktree TUI."""
+"""Widget components for tasktree-manager TUI."""
 
 from .create_modal import AddRepoModal, ConfirmModal, CreateTaskModal, HelpModal
 from .messages_panel import ActivityMessage, MessageLevel, MessagesPanel

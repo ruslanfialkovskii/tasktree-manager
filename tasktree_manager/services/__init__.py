@@ -1,4 +1,4 @@
-"""Service modules for tasktree."""
+"""Service modules for tasktree-manager."""
 
 from .config import Config
 from .git_ops import GitOps

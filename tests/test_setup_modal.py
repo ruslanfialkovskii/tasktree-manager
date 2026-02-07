@@ -4,7 +4,7 @@ from pathlib import Path
 
 from textual.widgets import Button, Input
 
-from tasktree.widgets.setup_modal import SetupModal
+from tasktree_manager.widgets.setup_modal import SetupModal
 
 
 class TestSetupModal:

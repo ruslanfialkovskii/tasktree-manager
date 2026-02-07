@@ -1,4 +1,4 @@
-# tasktree
+# tasktree-manager
 
 > A beautiful TUI for managing git worktrees across multiple repositories
 
@@ -6,7 +6,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Tests](https://img.shields.io/badge/tests-228%20passed-green.svg)](./tests/)
 
-**tasktree** is a terminal user interface (TUI) application for managing development tasks that span multiple git repositories. Create tasks, organize worktrees, and track status across your entire codebase—all from a beautiful, keyboard-driven interface inspired by [lazygit](https://github.com/jesseduffield/lazygit).
+**tasktree-manager** is a terminal user interface (TUI) application for managing development tasks that span multiple git repositories. Create tasks, organize worktrees, and track status across your entire codebase—all from a beautiful, keyboard-driven interface inspired by [lazygit](https://github.com/jesseduffield/lazygit).
 
 ## ✨ Features
 
@@ -22,7 +22,7 @@
 ## 📸 Screenshots
 
 ```
-┌─ tasktree ──────────────────────────────────────────────────────────────┐
+┌─ tasktree-manager ──────────────────────────────────────────────────────┐
 │  Tasks                    │  Worktrees                                   │
 │  ● DIC-1813 (2)          │    gitops-hpc         DIC-1813        ✗ 3   │
 │    DIC-1770-env          │    hpc                DIC-1813        ✓     │
@@ -46,7 +46,7 @@
 
 ```bash
 # Using pipx (recommended)
-pipx install tasktree
+pipx install tasktree-manager
 ```
 
 See the [Installation Guide](docs/installation.md) for other methods and platform-specific instructions.
@@ -54,7 +54,7 @@ See the [Installation Guide](docs/installation.md) for other methods and platfor
 ### First Run
 
 ```bash
-tasktree
+tasktree-manager
 ```
 
 On first run, you'll configure:
@@ -94,7 +94,7 @@ For detailed workflows and examples, see the [User Guide](docs/user-guide.md).
 
 ## 🏗️ How It Works
 
-tasktree uses [git worktrees](https://git-scm.com/docs/git-worktree) to create isolated working directories for each task. Work on multiple branches simultaneously without stashing or context switching.
+tasktree-manager uses [git worktrees](https://git-scm.com/docs/git-worktree) to create isolated working directories for each task. Work on multiple branches simultaneously without stashing or context switching.
 
 **Directory Structure:**
 ```
@@ -102,7 +102,7 @@ tasktree uses [git worktrees](https://git-scm.com/docs/git-worktree) to create i
   ├── backend/
   └── frontend/
 
-~/tasks/                    # Task worktrees (managed by tasktree)
+~/tasks/                    # Task worktrees (managed by tasktree-manager)
   ├── FEAT-123/
   │   ├── backend/          # Worktree on branch FEAT-123
   │   └── frontend/         # Worktree on branch FEAT-123
@@ -118,8 +118,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed development setup and guidel
 
 **Quick Start:**
 ```bash
-git clone https://github.com/yourusername/tasktree.git
-cd tasktree
+git clone https://github.com/yourusername/tasktree-manager.git
+cd tasktree-manager
 mise install
 mise run install
 mise run test
@@ -185,11 +185,11 @@ MIT License - see [LICENSE](./LICENSE) for details.
 
 ## 💬 Support & Community
 
-- 🐛 [Bug Reports](https://github.com/yourusername/tasktree/issues)
-- 💡 [Feature Requests](https://github.com/yourusername/tasktree/issues)
-- 💬 [Discussions](https://github.com/yourusername/tasktree/discussions)
+- 🐛 [Bug Reports](https://github.com/yourusername/tasktree-manager/issues)
+- 💡 [Feature Requests](https://github.com/yourusername/tasktree-manager/issues)
+- 💬 [Discussions](https://github.com/yourusername/tasktree-manager/discussions)
 - 📖 [Documentation](docs/)
 
 ---
 
-**Made with ❤️ by developers, for developers** | [⭐ Star this repo](https://github.com/yourusername/tasktree)
+**Made with ❤️ by developers, for developers** | [⭐ Star this repo](https://github.com/yourusername/tasktree-manager)

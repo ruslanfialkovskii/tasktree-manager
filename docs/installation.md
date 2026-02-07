@@ -1,6 +1,6 @@
 # Installation Guide
 
-Complete installation instructions for tasktree across all platforms.
+Complete installation instructions for tasktree-manager across all platforms.
 
 ## Table of Contents
 
@@ -21,7 +21,7 @@ Complete installation instructions for tasktree across all platforms.
 
 ## System Requirements
 
-Before installing tasktree, ensure your system meets these requirements:
+Before installing tasktree-manager, ensure your system meets these requirements:
 
 - **Python**: 3.10 or higher (3.13+ recommended for best performance)
 - **Git**: 2.0 or higher
@@ -39,8 +39,8 @@ Before installing tasktree, ensure your system meets these requirements:
 python3 -m pip install --user pipx
 python3 -m pipx ensurepath
 
-# Install tasktree
-pipx install tasktree
+# Install tasktree-manager
+pipx install tasktree-manager
 ```
 
 **Benefits:**
@@ -50,10 +50,10 @@ pipx install tasktree
 
 ### pip (User Install)
 
-Install tasktree for your user account only:
+Install tasktree-manager for your user account only:
 
 ```bash
-pip install --user tasktree
+pip install --user tasktree-manager
 ```
 
 **Note:** Ensure `~/.local/bin` (Linux) or `~/Library/Python/3.x/bin` (macOS) is in your PATH.
@@ -67,8 +67,8 @@ For project-specific installations:
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install tasktree
-pip install tasktree
+# Install tasktree-manager
+pip install tasktree-manager
 ```
 
 ### From Source
@@ -77,8 +77,8 @@ For development or to use the latest unreleased features:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/tasktree.git
-cd tasktree
+git clone https://github.com/yourusername/tasktree-manager.git
+cd tasktree-manager
 
 # Option 1: Using mise (recommended for development)
 curl https://mise.run | sh
@@ -123,13 +123,13 @@ If colors aren't working:
 - **Terminal.app**: Preferences → Profiles → Advanced → Declare terminal as: `xterm-256color`
 - **iTerm2**: Preferences → Profiles → Terminal → Report Terminal Type: `xterm-256color`
 
-#### Install tasktree
+#### Install tasktree-manager
 
 ```bash
 # Using pipx (recommended)
 brew install pipx
 pipx ensurepath
-pipx install tasktree
+pipx install tasktree-manager
 ```
 
 ### Linux
@@ -147,8 +147,8 @@ sudo apt install python3 python3-pip git
 sudo apt install pipx
 pipx ensurepath
 
-# Install tasktree
-pipx install tasktree
+# Install tasktree-manager
+pipx install tasktree-manager
 ```
 
 #### Fedora/RHEL/CentOS
@@ -161,8 +161,8 @@ sudo dnf install python3 python3-pip git
 python3 -m pip install --user pipx
 python3 -m pipx ensurepath
 
-# Install tasktree
-pipx install tasktree
+# Install tasktree-manager
+pipx install tasktree-manager
 ```
 
 #### Arch Linux
@@ -174,8 +174,8 @@ sudo pacman -S python python-pip git
 # Install pipx
 sudo pacman -S python-pipx
 
-# Install tasktree
-pipx install tasktree
+# Install tasktree-manager
+pipx install tasktree-manager
 ```
 
 #### Terminal Configuration
@@ -195,7 +195,7 @@ export TERM=xterm-256color
 
 ### Windows (WSL2)
 
-tasktree requires a Unix-like environment. On Windows, use WSL2:
+tasktree-manager requires a Unix-like environment. On Windows, use WSL2:
 
 #### 1. Install WSL2
 
@@ -221,10 +221,10 @@ sudo apt install pipx
 pipx ensurepath
 ```
 
-#### 3. Install tasktree
+#### 3. Install tasktree-manager
 
 ```bash
-pipx install tasktree
+pipx install tasktree-manager
 ```
 
 #### Windows Terminal Configuration
@@ -250,10 +250,10 @@ If using repositories on Windows filesystem (`/mnt/c/...`), Git operations may b
 
 ### First Run
 
-Launch tasktree:
+Launch tasktree-manager:
 
 ```bash
-tasktree
+tasktree-manager
 ```
 
 On first run, you'll see a configuration wizard:
@@ -271,12 +271,12 @@ On first run, you'll see a configuration wizard:
    - Will be created if it doesn't exist
 
 3. **Confirmation**:
-   - Configuration is saved to `~/.config/tasktree/config.toml`
+   - Configuration is saved to `~/.config/tasktree-manager/config.toml`
    - You can edit this file later (see [Configuration Reference](configuration.md))
 
 ### Directory Structure
 
-After configuration, tasktree expects:
+After configuration, tasktree-manager expects:
 
 ```
 ~/repos/                    # Your git repositories (REPOS_DIR)
@@ -285,9 +285,9 @@ After configuration, tasktree expects:
   └── infrastructure/.git
 
 ~/tasks/                    # Task worktrees (TASKS_DIR)
-  └── (created by tasktree)
+  └── (created by tasktree-manager)
 
-~/.config/tasktree/         # Configuration
+~/.config/tasktree-manager/ # Configuration
   └── config.toml
 ```
 
@@ -299,20 +299,20 @@ After configuration, tasktree expects:
 4. Filter and select repositories (use arrow keys and space)
 5. Press "Create"
 
-tasktree will create worktrees in `~/tasks/FEAT-123/{repo-name}/` on branch `FEAT-123`.
+tasktree-manager will create worktrees in `~/tasks/FEAT-123/{repo-name}/` on branch `FEAT-123`.
 
 ## Verification
 
 Verify your installation:
 
 ```bash
-# Check tasktree is installed
-tasktree --version
-# Should output: tasktree 0.1.0 (or later)
+# Check tasktree-manager is installed
+tasktree-manager --version
+# Should output: tasktree-manager 0.1.0 (or later)
 
-# Check tasktree is in PATH
-which tasktree
-# Should show path like: /Users/username/.local/bin/tasktree
+# Check tasktree-manager is in PATH
+which tasktree-manager
+# Should show path like: /Users/username/.local/bin/tasktree-manager
 
 # Check Python version
 python3 --version
@@ -329,14 +329,14 @@ tput colors
 
 ### Troubleshooting Verification
 
-If `tasktree --version` fails:
+If `tasktree-manager --version` fails:
 
 **"command not found":**
 - pipx: Run `pipx ensurepath` and restart your terminal
 - pip: Add to PATH (see [Troubleshooting Guide](troubleshooting.md))
 
 **"No module named 'textual'":**
-- Reinstall: `pipx reinstall tasktree` or `pip install --force-reinstall tasktree`
+- Reinstall: `pipx reinstall tasktree-manager` or `pip install --force-reinstall tasktree-manager`
 
 **Terminal doesn't support colors:**
 - See platform-specific terminal configuration above
@@ -346,19 +346,19 @@ If `tasktree --version` fails:
 ### pipx
 
 ```bash
-pipx upgrade tasktree
+pipx upgrade tasktree-manager
 ```
 
 ### pip
 
 ```bash
-pip install --upgrade tasktree
+pip install --upgrade tasktree-manager
 ```
 
 ### From Source
 
 ```bash
-cd tasktree
+cd tasktree-manager
 git pull
 mise install  # or: pip install -e .
 ```
@@ -374,13 +374,13 @@ Configuration files are backward compatible within minor versions (0.x.y).
 ### pipx
 
 ```bash
-pipx uninstall tasktree
+pipx uninstall tasktree-manager
 ```
 
 ### pip
 
 ```bash
-pip uninstall tasktree
+pip uninstall tasktree-manager
 ```
 
 ### Cleanup
@@ -389,7 +389,7 @@ Optionally remove configuration and tasks:
 
 ```bash
 # Remove configuration
-rm -rf ~/.config/tasktree
+rm -rf ~/.config/tasktree-manager
 
 # WARNING: This deletes all task worktrees
 # Back up any uncommitted work first!
@@ -402,7 +402,7 @@ rm -rf ~/tasks  # or your TASKS_DIR
 
 To uninstall but keep your tasks:
 
-1. Finish all tasks normally (press `d` in tasktree)
+1. Finish all tasks normally (press `d` in tasktree-manager)
 2. Or manually push all branches:
    ```bash
    cd ~/tasks/TASK-NAME/repo-name
@@ -410,10 +410,10 @@ To uninstall but keep your tasks:
    ```
 3. Then uninstall
 
-Your original repositories in `REPOS_DIR` are never modified by tasktree and remain intact after uninstallation.
+Your original repositories in `REPOS_DIR` are never modified by tasktree-manager and remain intact after uninstallation.
 
 ## Next Steps
 
-- [User Guide](user-guide.md) - Learn tasktree workflows and features
+- [User Guide](user-guide.md) - Learn tasktree-manager workflows and features
 - [Configuration Reference](configuration.md) - Customize keybindings, themes, and settings
 - [Troubleshooting Guide](troubleshooting.md) - Common issues and solutions

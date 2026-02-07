@@ -1,4 +1,4 @@
-"""Git operations service for tasktree."""
+"""Git operations service for tasktree-manager."""
 
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed

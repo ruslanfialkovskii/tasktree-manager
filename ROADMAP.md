@@ -1,4 +1,4 @@
-# Roadmap: tasktree
+# Roadmap: tasktree-manager
 
 ## Vision
 
@@ -24,7 +24,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 
 #### Features
 
-- [x] Config file support (`~/.config/tasktree/config.toml`)
+- [x] Config file support (`~/.config/tasktree-manager/config.toml`)
 - [x] Custom keybindings configuration
 - [x] Improved error messages
 - [x] Loading indicators for slow operations

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from tasktree.services.config import DEFAULT_KEYBINDINGS, Config
+from tasktree_manager.services.config import DEFAULT_KEYBINDINGS, Config
 
 
 class TestConfig:
@@ -34,7 +34,7 @@ class TestConfig:
     def test_ensure_dirs_creates_directories(self, temp_dirs):
         """Test that ensure_dirs creates necessary directories."""
         repos_dir, tasks_dir = temp_dirs
-        config_dir = repos_dir.parent / ".config" / "tasktree"
+        config_dir = repos_dir.parent / ".config" / "tasktree-manager"
 
         config = Config(
             repos_dir=repos_dir,
@@ -135,7 +135,7 @@ class TestConfig:
     def test_load_from_config_file(self, temp_dirs):
         """Test loading configuration from TOML file."""
         repos_dir, tasks_dir = temp_dirs
-        config_dir = repos_dir.parent / ".config" / "tasktree"
+        config_dir = repos_dir.parent / ".config" / "tasktree-manager"
         config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.toml"
 
@@ -207,7 +207,7 @@ shell = "/bin/zsh"
     def test_save_and_load_roundtrip(self, temp_dirs):
         """Test that saving and loading config preserves values."""
         repos_dir, tasks_dir = temp_dirs
-        config_dir = repos_dir.parent / ".config" / "tasktree"
+        config_dir = repos_dir.parent / ".config" / "tasktree-manager"
 
         original = Config(
             repos_dir=repos_dir,
@@ -260,7 +260,7 @@ shell = "/bin/zsh"
     def test_keybindings_from_config_file(self, temp_dirs):
         """Test loading custom keybindings from config file."""
         repos_dir, tasks_dir = temp_dirs
-        config_dir = repos_dir.parent / ".config" / "tasktree"
+        config_dir = repos_dir.parent / ".config" / "tasktree-manager"
         config_dir.mkdir(parents=True, exist_ok=True)
         config_file = config_dir / "config.toml"
 
@@ -319,7 +319,7 @@ cursor_up = "up"
     def test_keybindings_save_and_load_roundtrip(self, temp_dirs):
         """Test that keybindings are preserved through save/load."""
         repos_dir, tasks_dir = temp_dirs
-        config_dir = repos_dir.parent / ".config" / "tasktree"
+        config_dir = repos_dir.parent / ".config" / "tasktree-manager"
 
         custom_bindings = DEFAULT_KEYBINDINGS.copy()
         custom_bindings["quit"] = "ctrl+q"

@@ -552,7 +552,7 @@ class HelpModal(ThemedModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Container():
-            yield Label("tasktree Help", classes="modal-title")
+            yield Label("tasktree-manager Help", classes="modal-title")
 
             # Build help content with actual keybindings
             help_content = self._build_help_content()
@@ -626,7 +626,7 @@ class HelpModal(ThemedModalScreen[None]):
             self._format_binding("toggle_grouping", "S", "Toggle worktree grouping") + "\n"
         )
         general_section += self._format_binding("help", "?", "Show this help") + "\n"
-        general_section += self._format_binding("quit", "q", "Quit tasktree")
+        general_section += self._format_binding("quit", "q", "Quit tasktree-manager")
         sections.append(general_section)
 
         # Tips section
@@ -645,7 +645,7 @@ class HelpModal(ThemedModalScreen[None]):
         if self.config_path:
             info += f"{self.config_path}"
         else:
-            info += "~/.config/tasktree/config.toml"
+            info += "~/.config/tasktree-manager/config.toml"
         return info
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

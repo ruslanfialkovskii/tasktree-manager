@@ -1,4 +1,4 @@
-"""Task list widget for tasktree."""
+"""Task list widget for tasktree-manager."""
 
 from enum import Enum, auto
 

@@ -23,10 +23,10 @@ dev = [
 ]
 
 [project.scripts]
-tasktree = "tasktree.app:main"
+tasktree-manager = "tasktree_manager.app:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["tasktree"]
+packages = ["tasktree_manager"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -46,7 +46,7 @@ select = ["E", "F", "I", "W"]
 ignore = ["E501"]
 
 [tool.coverage.run]
-source = ["tasktree"]
+source = ["tasktree_manager"]
 omit = ["tests/*"]
 branch = true
 
@@ -65,7 +65,7 @@ skip_covered = false
 source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "tasktree/_version.py"
+version-file = "tasktree_manager/_version.py"
 
 # Semantic Release Configuration
 [tool.semantic_release]

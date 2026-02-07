@@ -2,7 +2,7 @@
 
 import pytest
 
-from tasktree.services.task_manager import RepoIssue, Task, TaskSafetyReport, Worktree
+from tasktree_manager.services.task_manager import RepoIssue, Task, TaskSafetyReport, Worktree
 
 
 class TestTaskManager:
@@ -351,7 +351,7 @@ class TestTaskManagerEdgeCases:
         """Test list_tasks when tasks_dir doesn't exist."""
         import shutil
 
-        from tasktree.services.task_manager import TaskManager
+        from tasktree_manager.services.task_manager import TaskManager
 
         # Remove tasks dir
         shutil.rmtree(config.tasks_dir)
@@ -600,8 +600,8 @@ config.local.json
 
     def test_symlinks_with_empty_blocklist(self, temp_dirs, sample_repo):
         """Test that empty blocklist allows all files to be symlinked."""
-        from tasktree.services.config import Config
-        from tasktree.services.task_manager import TaskManager
+        from tasktree_manager.services.config import Config
+        from tasktree_manager.services.task_manager import TaskManager
 
         repos_dir, tasks_dir = temp_dirs
         repo_path, branch = sample_repo
@@ -610,7 +610,7 @@ config.local.json
         config = Config(
             repos_dir=repos_dir,
             tasks_dir=tasks_dir,
-            config_dir=repos_dir.parent / ".config" / "tasktree",
+            config_dir=repos_dir.parent / ".config" / "tasktree-manager",
             symlink_blocklist=[],  # Empty blocklist
         )
         manager = TaskManager(config)
@@ -635,8 +635,8 @@ config.local.json
 
     def test_symlinks_custom_blocklist(self, temp_dirs, sample_repo):
         """Test that custom blocklist patterns are respected."""
-        from tasktree.services.config import Config
-        from tasktree.services.task_manager import TaskManager
+        from tasktree_manager.services.config import Config
+        from tasktree_manager.services.task_manager import TaskManager
 
         repos_dir, tasks_dir = temp_dirs
         repo_path, branch = sample_repo
@@ -645,7 +645,7 @@ config.local.json
         config = Config(
             repos_dir=repos_dir,
             tasks_dir=tasks_dir,
-            config_dir=repos_dir.parent / ".config" / "tasktree",
+            config_dir=repos_dir.parent / ".config" / "tasktree-manager",
             symlink_blocklist=[".env*", "*.secret"],  # Custom blocklist
         )
         manager = TaskManager(config)

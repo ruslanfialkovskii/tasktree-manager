@@ -1,6 +1,6 @@
 # Configuration Reference
 
-Complete reference for all tasktree configuration options.
+Complete reference for all tasktree-manager configuration options.
 
 ## Table of Contents
 
@@ -19,7 +19,7 @@ Complete reference for all tasktree configuration options.
 
 ## Configuration System Overview
 
-tasktree uses a **3-tier configuration system** with the following priority:
+tasktree-manager uses a **3-tier configuration system** with the following priority:
 
 1. **Environment Variables** (highest priority) - Override everything
 2. **Config File** (`config.toml`) - Persistent user preferences
@@ -35,28 +35,28 @@ This allows you to:
 ### Default Location
 
 ```
-~/.config/tasktree/config.toml
+~/.config/tasktree-manager/config.toml
 ```
 
 ### XDG Base Directory Support
 
-tasktree respects the XDG Base Directory specification. Set `XDG_CONFIG_HOME` to customize:
+tasktree-manager respects the XDG Base Directory specification. Set `XDG_CONFIG_HOME` to customize:
 
 ```bash
 export XDG_CONFIG_HOME=~/.myconfig
-# Config will be at: ~/.myconfig/tasktree/config.toml
+# Config will be at: ~/.myconfig/tasktree-manager/config.toml
 ```
 
 ### Creating the Config File
 
-On first run, tasktree creates `config.toml` via the setup wizard. To manually create or reset:
+On first run, tasktree-manager creates `config.toml` via the setup wizard. To manually create or reset:
 
 ```bash
 # Remove existing config (optional)
-rm ~/.config/tasktree/config.toml
+rm ~/.config/tasktree-manager/config.toml
 
-# Run tasktree to trigger setup wizard
-tasktree
+# Run tasktree-manager to trigger setup wizard
+tasktree-manager
 ```
 
 ## Complete Configuration Example
@@ -64,8 +64,8 @@ tasktree
 Here's a fully annotated `config.toml` with all available options:
 
 ```toml
-# tasktree configuration
-# https://github.com/yourusername/tasktree
+# tasktree-manager configuration
+# https://github.com/yourusername/tasktree-manager
 
 # ============================================================================
 # Directory Settings
@@ -199,7 +199,7 @@ blocklist = [
 
 **`repos_dir`:**
 - Must exist before creating tasks
-- Can contain repositories in subdirectories (tasktree scans recursively)
+- Can contain repositories in subdirectories (tasktree-manager scans recursively)
 - Supports `~` expansion and absolute paths
 - Original repositories are NEVER modified
 
@@ -214,7 +214,7 @@ blocklist = [
 # Single repos directory
 repos_dir = "/Users/alice/code"
 
-# Multiple levels (tasktree scans recursively)
+# Multiple levels (tasktree-manager scans recursively)
 repos_dir = "/Users/alice/projects"
 # Can contain: projects/work/api, projects/personal/blog, etc.
 
@@ -300,7 +300,7 @@ Currently unused (reserved for future file browser features).
 
 ## Symlinks
 
-When creating worktrees, tasktree automatically symlinks gitignored files (like `.env`) from the source repository. This allows environment files to be shared without copying.
+When creating worktrees, tasktree-manager automatically symlinks gitignored files (like `.env`) from the source repository. This allows environment files to be shared without copying.
 
 | Option      | Type       | Default        | Description                                    |
 |-------------|------------|----------------|------------------------------------------------|
@@ -334,7 +334,7 @@ blocklist = [
 
 ### How It Works
 
-1. When a worktree is created, tasktree reads the source repo's `.gitignore`
+1. When a worktree is created, tasktree-manager reads the source repo's `.gitignore`
 2. For each gitignored file pattern, it finds matching files
 3. Files matching the blocklist are skipped
 4. Remaining files are symlinked to the worktree
@@ -396,7 +396,7 @@ All 18 customizable keybindings with descriptions:
 
 | Action   | Default | Description                             | Customization Example     |
 |----------|---------|------------------------------------------|---------------------------|
-| `quit`   | `q`     | Quit tasktree                           | `quit = "ctrl+q"`         |
+| `quit`   | `q`     | Quit tasktree-manager                   | `quit = "ctrl+q"`         |
 | `help`   | `?`     | Show help modal with keybindings        | `help = "F1"`             |
 
 ### Task Management
@@ -507,22 +507,22 @@ Override configuration for a single session using environment variables:
 
 **Temporary different repos directory:**
 ```bash
-REPOS_DIR=~/other-projects tasktree
+REPOS_DIR=~/other-projects tasktree-manager
 ```
 
 **Try a theme without changing config:**
 ```bash
-TASKTREE_THEME=gruvbox tasktree
+TASKTREE_THEME=gruvbox tasktree-manager
 ```
 
 **Use different config location:**
 ```bash
-XDG_CONFIG_HOME=~/.myconfig tasktree
+XDG_CONFIG_HOME=~/.myconfig tasktree-manager
 ```
 
 **Multiple overrides:**
 ```bash
-REPOS_DIR=~/work TASKS_DIR=/tmp/tasks TASKTREE_THEME=nord tasktree
+REPOS_DIR=~/work TASKS_DIR=/tmp/tasks TASKTREE_THEME=nord tasktree-manager
 ```
 
 ## Themes
@@ -543,7 +543,7 @@ theme = "nord"
 
 **Via environment variable:**
 ```bash
-TASKTREE_THEME=dracula tasktree
+TASKTREE_THEME=dracula tasktree-manager
 ```
 
 ### Theme Descriptions
@@ -576,7 +576,7 @@ When the same setting is defined in multiple places, this priority order applies
 ### Priority Order (Highest to Lowest)
 
 1. **Environment Variables** - Session-specific overrides
-2. **Config File** (`~/.config/tasktree/config.toml`) - User preferences
+2. **Config File** (`~/.config/tasktree-manager/config.toml`) - User preferences
 3. **Default Values** - Built-in sensible defaults
 
 ### Examples
@@ -592,8 +592,8 @@ repos_dir = "/Users/alice/repos"
 # Environment variable
 export REPOS_DIR=~/work
 
-# Run tasktree
-tasktree
+# Run tasktree-manager
+tasktree-manager
 ```
 
 **Result:** Uses `~/work` (environment variable wins)
@@ -608,7 +608,7 @@ theme = "nord"
 
 ```bash
 # No environment variable
-tasktree
+tasktree-manager
 ```
 
 **Result:** Uses `nord` from config.toml
@@ -621,7 +621,7 @@ tasktree
 
 ```bash
 # No environment variable
-tasktree
+tasktree-manager
 ```
 
 **Result:** Uses `main` (built-in default)
@@ -646,7 +646,7 @@ export TASKTREE_THEME=nord
 # TASKS_DIR not set
 # TASKTREE_DEFAULT_BRANCH not set
 
-tasktree
+tasktree-manager
 ```
 
 **Result:**
@@ -660,10 +660,10 @@ tasktree
 To see which configuration is being used:
 
 1. Open help modal (`?` key)
-2. Bottom shows config location: `Config: ~/.config/tasktree/config.toml`
+2. Bottom shows config location: `Config: ~/.config/tasktree-manager/config.toml`
 3. View actual file:
    ```bash
-   cat ~/.config/tasktree/config.toml
+   cat ~/.config/tasktree-manager/config.toml
    ```
 
 4. Check environment variables:

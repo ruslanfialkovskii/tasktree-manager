@@ -3,8 +3,8 @@
 import pytest
 from textual.widgets import Button, Input, SelectionList
 
-from tasktree.services.task_manager import RepoIssue, TaskSafetyReport
-from tasktree.widgets.create_modal import (
+from tasktree_manager.services.task_manager import RepoIssue, TaskSafetyReport
+from tasktree_manager.widgets.create_modal import (
     AddRepoModal,
     ConfirmModal,
     CreateTaskModal,
@@ -434,7 +434,7 @@ class TestHelpModal:
         """Test default config path when not specified."""
         modal = HelpModal(config_path="")
         info_text = modal._build_info_text()
-        assert "~/.config/tasktree/config.toml" in info_text
+        assert "~/.config/tasktree-manager/config.toml" in info_text
 
     async def test_close_button_dismisses(self, app, sample_repos):
         """Test that close button dismisses the modal."""

@@ -1,6 +1,6 @@
 # User Guide
 
-Complete guide to using tasktree for managing development tasks across multiple repositories.
+Complete guide to using tasktree-manager for managing development tasks across multiple repositories.
 
 ## Table of Contents
 
@@ -17,22 +17,22 @@ Complete guide to using tasktree for managing development tasks across multiple 
 
 ## Introduction
 
-tasktree is a terminal user interface (TUI) application that helps you manage development tasks spanning multiple git repositories. It uses [git worktrees](https://git-scm.com/docs/git-worktree) to create isolated working directories for each task, allowing you to:
+tasktree-manager is a terminal user interface (TUI) application that helps you manage development tasks spanning multiple git repositories. It uses [git worktrees](https://git-scm.com/docs/git-worktree) to create isolated working directories for each task, allowing you to:
 
 - Work on multiple tasks simultaneously without stashing
 - Organize related changes across multiple repositories
 - Track git status for all worktrees at a glance
 - Quickly switch contexts between tasks
 
-### What is tasktree?
+### What is tasktree-manager?
 
-Think of tasktree as a **task organizer** for multi-repo development:
+Think of tasktree-manager as a **task organizer** for multi-repo development:
 
 - **Task**: A named unit of work (e.g., "FEAT-123", "bugfix-login")
 - **Worktree**: A git working directory for one repository within that task
-- **tasktree**: The tool that manages creating, organizing, and cleaning up these worktrees
+- **tasktree-manager**: The tool that manages creating, organizing, and cleaning up these worktrees
 
-### When to Use tasktree
+### When to Use tasktree-manager
 
 **Ideal for:**
 - Microservices architecture (backend, frontend, infrastructure)
@@ -95,7 +95,7 @@ A **worktree** is a git working directory for a specific repository within a tas
   └── BUG-456/                    # Another task
       └── backend/
 
-~/.config/tasktree/
+~/.config/tasktree-manager/
   └── config.toml                 # Configuration
 ```
 
@@ -103,9 +103,9 @@ A **worktree** is a git working directory for a specific repository within a tas
 
 ### Your First Task
 
-1. **Launch tasktree:**
+1. **Launch tasktree-manager:**
    ```bash
-   tasktree
+   tasktree-manager
    ```
 
 2. **Create a task:**
@@ -151,10 +151,10 @@ A **worktree** is a git working directory for a specific repository within a tas
 
 ## Understanding the Interface
 
-tasktree uses a **3-panel layout**:
+tasktree-manager uses a **3-panel layout**:
 
 ```
-┌─ tasktree ──────────────────────────────────────────────────────────────┐
+┌─ tasktree-manager ──────────────────────────────────────────────────────┐
 │  Tasks                    │  Worktrees                                   │
 │  ● FEAT-123 (3)          │    backend        FEAT-123        ● ✗ 2     │
 │    BUG-456 (1)           │    frontend       FEAT-123        ✓         │
@@ -325,7 +325,7 @@ All keybindings can be customized in [`config.toml`](configuration.md).
 | `Ctrl+P`| Open Command Palette    | Switch themes and run commands               |
 | `o`     | Open folder             | Open current folder in new terminal tab      |
 | `?`     | Show help               | Display help modal with keybindings          |
-| `q`     | Quit                    | Exit tasktree                                |
+| `q`     | Quit                    | Exit tasktree-manager                        |
 
 ## Common Workflows
 
@@ -334,8 +334,8 @@ All keybindings can be customized in [`config.toml`](configuration.md).
 **Scenario:** Implementing a feature that requires changes in backend, frontend, and API documentation.
 
 ```bash
-# Start tasktree
-tasktree
+# Start tasktree-manager
+tasktree-manager
 
 # Create task
 Press n
@@ -367,7 +367,7 @@ q (quit lazygit)
 Tab (back to task list)
 p (push all worktrees)
 
-# Create pull requests (outside tasktree)
+# Create pull requests (outside tasktree-manager)
 # Use GitHub CLI, web interface, etc.
 
 # After PRs merged, delete task
@@ -382,7 +382,7 @@ Confirm deletion
 **Scenario:** Urgent bug fix needed in one repository.
 
 ```bash
-tasktree
+tasktree-manager
 
 # Create task
 Press n
@@ -400,7 +400,7 @@ Enter or g
 # Commit and push in lazygit
 
 # Done - delete task
-Esc (back to tasktree)
+Esc (back to tasktree-manager)
 d (delete)
 Confirm
 ```
@@ -413,7 +413,7 @@ Confirm
 
 ```bash
 # Option 1: Create task from existing branch
-tasktree
+tasktree-manager
 Press n
 Task name: review-feat-789
 Base branch: feat-789  # Their branch name
@@ -421,7 +421,7 @@ Select: backend, frontend
 Create
 
 # Option 2: Manual checkout in worktree
-tasktree
+tasktree-manager
 Press n
 Task name: review-feat-789
 Base branch: main
@@ -450,7 +450,7 @@ d (delete task)
 
 ```bash
 # Day 1: Create task
-tasktree
+tasktree-manager
 Press n
 Task name: FEAT-999-big-feature
 Base branch: main
@@ -460,10 +460,10 @@ Create
 # Work, commit, push
 # ... work ...
 p (push all)
-q (quit tasktree)
+q (quit tasktree-manager)
 
 # Day 2: Pull updates from main
-tasktree
+tasktree-manager
 j (select FEAT-999)
 Tab
 Enter (shell in first worktree)
@@ -484,7 +484,7 @@ p (push all)
 # Day 5: Feature complete
 # Push final changes
 p
-# Create PR (outside tasktree)
+# Create PR (outside tasktree-manager)
 # After PR merged:
 d (delete task)
 ```
@@ -494,7 +494,7 @@ d (delete task)
 **Scenario:** Production issue, need immediate fix.
 
 ```bash
-tasktree
+tasktree-manager
 
 # Create hotfix task
 Press n
@@ -510,7 +510,7 @@ g (lazygit)
 # Commit with clear message
 # Push
 
-# Deploy (outside tasktree)
+# Deploy (outside tasktree-manager)
 # CI/CD picks up the branch
 
 # Clean up
@@ -563,7 +563,7 @@ d (delete task)
    - **Unmerged branches**: Merge PR or force delete
 
 **Safety features:**
-- tasktree checks for uncommitted changes
+- tasktree-manager checks for uncommitted changes
 - Checks for unpushed commits
 - Offers to push before deletion
 - Force delete available (with confirmation)
@@ -576,7 +576,7 @@ d (delete task)
 
 ### Manual Cleanup
 
-If tasktree crashes or worktrees are corrupted:
+If tasktree-manager crashes or worktrees are corrupted:
 
 ```bash
 # List git worktrees
@@ -594,7 +594,7 @@ rm -rf ~/tasks/TASK-NAME
 
 ### Lazygit
 
-[lazygit](https://github.com/jesseduffield/lazygit) is the recommended tool for git operations in tasktree.
+[lazygit](https://github.com/jesseduffield/lazygit) is the recommended tool for git operations in tasktree-manager.
 
 **Why lazygit:**
 - Visual interface for staging, committing, pushing
@@ -606,9 +606,9 @@ rm -rf ~/tasks/TASK-NAME
 **Using lazygit:**
 1. Highlight worktree
 2. Press `g`
-3. tasktree suspends, lazygit opens
+3. tasktree-manager suspends, lazygit opens
 4. Do your git work
-5. Press `q` in lazygit to return to tasktree
+5. Press `q` in lazygit to return to tasktree-manager
 6. Status auto-refreshes and selection is preserved
 
 **Install lazygit:**
@@ -628,10 +628,10 @@ apt install lazygit
 **Direct editor integration:**
 1. Highlight task or worktree
 2. Press `e` to open your configured editor
-3. tasktree suspends while editor runs
+3. tasktree-manager suspends while editor runs
 4. Selection is preserved when you return
 
-**Configure your editor** in `~/.config/tasktree/config.toml`:
+**Configure your editor** in `~/.config/tasktree-manager/config.toml`:
 ```toml
 [tools]
 editor = "nvim"  # or "vim", "code", "emacs", etc.
@@ -662,15 +662,15 @@ code ~/tasks/FEAT-123  # Open entire task as workspace
 
 ### CI/CD
 
-tasktree creates normal git branches, so CI/CD works seamlessly:
+tasktree-manager creates normal git branches, so CI/CD works seamlessly:
 
-1. Push branch: `p` in tasktree
+1. Push branch: `p` in tasktree-manager
 2. CI detects new branch
 3. Runs tests/builds
 4. Create PR (GitHub, GitLab, etc.)
 5. CI runs on PR
 6. Merge PR when green
-7. Delete task in tasktree: `d`
+7. Delete task in tasktree-manager: `d`
 
 **Branch naming:**
 - Task name becomes branch name
@@ -682,11 +682,11 @@ tasktree creates normal git branches, so CI/CD works seamlessly:
 Integrate with GitHub CLI for PR creation:
 
 ```bash
-# In worktree shell (press Enter in tasktree)
+# In worktree shell (press Enter in tasktree-manager)
 gh pr create --title "Add authentication" --body "Implements FEAT-123"
 
 # Or after pushing all worktrees
-# Outside tasktree
+# Outside tasktree-manager
 cd ~/repos/backend
 gh pr create --head FEAT-123
 ```
@@ -723,14 +723,14 @@ gh pr create --head FEAT-123
 ```
 
 **Tips:**
-- Set `REPOS_DIR=~/repos` (tasktree scans recursively)
+- Set `REPOS_DIR=~/repos` (tasktree-manager scans recursively)
 - Keep `TASKS_DIR` on fast storage (SSD)
 - Don't nest `TASKS_DIR` inside `REPOS_DIR`
 
 ### Performance Optimization
 
 **For many repositories:**
-- tasktree scans `REPOS_DIR` recursively
+- tasktree-manager scans `REPOS_DIR` recursively
 - If you have 100+ repos, initial load may be slow
 - Consider organizing repos in subdirectories
 - Only include active project directories in `REPOS_DIR`
@@ -802,11 +802,11 @@ For current bugs and planned features, see [ROADMAP.md](../ROADMAP.md).
 
 - **Want GUI?** Use lazygit (`g` key) for visual git operations
 - **Multi-machine sync?** Use branches on remote (push/pull normally)
-- **Task metadata?** Use issue tracker (JIRA, Linear) alongside tasktree
+- **Task metadata?** Use issue tracker (JIRA, Linear) alongside tasktree-manager
 
 ## Next Steps
 
 - [Configuration Reference](configuration.md) - Customize keybindings and settings
 - [Troubleshooting Guide](troubleshooting.md) - Solve common issues
 - [ROADMAP.md](../ROADMAP.md) - See planned features
-- [CONTRIBUTING.md](../CONTRIBUTING.md) - Contribute to tasktree
+- [CONTRIBUTING.md](../CONTRIBUTING.md) - Contribute to tasktree-manager

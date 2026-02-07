@@ -1,16 +1,16 @@
-"""Tests for the main tasktree application."""
+"""Tests for the main tasktree-manager application."""
 
 import shutil
 
-from tasktree.widgets.create_modal import (
+from tasktree_manager.widgets.create_modal import (
     AddRepoModal,
     ConfirmModal,
     CreateTaskModal,
     SafeDeleteModal,
 )
-from tasktree.widgets.status_panel import StatusPanel
-from tasktree.widgets.task_list import TaskList
-from tasktree.widgets.worktree_list import WorktreeList
+from tasktree_manager.widgets.status_panel import StatusPanel
+from tasktree_manager.widgets.task_list import TaskList
+from tasktree_manager.widgets.worktree_list import WorktreeList
 
 
 class TestTaskTreeApp:
@@ -57,7 +57,7 @@ class TestTaskTreeApp:
             await pilot.press("?")
             await pilot.pause()
             # Check that help modal is shown
-            from tasktree.widgets.create_modal import HelpModal
+            from tasktree_manager.widgets.create_modal import HelpModal
 
             help_screens = [s for s in app.screen_stack if isinstance(s, HelpModal)]
             assert len(help_screens) == 1
@@ -69,7 +69,7 @@ class TestTaskTreeApp:
             await pilot.press("?")
             await pilot.pause()
 
-            from tasktree.widgets.create_modal import HelpModal
+            from tasktree_manager.widgets.create_modal import HelpModal
 
             help_screens = [s for s in app.screen_stack if isinstance(s, HelpModal)]
             assert len(help_screens) == 1

@@ -1,4 +1,4 @@
-# Tasktree Release Workflow
+# tasktree-manager Release Workflow
 #
 # Multi-job release pipeline with manual trigger support.
 # Handles version bumping, testing, building, PyPI publishing,
@@ -196,7 +196,7 @@ jobs:
       - name: Test installation from wheel
         run: |
           pip install dist/*.whl
-          python -c "from tasktree.app import TaskTreeApp; print('Import successful')"
+          python -c "from tasktree_manager.app import TaskTreeApp; print('Import successful')"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -259,7 +259,7 @@ jobs:
 
           # Build full release body
           cat > release_notes.md << NOTES_EOF
-          # tasktree v${version}
+          # tasktree-manager v${version}
 
           ${current} → ${version}
 
@@ -276,7 +276,7 @@ jobs:
           Or upgrade:
 
           \`\`\`bash
-          pip install --upgrade tasktree
+          pip install --upgrade tasktree-manager
           \`\`\`
           NOTES_EOF
 

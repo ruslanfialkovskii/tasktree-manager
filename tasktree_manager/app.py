@@ -1,4 +1,4 @@
-"""Main application for tasktree."""
+"""Main application for tasktree-manager."""
 
 import subprocess
 
@@ -30,7 +30,7 @@ from .widgets.worktree_list import WorktreeList
 class TaskTreeApp(App):
     """TUI application for managing worktree-based tasks."""
 
-    TITLE = "tasktree"
+    TITLE = "tasktree-manager"
 
     CSS = """
     /* Main layout */
@@ -1170,7 +1170,7 @@ class TaskTreeApp(App):
 
 
 def main():
-    """Entry point for the tasktree application."""
+    """Entry point for the tasktree-manager application."""
     app = TaskTreeApp()
     app.run()
 

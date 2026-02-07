@@ -1,4 +1,4 @@
-"""Memory leak tests for tasktree.
+"""Memory leak tests for tasktree-manager.
 
 Uses tracemalloc to detect memory leaks in repeated operations.
 """
@@ -8,9 +8,9 @@ import tracemalloc
 
 import pytest
 
-from tasktree.services.config import Config
-from tasktree.services.git_ops import GitOps
-from tasktree.services.task_manager import TaskManager, Worktree
+from tasktree_manager.services.config import Config
+from tasktree_manager.services.git_ops import GitOps
+from tasktree_manager.services.task_manager import TaskManager, Worktree
 
 
 def get_memory_usage():
@@ -30,7 +30,7 @@ def memory_config(tmp_path):
     return Config(
         repos_dir=repos_dir,
         tasks_dir=tasks_dir,
-        config_dir=tmp_path / ".config" / "tasktree",
+        config_dir=tmp_path / ".config" / "tasktree-manager",
     )
 
 

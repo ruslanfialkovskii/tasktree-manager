@@ -21,16 +21,16 @@ Solutions for common issues, error messages, and platform-specific problems.
 Run these commands to gather diagnostic information:
 
 ```bash
-# Check tasktree installation
-tasktree --version
-which tasktree
+# Check tasktree-manager installation
+tasktree-manager --version
+which tasktree-manager
 
 # Check Python and Git
 python3 --version
 git --version
 
 # Check configuration
-cat ~/.config/tasktree/config.toml
+cat ~/.config/tasktree-manager/config.toml
 
 # Check environment variables
 env | grep -E '(REPOS_DIR|TASKS_DIR|TASKTREE_|EDITOR|SHELL)'
@@ -45,9 +45,9 @@ mise run dev  # If installed from source
 
 ## Installation Issues
 
-### "tasktree: command not found"
+### "tasktree-manager: command not found"
 
-**Cause:** tasktree is not in your PATH.
+**Cause:** tasktree-manager is not in your PATH.
 
 **Solutions:**
 
@@ -71,7 +71,7 @@ export PATH="$HOME/.local/bin:$PATH"
 **If installed with pip:**
 ```bash
 # Find where pip installed it
-pip show tasktree | grep Location
+pip show tasktree-manager | grep Location
 
 # For user install, add to PATH
 # Add to ~/.bashrc or ~/.zshrc:
@@ -84,7 +84,7 @@ export PATH="$HOME/Library/Python/3.13/bin:$PATH"
 **If installed from source:**
 ```bash
 # Ensure development installation worked
-cd /path/to/tasktree
+cd /path/to/tasktree-manager
 pip install -e .
 
 # Or use mise directly
@@ -95,7 +95,7 @@ mise run run
 
 **Error message:**
 ```
-tasktree requires Python 3.10 or higher
+tasktree-manager requires Python 3.10 or higher
 ```
 
 **Solutions:**
@@ -130,8 +130,8 @@ curl https://pyenv.run | bash
 pyenv install 3.13.0
 pyenv global 3.13.0
 
-# Reinstall tasktree
-pipx install tasktree --python $(pyenv which python)
+# Reinstall tasktree-manager
+pipx install tasktree-manager --python $(pyenv which python)
 ```
 
 ### "Permission denied"
@@ -146,12 +146,12 @@ ERROR: Could not install packages due to an EnvironmentError: [Errno 13] Permiss
 **Don't use sudo with pip/pipx** - Install for your user:
 ```bash
 # Remove any sudo-installed version
-sudo pip uninstall tasktree
+sudo pip uninstall tasktree-manager
 
 # Install correctly
-pipx install tasktree
+pipx install tasktree-manager
 # or
-pip install --user tasktree
+pip install --user tasktree-manager
 ```
 
 **If file permissions are wrong:**
@@ -169,15 +169,15 @@ sudo chown -R $(whoami) ~/.config
 
 ```bash
 # Reinstall with pipx (recommended)
-pipx uninstall tasktree
-pipx install tasktree
+pipx uninstall tasktree-manager
+pipx install tasktree-manager
 
 # Or reinstall with pip
-pip uninstall tasktree
-pip install --user tasktree
+pip uninstall tasktree-manager
+pip install --user tasktree-manager
 
 # Verify installation
-pip show tasktree
+pip show tasktree-manager
 pip show textual
 ```
 
@@ -193,7 +193,7 @@ No repositories found in REPOS_DIR
 **Diagnosis:**
 ```bash
 # Check REPOS_DIR setting
-cat ~/.config/tasktree/config.toml | grep repos_dir
+cat ~/.config/tasktree-manager/config.toml | grep repos_dir
 
 # Check directory exists
 ls -la ~/repos
@@ -213,7 +213,7 @@ find ~/repos -name .git -type d
 2. **Check configuration:**
    ```bash
    # Edit config.toml
-   vim ~/.config/tasktree/config.toml
+   vim ~/.config/tasktree-manager/config.toml
 
    # Ensure repos_dir points to correct location
    repos_dir = "/Users/username/repos"
@@ -221,7 +221,7 @@ find ~/repos -name .git -type d
 
 3. **Use environment variable override:**
    ```bash
-   REPOS_DIR=~/code tasktree
+   REPOS_DIR=~/code tasktree-manager
    ```
 
 4. **Clone some repositories:**
@@ -279,13 +279,13 @@ Failed to create worktree: fatal: invalid reference: main
 **Diagnosis:**
 ```bash
 # Check if config file exists
-ls -la ~/.config/tasktree/config.toml
+ls -la ~/.config/tasktree-manager/config.toml
 
 # Check contents
-cat ~/.config/tasktree/config.toml
+cat ~/.config/tasktree-manager/config.toml
 
 # Check for TOML syntax errors
-python3 -c "import tomllib; tomllib.load(open('$HOME/.config/tasktree/config.toml', 'rb'))"
+python3 -c "import tomllib; tomllib.load(open('$HOME/.config/tasktree-manager/config.toml', 'rb'))"
 ```
 
 **Solutions:**
@@ -314,8 +314,8 @@ python3 -c "import tomllib; tomllib.load(open('$HOME/.config/tasktree/config.tom
 
 3. **Regenerate config:**
    ```bash
-   rm ~/.config/tasktree/config.toml
-   tasktree  # Will show setup wizard
+   rm ~/.config/tasktree-manager/config.toml
+   tasktree-manager  # Will show setup wizard
    ```
 
 ## Runtime Issues
@@ -332,16 +332,16 @@ python3 -c "import tomllib; tomllib.load(open('$HOME/.config/tasktree/config.tom
    ```bash
    # Try changing theme via Ctrl+P
    # Then check config
-   cat ~/.config/tasktree/config.toml | grep theme
+   cat ~/.config/tasktree-manager/config.toml | grep theme
    ```
 
 2. **Check file permissions:**
    ```bash
-   ls -la ~/.config/tasktree/config.toml
+   ls -la ~/.config/tasktree-manager/config.toml
    # Should be writable by you
 
    # Fix if needed
-   chmod 644 ~/.config/tasktree/config.toml
+   chmod 644 ~/.config/tasktree-manager/config.toml
    ```
 
 3. **Check for environment variable override:**
@@ -355,7 +355,7 @@ python3 -c "import tomllib; tomllib.load(open('$HOME/.config/tasktree/config.tom
 
 4. **Manually edit config:**
    ```bash
-   vim ~/.config/tasktree/config.toml
+   vim ~/.config/tasktree-manager/config.toml
 
    # Add or update:
    [ui]
@@ -365,7 +365,7 @@ python3 -c "import tomllib; tomllib.load(open('$HOME/.config/tasktree/config.tom
 ### "Slow startup"
 
 **Symptoms:**
-- tasktree takes 5+ seconds to start
+- tasktree-manager takes 5+ seconds to start
 - Long delay before UI appears
 
 **Causes:**
@@ -484,7 +484,7 @@ curl -s https://gist.githubusercontent.com/HaleTom/89ffe32783f89f403bba96bd7bcd1
 
    **GNOME Terminal (Linux):**
    - Usually works out of the box
-   - If not, try: `TERM=xterm-256color tasktree`
+   - If not, try: `TERM=xterm-256color tasktree-manager`
 
 3. **Try different terminal:**
    ```bash
@@ -507,7 +507,7 @@ curl -s https://gist.githubusercontent.com/HaleTom/89ffe32783f89f403bba96bd7bcd1
 
 1. **Increase terminal size:**
    ```bash
-   # tasktree requires minimum terminal size
+   # tasktree-manager requires minimum terminal size
    # Recommended: 80x24 minimum, 120x40 for comfort
 
    # Check current size
@@ -613,7 +613,7 @@ export NO_AT_BRIDGE=1
 
 # Or run in tmux/screen
 tmux
-tasktree
+tasktree-manager
 ```
 
 #### "Terminal not recognized"
@@ -764,7 +764,7 @@ rm ~/tasks/TASK-NAME/repo-name/.git/worktrees/*/locked
 # Or remove entire worktree
 git worktree remove ~/tasks/TASK-NAME/repo-name
 
-# Then recreate task in tasktree
+# Then recreate task in tasktree-manager
 ```
 
 ## Advanced Diagnostics
@@ -774,11 +774,11 @@ git worktree remove ~/tasks/TASK-NAME/repo-name
 If installed from source:
 
 ```bash
-cd /path/to/tasktree
+cd /path/to/tasktree-manager
 mise run dev
 ```
 
-This opens tasktree with Textual DevTools console showing:
+This opens tasktree-manager with Textual DevTools console showing:
 - Widget tree
 - CSS inspection
 - Log messages
@@ -801,16 +801,16 @@ git worktree list
 
 ```bash
 # Check ownership and permissions
-ls -la ~/.config/tasktree
+ls -la ~/.config/tasktree-manager
 ls -la ~/repos
 ls -la ~/tasks
 
 # Fix ownership
-sudo chown -R $(whoami):$(id -gn) ~/.config/tasktree
+sudo chown -R $(whoami):$(id -gn) ~/.config/tasktree-manager
 sudo chown -R $(whoami):$(id -gn) ~/tasks
 
 # Fix permissions
-chmod -R u+rw ~/.config/tasktree
+chmod -R u+rw ~/.config/tasktree-manager
 chmod -R u+rwx ~/tasks
 ```
 
@@ -820,7 +820,7 @@ chmod -R u+rwx ~/tasks
 # Check TOML syntax
 python3 -c "
 import tomllib
-with open('$HOME/.config/tasktree/config.toml', 'rb') as f:
+with open('$HOME/.config/tasktree-manager/config.toml', 'rb') as f:
     print(tomllib.load(f))
 "
 
@@ -839,13 +839,13 @@ Gather this information:
    uname -a
    python3 --version
    git --version
-   tasktree --version
+   tasktree-manager --version
    echo $TERM
    ```
 
 2. **Configuration:**
    ```bash
-   cat ~/.config/tasktree/config.toml
+   cat ~/.config/tasktree-manager/config.toml
    env | grep -E '(REPOS|TASKS|TASKTREE|EDITOR|SHELL)'
    ```
 
@@ -856,8 +856,8 @@ Gather this information:
 
 ### Where to Ask
 
-- **Bug reports:** [GitHub Issues](https://github.com/yourusername/tasktree/issues)
-- **Questions:** [GitHub Discussions](https://github.com/yourusername/tasktree/discussions)
+- **Bug reports:** [GitHub Issues](https://github.com/yourusername/tasktree-manager/issues)
+- **Questions:** [GitHub Discussions](https://github.com/yourusername/tasktree-manager/discussions)
 - **Documentation issues:** File an issue with "docs:" prefix
 
 ### Bug Report Template
@@ -867,7 +867,7 @@ Gather this information:
 - OS: macOS 14.1 / Ubuntu 22.04 / Windows 11 WSL2
 - Python: 3.13.0
 - Git: 2.42.0
-- tasktree: 0.1.0
+- tasktree-manager: 0.1.0
 
 **Expected behavior:**
 [What you expected to happen]
@@ -893,15 +893,15 @@ Gather this information:
 
 ## FAQ
 
-### Can I use tasktree with existing worktrees?
+### Can I use tasktree-manager with existing worktrees?
 
-No, tasktree manages worktrees in `TASKS_DIR` only. Existing worktrees created with `git worktree` directly won't appear in tasktree.
+No, tasktree-manager manages worktrees in `TASKS_DIR` only. Existing worktrees created with `git worktree` directly won't appear in tasktree-manager.
 
-**Workaround:** Create tasks in tasktree and manually copy your work to the new worktrees.
+**Workaround:** Create tasks in tasktree-manager and manually copy your work to the new worktrees.
 
-### Does tasktree modify my main repositories?
+### Does tasktree-manager modify my main repositories?
 
-No. Repositories in `REPOS_DIR` are never modified. tasktree only:
+No. Repositories in `REPOS_DIR` are never modified. tasktree-manager only:
 - Reads repository information
 - Creates new branches (in worktrees, not main repo)
 - The branches exist in main repo only after you push from worktrees
@@ -950,7 +950,7 @@ Yes, commit a template to your dotfiles:
 
 ```bash
 # Create template
-cp ~/.config/tasktree/config.toml ~/dotfiles/tasktree.toml
+cp ~/.config/tasktree-manager/config.toml ~/dotfiles/tasktree-manager.toml
 
 # Edit to use variables
 repos_dir = "/Users/YOUR_USERNAME/repos"
@@ -966,16 +966,16 @@ repos_dir = "/Users/YOUR_USERNAME/repos"
 
 ```bash
 # Backup current config
-cp ~/.config/tasktree/config.toml ~/.config/tasktree/config.toml.backup
+cp ~/.config/tasktree-manager/config.toml ~/.config/tasktree-manager/config.toml.backup
 
 # Remove and regenerate
-rm ~/.config/tasktree/config.toml
-tasktree  # Setup wizard appears
+rm ~/.config/tasktree-manager/config.toml
+tasktree-manager  # Setup wizard appears
 ```
 
 ### Stuck Worktrees
 
-If worktrees can't be deleted via tasktree:
+If worktrees can't be deleted via tasktree-manager:
 
 ```bash
 # Find all worktrees for a repo
@@ -998,8 +998,8 @@ If `TASKS_DIR` was deleted but branches exist:
 cd ~/repos/repo-name
 git branch -r
 
-# Recreate task in tasktree
-tasktree
+# Recreate task in tasktree-manager
+tasktree-manager
 Press n
 Task name: FEAT-123
 Base branch: FEAT-123  # Use existing branch
@@ -1021,20 +1021,20 @@ Nuclear option - start fresh:
 # Back up any uncommitted work first!
 
 # Remove config
-rm -rf ~/.config/tasktree
+rm -rf ~/.config/tasktree-manager
 
 # Remove all tasks (DANGEROUS - backs up recommended)
 mv ~/tasks ~/tasks.backup
 
-# Restart tasktree
-tasktree  # Setup wizard
+# Restart tasktree-manager
+tasktree-manager  # Setup wizard
 ```
 
 **Recovery:**
 ```bash
 # If you made a mistake, restore
 mv ~/tasks.backup ~/tasks
-cp ~/tasks.backup/.config/tasktree/config.toml ~/.config/tasktree/
+cp ~/tasks.backup/.config/tasktree-manager/config.toml ~/.config/tasktree-manager/
 ```
 
 ## Next Steps
@@ -1042,4 +1042,4 @@ cp ~/tasks.backup/.config/tasktree/config.toml ~/.config/tasktree/
 - [User Guide](user-guide.md) - Learn workflows and features
 - [Configuration Reference](configuration.md) - Customize settings
 - [Installation Guide](installation.md) - Reinstall or upgrade
-- [GitHub Issues](https://github.com/yourusername/tasktree/issues) - Report bugs
+- [GitHub Issues](https://github.com/yourusername/tasktree-manager/issues) - Report bugs

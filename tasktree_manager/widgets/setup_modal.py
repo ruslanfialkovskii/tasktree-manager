@@ -79,14 +79,14 @@ class SetupModal(ModalScreen[tuple[Path, Path] | None]):
     }
     """
 
-    WELCOME_TEXT = """Welcome to tasktree!
+    WELCOME_TEXT = """Welcome to tasktree-manager!
 
 Before you start, please configure the following directories:
 
 1. REPOS_DIR: Where your git repositories are located
 2. TASKS_DIR: Where task worktrees will be created
 
-These settings will be saved to ~/.config/tasktree/config.toml
+These settings will be saved to ~/.config/tasktree-manager/config.toml
 """
 
     def __init__(self, *args, **kwargs):
@@ -95,7 +95,7 @@ These settings will be saved to ~/.config/tasktree/config.toml
 
     def compose(self) -> ComposeResult:
         with Container():
-            yield Label("tasktree Setup", classes="modal-title")
+            yield Label("tasktree-manager Setup", classes="modal-title")
             yield Static(self.WELCOME_TEXT, classes="welcome-text")
 
             yield Label("Repositories Directory:", classes="section-label")

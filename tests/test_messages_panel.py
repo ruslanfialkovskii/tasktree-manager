@@ -4,8 +4,8 @@ from datetime import datetime
 
 import pytest
 
-from tasktree.app import TaskTreeApp
-from tasktree.widgets.messages_panel import (
+from tasktree_manager.app import TaskTreeApp
+from tasktree_manager.widgets.messages_panel import (
     ActivityMessage,
     MessageLevel,
     MessagesPanel,

@@ -2,9 +2,9 @@
 
 import pytest
 
-from tasktree.services.git_ops import GitStatus
-from tasktree.services.task_manager import Worktree
-from tasktree.widgets.status_panel import StatusPanel
+from tasktree_manager.services.git_ops import GitStatus
+from tasktree_manager.services.task_manager import Worktree
+from tasktree_manager.widgets.status_panel import StatusPanel
 
 
 class TestStatusPanel:

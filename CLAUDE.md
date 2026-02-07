@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-tasktree is a TUI application for managing git worktree-based tasks, styled like lazygit. It allows users to create tasks that span multiple repositories, each with their own worktree.
+tasktree-manager is a TUI application for managing git worktree-based tasks, styled like lazygit. It allows users to create tasks that span multiple repositories, each with their own worktree.
 
 ## Commands
 
@@ -34,7 +34,7 @@ pytest tests/test_app.py::TestTaskTreeApp::test_app_starts -v
 - **Worktree**: A git worktree within a task, created from a repo in `REPOS_DIR` (~/repos). Branch name matches task name.
 - **GitStatus**: Status info for a worktree (branch, staged/modified/untracked files, ahead/behind counts)
 
-### Services Layer (`tasktree/services/`)
+### Services Layer (`tasktree_manager/services/`)
 
 - `config.py`: Loads configuration from environment variables (`REPOS_DIR`, `TASKS_DIR`)
 - `task_manager.py`: CRUD operations for tasks and worktrees (creates git worktrees via subprocess)
@@ -44,7 +44,7 @@ pytest tests/test_app.py::TestTaskTreeApp::test_app_starts -v
 
 Uses Textual's built-in theming system with design tokens (`$primary`, `$background`, `$error`, etc.). Switch themes via the Command Palette (`Ctrl+P`). Available themes include: textual-dark, textual-light, nord, gruvbox, tokyo-night, monokai, dracula.
 
-### Widgets Layer (`tasktree/widgets/`)
+### Widgets Layer (`tasktree_manager/widgets/`)
 
 All widgets extend Textual's `ListView` or `Static`:
 - `task_list.py`: Left panel showing tasks with dirty indicators
@@ -52,7 +52,7 @@ All widgets extend Textual's `ListView` or `Static`:
 - `status_panel.py`: Bottom panel showing git status for selected worktree
 - `create_modal.py`: Modal dialogs (all extend `ThemedModalScreen` base class)
 
-### App (`tasktree/app.py`)
+### App (`tasktree_manager/app.py`)
 
 `TaskTreeApp` is the main Textual App. It:
 - Composes the 3-panel layout

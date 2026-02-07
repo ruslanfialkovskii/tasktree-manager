@@ -1,6 +1,6 @@
-# Contributing to tasktree
+# Contributing to tasktree-manager
 
-Thank you for your interest in contributing to tasktree! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to tasktree-manager! This document provides guidelines and instructions for contributing.
 
 ## Code of Conduct
 
@@ -18,8 +18,8 @@ Be respectful, inclusive, and constructive. We're all here to build something us
 
 1. **Fork and clone**
    ```bash
-   git clone https://github.com/yourusername/tasktree.git
-   cd tasktree
+   git clone https://github.com/yourusername/tasktree-manager.git
+   cd tasktree-manager
    ```
 
 2. **Install dependencies**
@@ -199,8 +199,8 @@ async def test_app_starts(app):
 ## Project Structure
 
 ```
-tasktree/
-├── tasktree/           # Main package
+tasktree-manager/
+├── tasktree_manager/   # Main package
 │   ├── services/       # Business logic
 │   ├── widgets/        # UI components
 │   ├── themes/         # Color themes
@@ -224,7 +224,7 @@ tasktree/
 ### Bug Reports
 
 Include:
-- tasktree version (`tasktree --version`)
+- tasktree-manager version (`tasktree-manager --version`)
 - Python version (`python --version`)
 - OS and terminal
 - Steps to reproduce
@@ -260,7 +260,7 @@ Include:
 
 ## Questions?
 
-- Open a [Discussion](https://github.com/yourusername/tasktree/discussions)
+- Open a [Discussion](https://github.com/yourusername/tasktree-manager/discussions)
 - Ask in Pull Request
 - Check existing issues
 
@@ -270,4 +270,4 @@ By contributing, you agree that your contributions will be licensed under the MI
 
 ---
 
-Thank you for contributing to tasktree! 🎉
+Thank you for contributing to tasktree-manager! 🎉

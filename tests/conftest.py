@@ -1,14 +1,14 @@
-"""Pytest fixtures for tasktree tests."""
+"""Pytest fixtures for tasktree-manager tests."""
 
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from tasktree.app import TaskTreeApp
-from tasktree.services.config import Config
-from tasktree.services.git_ops import GitStatus
-from tasktree.services.task_manager import TaskManager, Worktree
+from tasktree_manager.app import TaskTreeApp
+from tasktree_manager.services.config import Config
+from tasktree_manager.services.git_ops import GitStatus
+from tasktree_manager.services.task_manager import TaskManager, Worktree
 
 
 def get_default_branch(repo_path: Path) -> str:
@@ -71,7 +71,7 @@ def config(temp_dirs):
     return Config(
         repos_dir=repos_dir,
         tasks_dir=tasks_dir,
-        config_dir=repos_dir.parent / ".config" / "tasktree",
+        config_dir=repos_dir.parent / ".config" / "tasktree-manager",
     )
 
 

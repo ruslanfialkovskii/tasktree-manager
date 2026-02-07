@@ -1,4 +1,4 @@
-"""Worktree list widget for tasktree."""
+"""Worktree list widget for tasktree-manager."""
 
 from textual.message import Message
 from textual.widgets import OptionList

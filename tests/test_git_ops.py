@@ -3,8 +3,8 @@
 import subprocess
 from pathlib import Path
 
-from tasktree.services.git_ops import GitOps, GitStatus
-from tasktree.services.task_manager import Task, Worktree
+from tasktree_manager.services.git_ops import GitOps, GitStatus
+from tasktree_manager.services.task_manager import Task, Worktree
 
 
 class TestGitStatus:

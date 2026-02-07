@@ -1,4 +1,4 @@
-"""Status panel widget for tasktree."""
+"""Status panel widget for tasktree-manager."""
 
 from rich.text import Text
 from textual.widgets import Static

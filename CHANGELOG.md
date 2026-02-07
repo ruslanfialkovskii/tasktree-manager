@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to tasktree will be documented in this file.
+All notable changes to tasktree-manager will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -17,14 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.1] - 2026-02-07
 
-### Added
-- 
-
 ### Changed
-- 
-
-### Fixed
-- 
+- Renamed Python module from `tasktree` to `tasktree_manager` for PyPI consistency
+- Renamed CLI command from `tasktree` to `tasktree-manager`
+- Renamed config directory from `~/.config/tasktree/` to `~/.config/tasktree-manager/`
+- Renamed GitHub repository to `tasktree-manager`
+- Updated all documentation, CI workflows, and build configuration
 
 
 ## [1.0.0] - 2026-02-07
@@ -42,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - TBD
 
 ### Added
-- Config file support (`~/.config/tasktree/config.toml`)
+- Config file support (`~/.config/tasktree-manager/config.toml`)
 - Custom keybindings configuration (14 customizable actions)
 - Selection state preservation when returning from lazygit or shell
 - Parallel git operations (push/pull all worktrees simultaneously)
@@ -108,7 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Configuration:**
 - Old: Configuration via environment variables only
-- New: Config file at `~/.config/tasktree/config.toml` (auto-created on first run)
+- New: Config file at `~/.config/tasktree-manager/config.toml` (auto-created on first run)
 - Migration: Environment variables still work and override config file
 
 **Themes:**
@@ -125,7 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Links
 
-- [Repository](https://github.com/yourusername/tasktree)
+- [Repository](https://github.com/yourusername/tasktree-manager)
 - [Documentation](docs/)
-- [Issue Tracker](https://github.com/yourusername/tasktree/issues)
+- [Issue Tracker](https://github.com/yourusername/tasktree-manager/issues)
 - [Roadmap](ROADMAP.md)

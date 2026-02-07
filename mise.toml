@@ -34,19 +34,19 @@ run = "pytest tests/ -v --tb=short -x"
 
 [tasks."test:cov"]
 description = "Run tests with coverage"
-run = "pytest tests/ -v --cov=tasktree --cov-report=term-missing"
+run = "pytest tests/ -v --cov=tasktree_manager --cov-report=term-missing"
 
 [tasks.lint]
 description = "Run linter"
-run = "ruff check tasktree/ tests/"
+run = "ruff check tasktree_manager/ tests/"
 
 [tasks."lint:fix"]
 description = "Run linter and fix issues"
-run = "ruff check --fix tasktree/ tests/"
+run = "ruff check --fix tasktree_manager/ tests/"
 
 [tasks.format]
 description = "Format code"
-run = "ruff format tasktree/ tests/"
+run = "ruff format tasktree_manager/ tests/"
 
 [tasks.build]
 description = "Build package"
@@ -61,12 +61,12 @@ find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
 """
 
 [tasks.run]
-description = "Run tasktree"
-run = "tasktree"
+description = "Run tasktree-manager"
+run = "tasktree-manager"
 
 [tasks.dev]
-description = "Run tasktree in dev mode with textual console"
-run = "textual run --dev tasktree.app:TaskTreeApp"
+description = "Run tasktree-manager in dev mode with textual console"
+run = "textual run --dev tasktree_manager.app:TaskTreeApp"
 
 [tasks."release:check"]
 description = "Dry-run to preview what a release would do"
