@@ -125,6 +125,90 @@ def update_pyproject_version(current_version: str, new_version: str, dry_run: bo
     return True
 
 
+def get_changelog_from_commits() -> str:
+    """Generate changelog content from conventional commits since the last tag.
+
+    Parses git log for conventional commit messages and groups them into
+    Added, Changed, and Fixed sections.
+    """
+    # Find the last tag
+    try:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            capture_output=True, text=True, cwd=PROJECT_ROOT,
+        )
+        last_tag = result.stdout.strip() if result.returncode == 0 else ""
+    except Exception:
+        last_tag = ""
+
+    # Get commits since last tag (or all commits if no tag)
+    git_log_cmd = ["git", "log", "--pretty=format:%s"]
+    if last_tag:
+        git_log_cmd.append(f"{last_tag}..HEAD")
+
+    try:
+        result = subprocess.run(
+            git_log_cmd, capture_output=True, text=True, cwd=PROJECT_ROOT,
+        )
+        commits = result.stdout.strip().splitlines() if result.returncode == 0 else []
+    except Exception:
+        commits = []
+
+    if not commits:
+        return ""
+
+    # Conventional commit type -> changelog section mapping
+    added_types = {"feat"}
+    fixed_types = {"fix"}
+    changed_types = {"refactor", "perf", "style", "build", "ci", "chore", "docs", "test"}
+
+    added = []
+    changed = []
+    fixed = []
+
+    # Pattern: type(scope): description  or  type!: description  or  type: description
+    commit_re = re.compile(r"^(\w+)(?:\(([^)]*)\))?(!)?:\s*(.+)$")
+
+    for commit in commits:
+        # Skip release commits
+        if commit.startswith("chore(release):"):
+            continue
+
+        match = commit_re.match(commit)
+        if match:
+            ctype, scope, breaking, description = match.groups()
+            # Capitalize first letter of description
+            description = description[0].upper() + description[1:] if description else description
+            scope_prefix = f"**{scope}**: " if scope else ""
+            entry = f"- {scope_prefix}{description}"
+
+            if breaking:
+                entry = f"- **BREAKING**: {description}"
+                changed.append(entry)
+            elif ctype in added_types:
+                added.append(entry)
+            elif ctype in fixed_types:
+                fixed.append(entry)
+            elif ctype in changed_types:
+                changed.append(entry)
+            else:
+                changed.append(entry)
+        else:
+            # Non-conventional commit — include as-is under Changed
+            if commit.strip():
+                changed.append(f"- {commit}")
+
+    sections = []
+    if added:
+        sections.append("### Added\n" + "\n".join(added))
+    if changed:
+        sections.append("### Changed\n" + "\n".join(changed))
+    if fixed:
+        sections.append("### Fixed\n" + "\n".join(fixed))
+
+    return "\n\n".join(sections)
+
+
 def update_changelog(new_version: str, message: str = "", dry_run: bool = False) -> bool:
     """Update CHANGELOG.md with a new version entry."""
     if not CHANGELOG_PATH.exists():
@@ -142,7 +226,12 @@ def update_changelog(new_version: str, message: str = "", dry_run: bool = False)
     if message:
         new_entry = f"## [{new_version}] - {today}\n\n{message}\n\n"
     else:
-        new_entry = f"## [{new_version}] - {today}\n\n### Added\n- \n\n### Changed\n- \n\n### Fixed\n- \n\n"
+        # Auto-generate from conventional commits
+        changelog_content = get_changelog_from_commits()
+        if changelog_content:
+            new_entry = f"## [{new_version}] - {today}\n\n{changelog_content}\n\n"
+        else:
+            new_entry = f"## [{new_version}] - {today}\n\nNo notable changes.\n\n"
 
     if dry_run:
         print(f"Would add new entry to CHANGELOG.md for version {new_version}")

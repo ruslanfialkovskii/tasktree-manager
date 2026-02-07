@@ -17,22 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.0.0] - 2026-02-07
 
-### Added
-- 
-
 ### Changed
-- 
-
-### Fixed
-- 
-
-
-## [1.0.1] - 2026-02-07
-
-### Changed
+- **BREAKING**: CLI command renamed from `tasktree` to `tasktree-manager`
+- **BREAKING**: Config directory moved from `~/.config/tasktree/` to `~/.config/tasktree-manager/`
 - Renamed Python module from `tasktree` to `tasktree_manager` for PyPI consistency
-- Renamed CLI command from `tasktree` to `tasktree-manager`
-- Renamed config directory from `~/.config/tasktree/` to `~/.config/tasktree-manager/`
 - Renamed GitHub repository to `tasktree-manager`
 - Updated all documentation, CI workflows, and build configuration
 
