@@ -19,6 +19,7 @@ dev = [
     "textual-dev>=1.8.0",
     "ruff>=0.4.0",
     "build>=1.0.0",
+    "twine>=5.0.0",
 ]
 
 [project.scripts]

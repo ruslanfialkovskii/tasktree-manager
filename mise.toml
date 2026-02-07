@@ -67,3 +67,19 @@ run = "tasktree"
 [tasks.dev]
 description = "Run tasktree in dev mode with textual console"
 run = "textual run --dev tasktree.app:TaskTreeApp"
+
+[tasks."release:check"]
+description = "Dry-run to preview what a release would do"
+run = "python scripts/bump_version.py patch --dry-run"
+
+[tasks."release:patch"]
+description = "Bump patch version locally"
+run = "python scripts/bump_version.py patch"
+
+[tasks."release:minor"]
+description = "Bump minor version locally"
+run = "python scripts/bump_version.py minor"
+
+[tasks."release:major"]
+description = "Bump major version locally"
+run = "python scripts/bump_version.py major"

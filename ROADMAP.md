@@ -69,7 +69,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 #### Features
 
 - [x] Recent messages
-- [ ] Claude code integration
+- [x] Claude code integration
 
 #### UI/UX
 
@@ -85,7 +85,7 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 #### Task Metadata
 
 - [ ] Task descriptions
-- [ ] JIRA/GitHub issue linking
+- [ ] JIRA/GitLab issue linking
 - [ ] Tags/labels
 - [ ] Due dates
 
@@ -111,7 +111,6 @@ Build the most intuitive TUI for managing git worktrees across multiple reposito
 - [ ] API stability guarantee
 - [ ] Comprehensive error handling
 - [ ] Graceful degradation
-- [ ] Backup/restore functionality
 
 #### Performance
 

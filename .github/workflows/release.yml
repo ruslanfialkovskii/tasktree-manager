@@ -1,20 +1,52 @@
+# Tasktree Release Workflow
+#
+# Multi-job release pipeline with manual trigger support.
+# Handles version bumping, testing, building, PyPI publishing,
+# and GitHub release creation.
+#
+# Triggers:
+#   - Push to main: semantic-release determines if a release is needed
+#   - Manual dispatch: choose release type, pre-release, and draft options
+
 name: Release
 
 on:
   push:
     branches: [main]
-  workflow_dispatch:  # Manual trigger option
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Type of release"
+        required: true
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+      pre_release:
+        description: "Mark as pre-release?"
+        required: false
+        default: false
+        type: boolean
+      draft:
+        description: "Create as draft release?"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
-  release:
-    name: Semantic Release
+  prepare-release:
+    name: Prepare Release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-
+    outputs:
+      new_version: ${{ steps.determine_version.outputs.new_version }}
+      released: ${{ steps.determine_version.outputs.released }}
+      current_version: ${{ steps.determine_version.outputs.current_version }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -27,29 +59,230 @@ jobs:
       - name: Install dependencies
         run: pip install python-semantic-release build hatch-vcs
 
-      - name: Python Semantic Release
-        id: release
+      - name: Determine version
+        id: determine_version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          semantic-release version --no-push --no-commit
-          VERSION=$(semantic-release version --print)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "released=$([[ -n "$VERSION" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+          # Get current version from pyproject.toml
+          current_version=$(python -c "
+          import re
+          content = open('pyproject.toml').read()
+          match = re.search(r'^\s*version\s*=\s*\"([^\"]+)\"', content, re.MULTILINE)
+          print(match.group(1) if match else '0.0.0')
+          ")
+          echo "current_version=${current_version}" >> $GITHUB_OUTPUT
+          echo "Current version: ${current_version}"
+
+          release_type="${{ inputs.release_type || 'auto' }}"
+
+          if [ "$release_type" = "auto" ]; then
+            # Use semantic-release to determine next version
+            VERSION=$(semantic-release version --print 2>/dev/null || echo "")
+            if [ -n "$VERSION" ]; then
+              echo "new_version=${VERSION}" >> $GITHUB_OUTPUT
+              echo "released=true" >> $GITHUB_OUTPUT
+              echo "Semantic release determined version: ${VERSION}"
+            else
+              echo "released=false" >> $GITHUB_OUTPUT
+              echo "No release needed (no qualifying commits)"
+            fi
+          else
+            # Manual bump using bump_version.py
+            new_version=$(python scripts/bump_version.py "$release_type" --dry-run 2>&1 | grep "New version:" | awk '{print $3}')
+            if [ -n "$new_version" ]; then
+              echo "new_version=${new_version}" >> $GITHUB_OUTPUT
+              echo "released=true" >> $GITHUB_OUTPUT
+              echo "Manual bump to: ${new_version}"
+            else
+              echo "released=false" >> $GITHUB_OUTPUT
+              echo "Failed to determine new version"
+              exit 1
+            fi
+          fi
+
+      - name: Apply version bump
+        if: steps.determine_version.outputs.released == 'true'
+        run: |
+          release_type="${{ inputs.release_type || 'auto' }}"
+          new_version="${{ steps.determine_version.outputs.new_version }}"
+
+          if [ "$release_type" = "auto" ]; then
+            # Let semantic-release handle version files
+            semantic-release version --no-push --no-commit
+          else
+            # Use bump script for manual releases
+            python scripts/bump_version.py "$release_type"
+          fi
+
+      - name: Commit and tag version
+        if: steps.determine_version.outputs.released == 'true'
+        run: |
+          new_version="${{ steps.determine_version.outputs.new_version }}"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          git diff --cached --quiet && echo "No changes to commit" || \
+            git commit -m "chore(release): ${new_version} [skip ci]"
+          git tag -fa "v${new_version}" -m "Release v${new_version}"
+          git push origin main
+          git push origin "v${new_version}" --force
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    needs: prepare-release
+    if: needs.prepare-release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.prepare-release.outputs.new_version }}"
+          fetch-depth: 0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Configure git for tests
+        run: |
+          git config --global user.email "test@test.com"
+          git config --global user.name "Test User"
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+  build:
+    name: Build Package
+    needs: [prepare-release, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.prepare-release.outputs.new_version }}"
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install build hatch-vcs twine
 
       - name: Build package
-        if: steps.release.outputs.released == 'true'
         run: python -m build
 
+      - name: Validate with twine
+        run: twine check dist/*
+
+      - name: Test installation from wheel
+        run: |
+          pip install dist/*.whl
+          python -c "from tasktree.app import TaskTreeApp; print('Import successful')"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [prepare-release, build]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: List packages
+        run: ls -la dist/
+
       - name: Publish to PyPI
-        if: steps.release.outputs.released == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           skip-existing: true
 
-      - name: Create GitHub Release
-        if: steps.release.outputs.released == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  github-release:
+    name: Create GitHub Release
+    needs: [prepare-release, publish-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.prepare-release.outputs.new_version }}"
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Build release notes
+        id: release_notes
         run: |
-          semantic-release publish
+          version="${{ needs.prepare-release.outputs.new_version }}"
+          current="${{ needs.prepare-release.outputs.current_version }}"
+
+          # Extract the section for this version from CHANGELOG.md
+          changelog_content=$(awk "/## \[${version}\]/ {flag=1;next} /^## / {flag=0} flag" CHANGELOG.md || echo "")
+          if [ -z "$changelog_content" ]; then
+            changelog_content="Release v${version}"
+          fi
+
+          # Build full release body
+          cat > release_notes.md << NOTES_EOF
+          # tasktree v${version}
+
+          ${current} → ${version}
+
+          ## Changes
+
+          ${changelog_content}
+
+          ## Installation
+
+          \`\`\`bash
+          pip install tasktree==${version}
+          \`\`\`
+
+          Or upgrade:
+
+          \`\`\`bash
+          pip install --upgrade tasktree
+          \`\`\`
+          NOTES_EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.prepare-release.outputs.new_version }}
+          name: Release v${{ needs.prepare-release.outputs.new_version }}
+          body_path: release_notes.md
+          draft: ${{ inputs.draft || false }}
+          prerelease: ${{ inputs.pre_release || false }}
+          files: dist/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

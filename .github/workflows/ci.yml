@@ -118,10 +118,13 @@ jobs:
           python-version: "3.12"
 
       - name: Install build tools
-        run: pip install build hatch-vcs
+        run: pip install build hatch-vcs twine
 
       - name: Build package
         run: python -m build
+
+      - name: Validate package
+        run: twine check dist/*
 
       - name: Test package installation
         run: |
