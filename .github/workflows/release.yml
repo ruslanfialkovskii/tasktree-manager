@@ -77,12 +77,25 @@ jobs:
           release_type="${{ inputs.release_type || 'auto' }}"
 
           if [ "$release_type" = "auto" ]; then
-            # Use semantic-release to determine next version
+            # Use semantic-release to determine bump type from commit history
             VERSION=$(semantic-release version --print 2>/dev/null || echo "")
             if [ -n "$VERSION" ]; then
-              echo "new_version=${VERSION}" >> $GITHUB_OUTPUT
+              # Determine bump type by comparing versions
+              IFS='.' read -r cur_major cur_minor cur_patch <<< "$current_version"
+              IFS='.' read -r new_major new_minor new_patch <<< "$VERSION"
+              if [ "$new_major" -gt "$cur_major" ]; then
+                bump_type="major"
+              elif [ "$new_minor" -gt "$cur_minor" ]; then
+                bump_type="minor"
+              else
+                bump_type="patch"
+              fi
+              # Use bump_version.py to get the actual new version
+              new_version=$(python scripts/bump_version.py "$bump_type" --dry-run 2>&1 | grep "New version:" | awk '{print $3}')
+              echo "new_version=${new_version}" >> $GITHUB_OUTPUT
               echo "released=true" >> $GITHUB_OUTPUT
-              echo "Semantic release determined version: ${VERSION}"
+              echo "bump_type=${bump_type}" >> $GITHUB_OUTPUT
+              echo "Auto-detected bump type: ${bump_type}, version: ${new_version}"
             else
               echo "released=false" >> $GITHUB_OUTPUT
               echo "No release needed (no qualifying commits)"
@@ -93,6 +106,7 @@ jobs:
             if [ -n "$new_version" ]; then
               echo "new_version=${new_version}" >> $GITHUB_OUTPUT
               echo "released=true" >> $GITHUB_OUTPUT
+              echo "bump_type=${release_type}" >> $GITHUB_OUTPUT
               echo "Manual bump to: ${new_version}"
             else
               echo "released=false" >> $GITHUB_OUTPUT
@@ -104,16 +118,8 @@ jobs:
       - name: Apply version bump
         if: steps.determine_version.outputs.released == 'true'
         run: |
-          release_type="${{ inputs.release_type || 'auto' }}"
-          new_version="${{ steps.determine_version.outputs.new_version }}"
-
-          if [ "$release_type" = "auto" ]; then
-            # Let semantic-release handle version files
-            semantic-release version --no-push --no-commit
-          else
-            # Use bump script for manual releases
-            python scripts/bump_version.py "$release_type"
-          fi
+          bump_type="${{ steps.determine_version.outputs.bump_type }}"
+          python scripts/bump_version.py "$bump_type"
 
       - name: Commit and tag version
         if: steps.determine_version.outputs.released == 'true'
