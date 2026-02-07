@@ -70,7 +70,7 @@ version-file = "tasktree_manager/_version.py"
 # Semantic Release Configuration
 [tool.semantic_release]
 version_toml = ["pyproject.toml:tool.semantic_release.version"]
-version = "1.0.1"
+version = "2.0.0"
 tag_format = "v{version}"
 branch = "main"
 commit_message = "chore(release): {version} [skip ci]"
