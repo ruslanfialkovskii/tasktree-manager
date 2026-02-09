@@ -140,9 +140,9 @@ class WorktreeList(OptionList):
         claude_indicator = "[blue]◆[/]" if worktree.has_claude_md else " "
 
         if worktree.is_dirty:
-            prompt = f" {claude_indicator}{name_col}  [cyan]{branch_col}[/]  [red]✗ {worktree.changed_files} files[/]"
+            prompt = f" {claude_indicator}{name_col}  {branch_col}  [red]✗ {worktree.changed_files} files[/]"
         else:
-            prompt = f" {claude_indicator}{name_col}  [cyan]{branch_col}[/]  [green]✓[/]"
+            prompt = f" {claude_indicator}{name_col}  {branch_col}  [green]✓[/]"
         self.add_option(Option(prompt, id=worktree.name))
 
     def _emit_highlighted(self) -> None:

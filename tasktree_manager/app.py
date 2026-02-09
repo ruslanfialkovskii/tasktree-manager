@@ -143,7 +143,7 @@ class TaskTreeApp(App):
     /* Status panel styling */
     #status-display {
         height: 100%;
-        padding: 0 1;
+        padding: 1 1 0 1;
         background: $background;
         color: $text;
         overflow-y: auto;
@@ -310,6 +310,7 @@ class TaskTreeApp(App):
             # Right column: Info/Status panel
             with Vertical(id="right-column"):
                 with Vertical(id="status-panel"):
+                    yield Static("Info", classes="panel-title", id="status-panel-title")
                     yield StatusPanel(id="status-display")
                 with Vertical(id="messages-panel"):
                     yield MessagesPanel(id="messages-display")
@@ -497,6 +498,26 @@ class TaskTreeApp(App):
             self.notify(f"Failed to run {name}: {e}", severity="error")
             return False
 
+    def on_descendant_focus(self, event) -> None:
+        """Handle focus changes to update info panel mode."""
+        try:
+            status_panel = self.query_one("#status-display", StatusPanel)
+        except Exception:
+            return
+
+        if isinstance(event.widget, TaskList):
+            # Task list focused → show task changed files
+            if self.current_task:
+                status_panel.set_loading(True)
+                self._update_task_summary(self.current_task)
+        elif isinstance(event.widget, WorktreeList):
+            # Worktree list focused → show worktree details
+            if self.current_worktree and self.current_status:
+                status_panel.update_status(self.current_worktree, self.current_status)
+            elif self.current_worktree:
+                status_panel.set_loading(True)
+                self._update_worktree_status(self.current_worktree)
+
     def on_task_list_task_highlighted(self, event: TaskList.TaskHighlighted) -> None:
         """Handle task highlight in task list."""
         self.current_task = event.task
@@ -512,6 +533,12 @@ class TaskTreeApp(App):
             preserved = self._preserved_worktree_name
             self._preserved_worktree_name = None  # Clear after use
             worktree_list.load_worktrees(event.task.worktrees, preserve_selection=preserved)
+
+            # Show task summary if task list is focused
+            task_list = self.query_one("#task-list", TaskList)
+            if task_list.has_focus:
+                status_panel.set_loading(True)
+                self._update_task_summary(event.task)
         else:
             worktree_list.clear_worktrees()
             status_panel.clear_status()
@@ -527,12 +554,19 @@ class TaskTreeApp(App):
             # Widget not mounted yet during app startup
             return
 
+        # Only update status panel if worktree list is focused
+        worktree_list = self.query_one("#worktree-list", WorktreeList)
         if event.worktree:
-            status_panel.set_loading(True)
-            self._update_worktree_status(event.worktree)
+            if worktree_list.has_focus:
+                status_panel.set_loading(True)
+                self._update_worktree_status(event.worktree)
+            else:
+                # Still fetch status in background for when user switches focus
+                self._update_worktree_status(event.worktree)
         else:
             self.current_status = None
-            status_panel.clear_status()
+            if worktree_list.has_focus:
+                status_panel.clear_status()
 
     @work(thread=True, exclusive=True, group="status_update")
     def _update_worktree_status(self, worktree: Worktree) -> None:
@@ -548,7 +582,31 @@ class TaskTreeApp(App):
             self.current_status = status
             try:
                 status_panel = self.query_one("#status-display", StatusPanel)
-                status_panel.update_status(worktree, status)
+                # Only show worktree status if worktree list is focused
+                worktree_list = self.query_one("#worktree-list", WorktreeList)
+                if worktree_list.has_focus:
+                    status_panel.update_status(worktree, status)
+            except Exception:
+                pass
+
+    @work(thread=True, exclusive=True, group="task_summary_update")
+    def _update_task_summary(self, task: Task) -> None:
+        """Fetch git status for all dirty worktrees in background thread."""
+        statuses: dict[str, GitStatus] = {}
+        for wt in task.worktrees:
+            if wt.is_dirty:
+                statuses[wt.name] = GitOps.get_status(wt)
+        self.call_from_thread(self._apply_task_summary, task, statuses)
+
+    def _apply_task_summary(self, task: Task, statuses: dict[str, GitStatus]) -> None:
+        """Apply fetched task summary to the UI (called on main thread)."""
+        # Only update if this task is still selected and task list is focused
+        if self.current_task and self.current_task.name == task.name:
+            try:
+                status_panel = self.query_one("#status-display", StatusPanel)
+                task_list = self.query_one("#task-list", TaskList)
+                if task_list.has_focus:
+                    status_panel.update_task_summary(task, statuses)
             except Exception:
                 pass
 
