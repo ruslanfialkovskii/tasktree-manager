@@ -1,5 +1,6 @@
 """Main application for tasktree-manager."""
 
+import json
 import subprocess
 
 from textual import work
@@ -8,6 +9,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Static
 
+from .services.claude_hooks import ensure_claude_hooks
 from .services.config import Config
 from .services.git_ops import GitOps
 from .services.models import GitStatus, Task, Worktree
@@ -250,6 +252,8 @@ class TaskTreeApp(App):
         self._show_messages_panel: bool = False
         # Used to preserve worktree selection during task list reload
         self._preserved_worktree_name: str | None = None
+        # Claude session statuses: task_name -> status string
+        self._claude_statuses: dict[str, str] = {}
 
     def _build_bindings_from_config(self) -> list[Binding]:
         """Build keybindings list from config.
@@ -329,6 +333,9 @@ class TaskTreeApp(App):
             # Focus the task list initially
             task_list = self.query_one("#task-list", TaskList)
             task_list.focus()
+
+        # Poll Claude session status files every 5 seconds
+        self.set_interval(5, self._poll_claude_statuses)
 
     def watch_theme(self, theme: str) -> None:
         """Save theme to config when changed."""
@@ -419,6 +426,27 @@ class TaskTreeApp(App):
             task_list.load_tasks(tasks, preserve_selection=task_name)
         finally:
             task_list.loading = False
+
+    def _poll_claude_statuses(self) -> None:
+        """Check .claude_status files and update task indicators."""
+        try:
+            task_list = self.query_one("#task-list", TaskList)
+        except Exception:
+            return
+
+        statuses: dict[str, str] = {}
+        for task in task_list.tasks:
+            status_file = task.path / ".claude_status"
+            if status_file.exists():
+                try:
+                    data = json.loads(status_file.read_text())
+                    statuses[task.name] = data.get("status", "unknown")
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+        if statuses != self._claude_statuses:
+            self._claude_statuses = statuses
+            task_list.refresh_claude_indicators(statuses)
 
     def _refresh_current_task(self, preserve_selection: bool = False) -> None:
         """Refresh the current task's worktrees and status.
@@ -918,7 +946,7 @@ class TaskTreeApp(App):
             self.query_one("#worktree-list", WorktreeList).focus()
 
     def action_open_claude_resume(self) -> None:
-        """Open Claude Code with session list (claude -r) in the current task folder."""
+        """Open Claude Code in a new Ghostty tab (resume session)."""
         if not self.current_task:
             self.notify("No task selected", severity="warning")
             return
@@ -928,30 +956,17 @@ class TaskTreeApp(App):
             self.notify("Task directory not found", severity="error")
             return
 
-        saved_task_name = self.current_task.name
-        saved_worktree_name = self.current_worktree.name if self.current_worktree else None
-
         # Fetch fresh task data to ensure worktrees are up-to-date
-        fresh_task = self.task_manager.get_task(saved_task_name)
+        fresh_task = self.task_manager.get_task(self.current_task.name)
         if fresh_task:
-            # Create claude.md files if they don't exist
             self.task_manager.ensure_claude_md_files(fresh_task)
 
-        self.notify("Opening Claude Code (resume)...")
-
-        with self.suspend():
-            self._run_external_command(
-                [self.config.claude_path, "-r"],
-                cwd=task_path,
-                name="Claude Code",
-                install_hint="npm install -g @anthropic-ai/claude-code",
-            )
-
-        self._load_tasks_with_selection(saved_task_name, saved_worktree_name)
-        self.query_one("#task-list", TaskList).focus()
+        ensure_claude_hooks(task_path)
+        self._open_ghostty_tab(task_path, command=f"{self.config.claude_path} -r")
+        self.notify("Opened Claude Code in new tab (resume)")
 
     def action_open_claude_new(self) -> None:
-        """Open a new Claude Code session in the current task folder."""
+        """Open a new Claude Code session in a new Ghostty tab."""
         if not self.current_task:
             self.notify("No task selected", severity="warning")
             return
@@ -961,27 +976,14 @@ class TaskTreeApp(App):
             self.notify("Task directory not found", severity="error")
             return
 
-        saved_task_name = self.current_task.name
-        saved_worktree_name = self.current_worktree.name if self.current_worktree else None
-
         # Fetch fresh task data to ensure worktrees are up-to-date
-        fresh_task = self.task_manager.get_task(saved_task_name)
+        fresh_task = self.task_manager.get_task(self.current_task.name)
         if fresh_task:
-            # Create claude.md files if they don't exist
             self.task_manager.ensure_claude_md_files(fresh_task)
 
-        self.notify("Opening new Claude Code session...")
-
-        with self.suspend():
-            self._run_external_command(
-                [self.config.claude_path],
-                cwd=task_path,
-                name="Claude Code",
-                install_hint="npm install -g @anthropic-ai/claude-code",
-            )
-
-        self._load_tasks_with_selection(saved_task_name, saved_worktree_name)
-        self.query_one("#task-list", TaskList).focus()
+        ensure_claude_hooks(task_path)
+        self._open_ghostty_tab(task_path, command=self.config.claude_path)
+        self.notify("Opened new Claude Code session in new tab")
 
     def action_open_folder(self) -> None:
         """Open current folder in a new terminal tab."""
@@ -1006,15 +1008,23 @@ class TaskTreeApp(App):
         # Open in new terminal tab
         self._open_ghostty_tab(folder_path)
 
-    def _open_ghostty_tab(self, path) -> None:
-        """Open a new terminal tab at the given path.
+    def _open_ghostty_tab(self, path, command: str | None = None) -> None:
+        """Open a new terminal tab at the given path, optionally running a command.
 
         NOTE: This implementation is specific to the Ghostty terminal emulator
         on macOS, using AppleScript. It will silently fail on other terminals.
+
+        Args:
+            path: Directory to cd into in the new tab
+            command: Optional command to run after cd (e.g., "claude -r")
         """
         # Ghostty: Use AppleScript to activate and open new tab, then cd
         # Escape single quotes for AppleScript string interpolation
         safe_path = str(path).replace("'", "'\\''")
+        if command:
+            shell_cmd = f"cd '{safe_path}' && clear && {command}"
+        else:
+            shell_cmd = f"cd '{safe_path}' && clear"
         script = f"""
         tell application "Ghostty"
             activate
@@ -1023,7 +1033,7 @@ class TaskTreeApp(App):
             tell process "Ghostty"
                 keystroke "t" using command down
                 delay 0.1
-                keystroke "cd '{safe_path}' && clear"
+                keystroke "{shell_cmd}"
                 key code 36
             end tell
         end tell

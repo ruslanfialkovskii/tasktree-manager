@@ -60,27 +60,42 @@ class TaskList(OptionList):
         """Compatibility property - sets highlighted index."""
         self.highlighted = value
 
-    def _format_task_option(self, task: Task) -> Option:
+    def _format_task_option(self, task: Task, claude_status: str | None = None) -> Option:
         """Format a task as an Option for display."""
-        claude_indicator = "[blue]◆[/]" if task.has_claude_md else " "
-        if task.is_dirty:
-            prompt = f"[red]●[/]{claude_indicator}{task.name} [red]({task.dirty_count})[/]"
+        claude_md = "[blue]◆[/]" if task.has_claude_md else " "
+        if claude_status == "running":
+            hook_indicator = " [magenta]⟳[/]"
+        elif claude_status == "waiting":
+            hook_indicator = " [yellow]![/]"
+        elif claude_status == "ended":
+            hook_indicator = " [green]✓[/]"
         else:
-            prompt = f"  {claude_indicator}{task.name}"
+            hook_indicator = ""
+        if task.is_dirty:
+            prompt = f"[red]●[/]{claude_md}{task.name} [red]({task.dirty_count})[/]{hook_indicator}"
+        else:
+            prompt = f"  {claude_md}{task.name}{hook_indicator}"
         return Option(prompt, id=task.name)
 
-    def load_tasks(self, tasks: list[Task], preserve_selection: str | None = None) -> None:
+    def load_tasks(
+        self,
+        tasks: list[Task],
+        preserve_selection: str | None = None,
+        claude_statuses: dict[str, str] | None = None,
+    ) -> None:
         """Load tasks into the list.
 
         Args:
             tasks: List of tasks to load
             preserve_selection: Optional task name to preserve selection for
+            claude_statuses: Optional dict of task_name -> claude status string
         """
         sorted_tasks = self._sort_tasks(tasks)
         self.tasks = sorted_tasks
         self.clear_options()
+        statuses = claude_statuses or {}
         for task in sorted_tasks:
-            self.add_option(self._format_task_option(task))
+            self.add_option(self._format_task_option(task, statuses.get(task.name)))
 
         # Select item - preserve previous selection if specified
         if self.tasks and self.option_count > 0:
@@ -130,6 +145,15 @@ class TaskList(OptionList):
         if current_index is not None and current_index < len(tasks):
             self.highlighted = current_index
             self._emit_highlighted()
+
+    def refresh_claude_indicators(self, statuses: dict[str, str]) -> None:
+        """Update Claude status indicators without full reload.
+
+        Re-renders all option labels with updated claude status indicators.
+        """
+        for i, task in enumerate(self.tasks):
+            new_option = self._format_task_option(task, statuses.get(task.name))
+            self.replace_option_prompt_at_index(i, new_option.prompt)
 
     def cycle_sort_mode(self) -> None:
         """Cycle through sort modes and reload tasks."""
