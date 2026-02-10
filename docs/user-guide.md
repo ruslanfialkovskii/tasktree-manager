@@ -60,7 +60,7 @@ Task: FEAT-123
 ```
 
 **Characteristics:**
-- Created with a unique name (e.g., `FEAT-123`, `DIC-1813-auth`)
+- Created with a unique name (e.g., `FEAT-123`, `BUG-456-auth`)
 - Contains one or more worktrees
 - Stored in `TASKS_DIR/task-name/`
 - Each task gets its own set of branches across selected repos
@@ -696,7 +696,7 @@ gh pr create --head FEAT-123
 ### Naming Conventions
 
 **Task names:**
-- Use issue tracker IDs: `JIRA-1234`, `DIC-1813`
+- Use issue tracker IDs: `JIRA-1234`, `PROJ-567`
 - Or descriptive names: `feat-auth`, `bugfix-login`, `refactor-api`
 - Avoid spaces: Use `-` or `_`
 - Keep short but meaningful

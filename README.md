@@ -24,13 +24,13 @@
 ```
 ┌─ tasktree-manager ──────────────────────────────────────────────────────┐
 │  Tasks                    │  Worktrees                                   │
-│  ● DIC-1813 (2)          │    gitops-hpc         DIC-1813        ✗ 3   │
-│    DIC-1770-env          │    hpc                DIC-1813        ✓     │
+│  ● FEAT-42 (2)           │    web-api            FEAT-42          ✗ 3   │
+│    FEAT-38-auth          │    frontend           FEAT-42          ✓     │
 │                          │                                              │
 │                          │                                              │
 ├──────────────────────────────────────────────────────────────────────────┤
-│  Status: gitops-hpc                                                      │
-│  Branch: DIC-1813                                                        │
+│  Status: web-api                                                         │
+│  Branch: FEAT-42                                                         │
 │  Sync:   ↑2 ↓1                                                          │
 │                                                                          │
 │   M  src/main.py                                                        │
