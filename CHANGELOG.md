@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.1.0] - 2026-02-10
+
+### Added
+- Add context-aware info panel with task summary and focus-driven updates
+- Add Claude session status monitoring with Ghostty integration
+
+### Changed
+- Update example task names in README and user guide
+
+
 ## [2.0.1] - 2026-02-07
 
 ### Fixed
