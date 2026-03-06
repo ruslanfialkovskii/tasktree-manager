@@ -19,26 +19,18 @@
 - 🚀 **Fast & Responsive** - Parallel git operations with loading indicators
 - 🔧 **Flexible Configuration** - TOML config file, custom keybindings, environment variables
 
-## 📸 Screenshots
+## 📊 Status Indicators
 
-```
-┌─ tasktree-manager ──────────────────────────────────────────────────────┐
-│  Tasks                    │  Worktrees                                   │
-│  ● FEAT-42 (2)           │    web-api            FEAT-42          ✗ 3   │
-│    FEAT-38-auth          │    frontend           FEAT-42          ✓     │
-│                          │                                              │
-│                          │                                              │
-├──────────────────────────────────────────────────────────────────────────┤
-│  Status: web-api                                                         │
-│  Branch: FEAT-42                                                         │
-│  Sync:   ↑2 ↓1                                                          │
-│                                                                          │
-│   M  src/main.py                                                        │
-│   ?? README.md                                                          │
-│   M  tests/test_app.py                                                  │
-└──────────────────────────────────────────────────────────────────────────┘
-  n New task  d Delete  g Lazygit  p Push  r Refresh  ? Help  q Quit
-```
+| Indicator | Meaning |
+|-----------|---------|
+| `●` red | Uncommitted changes |
+| `◆` blue | Has CLAUDE.md file |
+| `⟳` magenta | Claude Code session running |
+| `!` yellow | Claude Code session waiting for input |
+| `✓` green | Clean worktree / Claude session ended |
+| `✗ N` red | N files changed |
+| `↑N` green | N commits ahead of remote |
+| `↓N` yellow | N commits behind remote |
 
 ## 🚀 Quick Start
 
@@ -85,9 +77,11 @@ For detailed workflows and examples, see the [User Guide](docs/user-guide.md).
 | `n` | New task | `g` | Open lazygit |
 | `a` | Add repo | `e` | Open editor |
 | `d` | Delete task | `o` | Open folder |
-| `p` | Push all | `Enter` | Open shell |
+| `p` | Push all | `P` | Pull all |
+| `c` | Claude (resume) | `C` | Claude (new) |
 | `r` | Refresh | `s` | Sort tasks |
-| `S` | Group worktrees | `Tab` | Next panel |
+| `S` | Group worktrees | `m` | Messages |
+| `Enter` | Open shell | `Tab` | Next panel |
 | `?` | Show help | `q` | Quit |
 
 **Themes:** Press `Ctrl+P` to switch between 7 built-in themes (textual-dark, nord, gruvbox, tokyo-night, monokai, dracula, textual-light).

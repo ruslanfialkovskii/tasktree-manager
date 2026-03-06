@@ -177,7 +177,9 @@ Shows all your tasks:
 
 - **Name**: Task identifier (e.g., `FEAT-123`)
 - **Count**: Number of worktrees in parentheses (e.g., `(3)`)
-- **Dirty indicator** `●`: Task has uncommitted changes
+- **Dirty indicator** `●`: Red dot — task has uncommitted changes
+- **CLAUDE.md indicator** `◆`: Blue diamond — task has a CLAUDE.md file
+- **Claude session status**: `⟳` running (magenta), `!` waiting (yellow), `✓` ended (green)
 - **Sort mode**: Press `s` to cycle through sort modes (name ↑/↓, date ↑/↓, dirty/clean first)
 
 **Navigation:**
@@ -221,13 +223,24 @@ Shows detailed git status for the selected worktree:
 
 ### Visual Indicators
 
+**Task & Worktree Status:**
+
 | Indicator | Meaning                                    |
 |-----------|--------------------------------------------|
-| `●`       | Task has uncommitted changes              |
-| `✗ N`     | N files staged or modified                |
-| `↑N`      | N commits ahead of remote (unpushed)      |
-| `↓N`      | N commits behind remote (need to pull)    |
-| `✓`       | Clean worktree, in sync                   |
+| `●`       | Task/worktree has uncommitted changes      |
+| `✗ N`     | N files staged or modified                 |
+| `↑N`      | N commits ahead of remote (unpushed)       |
+| `↓N`      | N commits behind remote (need to pull)     |
+| `✓`       | Clean worktree, in sync                    |
+
+**Claude Code Integration:**
+
+| Indicator | Color   | Meaning                                  |
+|-----------|---------|------------------------------------------|
+| `◆`       | Blue    | Task/worktree has a CLAUDE.md file       |
+| `⟳`       | Magenta | Claude Code session is running           |
+| `!`       | Yellow  | Claude Code session is waiting for input |
+| `✓`       | Green   | Claude Code session has ended            |
 
 ## Complete Keyboard Reference
 
@@ -318,12 +331,26 @@ All keybindings can be customized in [`config.toml`](configuration.md).
 - When focused on task list: Opens the task folder (`~/tasks/TASK-NAME`)
 - When focused on worktree list: Opens the selected worktree folder
 
+### Claude Code Integration
+
+| Key     | Action                  | Description                                  |
+|---------|-------------------------|----------------------------------------------|
+| `c`     | Open Claude (resume)    | Resume Claude Code session in task directory |
+| `C`     | Open Claude (new)       | Start new Claude Code session in task directory |
+
+**How it works:**
+- Opens Claude Code in a new Ghostty terminal tab at the task directory
+- Generates `CLAUDE.md` files with task/worktree context
+- Installs hooks that report session status back to tasktree-manager
+- Session status (`⟳` running, `!` waiting, `✓` ended) appears next to the task name
+
 ### General
 
 | Key     | Action                  | Description                                  |
 |---------|-------------------------|----------------------------------------------|
 | `Ctrl+P`| Open Command Palette    | Switch themes and run commands               |
 | `o`     | Open folder             | Open current folder in new terminal tab      |
+| `m`     | Toggle messages         | Show/hide the activity messages panel        |
 | `?`     | Show help               | Display help modal with keybindings          |
 | `q`     | Quit                    | Exit tasktree-manager                        |
 
