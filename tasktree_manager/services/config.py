@@ -59,6 +59,7 @@ class Config:
     # UI settings
     theme: str = "textual-dark"
     show_hidden_files: bool = False
+    refresh_interval: int = 30  # Auto-refresh interval in seconds (0 = disabled)
 
     # Git settings
     default_base_branch: str = "main"
@@ -122,6 +123,7 @@ class Config:
         ui_config = config_data.get("ui", {})
         theme = ui_config.get("theme", "textual-dark")
         show_hidden_files = ui_config.get("show_hidden_files", False)
+        refresh_interval = ui_config.get("refresh_interval", 30)
 
         # Git settings
         git_config = config_data.get("git", {})
@@ -185,6 +187,7 @@ class Config:
             config_dir=config_dir,
             theme=theme,
             show_hidden_files=show_hidden_files,
+            refresh_interval=refresh_interval,
             default_base_branch=default_base_branch,
             auto_push=auto_push,
             git_timeout=git_timeout,
@@ -285,6 +288,9 @@ theme = "{self._toml_escape(self.theme)}"
 
 # Show hidden files in file listings
 show_hidden_files = {str(self.show_hidden_files).lower()}
+
+# Auto-refresh interval in seconds (0 = disabled)
+refresh_interval = {self.refresh_interval}
 
 # ============================================================================
 # Git Settings

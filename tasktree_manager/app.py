@@ -338,6 +338,10 @@ class TaskTreeApp(App):
         # Poll Claude session status files every 5 seconds
         self.set_interval(5, self._poll_claude_statuses)
 
+        # Periodic auto-refresh of git status
+        if self.config.refresh_interval > 0:
+            self.set_interval(self.config.refresh_interval, self._periodic_git_refresh)
+
     def watch_theme(self, theme: str) -> None:
         """Save theme to config when changed."""
         if hasattr(self, "config") and self.config.theme != theme:
@@ -448,6 +452,41 @@ class TaskTreeApp(App):
         if statuses != self._claude_statuses:
             self._claude_statuses = statuses
             task_list.refresh_claude_indicators(statuses)
+
+    def _periodic_git_refresh(self) -> None:
+        """Trigger a background git status refresh."""
+        self._run_periodic_refresh()
+
+    @work(thread=True, exclusive=True, group="auto_refresh")
+    def _run_periodic_refresh(self) -> None:
+        """Refresh git status in background thread."""
+        tasks = self.task_manager.list_tasks()
+        all_worktrees = [wt for task in tasks for wt in task.worktrees]
+        GitOps.update_all_worktree_statuses(all_worktrees)
+
+        current_task_name = self.current_task.name if self.current_task else None
+        current_worktree_name = self.current_worktree.name if self.current_worktree else None
+
+        def _apply():
+            try:
+                task_list = self.query_one("#task-list", TaskList)
+                if current_worktree_name:
+                    self._preserved_worktree_name = current_worktree_name
+                task_list.load_tasks(tasks, preserve_selection=current_task_name)
+
+                if self.current_task:
+                    for t in tasks:
+                        if t.name == self.current_task.name:
+                            self.current_task = t
+                            worktree_list = self.query_one("#worktree-list", WorktreeList)
+                            worktree_list.load_worktrees(
+                                t.worktrees, preserve_selection=current_worktree_name
+                            )
+                            break
+            except Exception:
+                pass
+
+        self.call_from_thread(_apply)
 
     def _refresh_current_task(self, preserve_selection: bool = False) -> None:
         """Refresh the current task's worktrees and status.
@@ -693,8 +732,8 @@ class TaskTreeApp(App):
                     except Exception as e:
                         failed.append((repo, e))
 
-                self._load_tasks()
-                self._refresh_current_task()
+                self._load_tasks(preserve_selection=True)
+                self._refresh_current_task(preserve_selection=True)
 
                 if added:
                     self.notify(f"Added {len(added)} repo(s) to task")
@@ -1129,7 +1168,7 @@ class TaskTreeApp(App):
                     task_name,
                 )
 
-            self._refresh_current_task()
+            self._refresh_current_task(preserve_selection=True)
         finally:
             worktree_list.loading = False
 
@@ -1164,14 +1203,14 @@ class TaskTreeApp(App):
                     task_name,
                 )
 
-            self._refresh_current_task()
+            self._refresh_current_task(preserve_selection=True)
         finally:
             worktree_list.loading = False
 
     def action_refresh(self) -> None:
         """Refresh all status."""
-        self._load_tasks()
-        self._refresh_current_task()
+        self._load_tasks(preserve_selection=True)
+        self._refresh_current_task(preserve_selection=True)
         self.notify("Refreshed")
 
     def action_toggle_messages(self) -> None:

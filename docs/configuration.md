@@ -93,6 +93,11 @@ theme = "textual-dark"
 # Default: false
 show_hidden_files = false
 
+# Auto-refresh interval in seconds (0 = disabled)
+# Periodically refreshes git status in the background
+# Default: 30
+refresh_interval = 30
+
 # ============================================================================
 # Git Settings
 # ============================================================================
@@ -160,6 +165,13 @@ push_all = "p"          # Push all worktrees in current task
 pull_all = "P"          # Pull all worktrees in current task (shift+p)
 refresh = "r"           # Refresh git status
 
+# Claude Code integration
+open_claude_resume = "c"    # Resume Claude Code session in task directory
+open_claude_new = "C"       # Start new Claude Code session (shift+c)
+
+# Messages panel
+toggle_messages = "m"       # Show/hide the activity messages panel
+
 # Navigation
 focus_next = "tab"          # Switch to next panel
 focus_previous = "shift+tab" # Switch to previous panel
@@ -224,10 +236,11 @@ tasks_dir = "/Volumes/FastSSD/worktrees"
 
 ## UI Settings
 
-| Option              | Type    | Default         | Environment Variable  | Description                     |
-|--------------------|---------|-----------------|-----------------------|---------------------------------|
-| `theme`            | string  | `textual-dark`  | `TASKTREE_THEME`     | Color theme for the interface   |
-| `show_hidden_files` | boolean | `false`         | -                     | Show hidden files in listings   |
+| Option              | Type    | Default         | Environment Variable  | Description                              |
+|--------------------|---------|-----------------|-----------------------|------------------------------------------|
+| `theme`            | string  | `textual-dark`  | `TASKTREE_THEME`     | Color theme for the interface            |
+| `show_hidden_files` | boolean | `false`         | -                     | Show hidden files in listings            |
+| `refresh_interval`  | integer | `30`            | -                     | Auto-refresh interval in seconds (0 = disabled) |
 
 ### `theme`
 
@@ -244,6 +257,20 @@ Available themes (press `Ctrl+P` in app to switch):
 ### `show_hidden_files`
 
 Currently unused (reserved for future file browser features).
+
+### `refresh_interval`
+
+Automatically refreshes git status for all tasks and worktrees in the background:
+
+- Default: `30` (every 30 seconds)
+- Set to `0` to disable auto-refresh
+- Runs in a background thread — does not block the UI
+- Preserves current task and worktree selection during refresh
+
+```toml
+[ui]
+refresh_interval = 15  # Refresh every 15 seconds
+```
 
 ## Git Settings
 
@@ -390,7 +417,7 @@ blocklist = ["*"]
 
 ## Keybindings Reference
 
-All 18 customizable keybindings with descriptions:
+All 21 customizable keybindings with descriptions:
 
 ### Application Control
 
@@ -418,6 +445,14 @@ All 18 customizable keybindings with descriptions:
 | `push_all`     | `p`      | Push all worktrees in current task    | `push_all = "ctrl+p"`       |
 | `pull_all`     | `P`      | Pull all worktrees in current task    | `pull_all = "ctrl+shift+p"` |
 | `refresh`      | `r`      | Refresh git status for all worktrees  | `refresh = "F5"`            |
+
+### Claude Code Integration
+
+| Action               | Default | Description                              | Customization Example                |
+|----------------------|---------|------------------------------------------|--------------------------------------|
+| `open_claude_resume` | `c`     | Resume Claude Code session in task dir   | `open_claude_resume = "ctrl+c"`      |
+| `open_claude_new`    | `C`     | Start new Claude Code session            | `open_claude_new = "ctrl+shift+c"`   |
+| `toggle_messages`    | `m`     | Show/hide activity messages panel        | `toggle_messages = "ctrl+m"`         |
 
 ### Navigation
 

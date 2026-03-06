@@ -190,6 +190,13 @@ class GitOps:
             True if current branch is merged into base_branch, False otherwise.
         """
         try:
+            # Fetch latest remote refs so we detect merges done via GitLab/GitHub UI
+            subprocess.run(
+                ["git", "fetch", "origin", base_branch],
+                cwd=worktree.path,
+                capture_output=True,
+                timeout=10,
+            )
             # Use git merge-base --is-ancestor to check if HEAD is reachable from base
             # This checks if the current branch has been merged
             result = subprocess.run(
