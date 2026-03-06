@@ -104,7 +104,8 @@ class Config:
         Priority: Environment variables > Config file > Defaults
         """
         config_dir = (
-            Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "tasktree-manager"
+            Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+            / "tasktree-manager"
         )
         config_file = config_dir / "config.toml"
 

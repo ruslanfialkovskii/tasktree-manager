@@ -9,7 +9,7 @@ def _make_hook(status: str, status_file: str) -> dict:
     safe_path = status_file.replace("'", "'\\''")
     return {
         "type": "command",
-        "command": f"printf '{{\"status\":\"{status}\",\"ts\":%d}}' $(date +%s) > '{safe_path}'",
+        "command": f'printf \'{{"status":"{status}","ts":%d}}\' $(date +%s) > \'{safe_path}\'',
         "async": True,
     }
 
