@@ -602,6 +602,7 @@ class TestContextSensitiveFooter:
             assert "app.open_shell" not in shown
             # Globals always visible
             assert "refresh" in shown
+            assert "toggle_messages" in shown
             assert "help" in shown
             assert "quit" in shown
 
