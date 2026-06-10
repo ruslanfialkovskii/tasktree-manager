@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.5.0] - 2026-06-10
+
+### Added
+- Searchable app actions in the command palette (#7)
+
+
 ## [2.4.0] - 2026-06-10
 
 ### Added
