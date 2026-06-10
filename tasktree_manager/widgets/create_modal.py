@@ -112,23 +112,36 @@ class CreateTaskModal(ThemedModalScreen[tuple[str, list[str], str] | None]):
             self.base_branch = base_branch
             super().__init__()
 
-    def __init__(self, available_repos: list[str], *args, **kwargs):
+    def __init__(
+        self,
+        available_repos: list[str],
+        *args,
+        initial_repos: list[str] | None = None,
+        initial_base_branch: str = "master",
+        title: str = "Create New Task",
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.available_repos = available_repos
-        self.selected_repos: set[str] = set()
+        self.selected_repos: set[str] = set(initial_repos or [])
+        self.initial_base_branch = initial_base_branch
+        self.title_text = title
 
     def compose(self) -> ComposeResult:
         with Container():
-            yield Label("Create New Task", classes="modal-title")
+            yield Label(self.title_text, classes="modal-title")
             yield Label("Task Name:", classes="section-label")
             yield Input(placeholder="e.g., FEAT-123-new-feature", id="task-name")
             yield Label("Base Branch:", classes="section-label")
-            yield Input(value="master", placeholder="master", id="base-branch")
+            yield Input(value=self.initial_base_branch, placeholder="master", id="base-branch")
             yield Label("Search Repositories:", classes="section-label")
             yield Input(placeholder="Type to filter (e.g., ansible, postgres)...", id="repo-search")
             yield Label("Select Repositories:", classes="section-label")
             yield SelectionList[str](
-                *[Selection(repo, repo) for repo in self.available_repos],
+                *[
+                    Selection(repo, repo, initial_state=repo in self.selected_repos)
+                    for repo in self.available_repos
+                ],
                 id="repo-list",
             )
             with Horizontal(classes="button-row"):
@@ -585,6 +598,10 @@ class HelpModal(ThemedModalScreen[None]):
         task_section = "[bold $primary]Task Management[/]\n"
         task_section += self._format_binding("new_task", "n", "Create a new task") + "\n"
         task_section += (
+            self._format_binding("clone_task", "y", "Clone current task (same repos, new name)")
+            + "\n"
+        )
+        task_section += (
             self._format_binding("add_repo", "a", "Add repository to current task") + "\n"
         )
         task_section += self._format_binding("delete_task", "d", "Delete/finish current task")
@@ -600,9 +617,14 @@ class HelpModal(ThemedModalScreen[None]):
         )
         tools_section += self._format_binding("open_editor", "e", "Open editor in folder") + "\n"
         tools_section += (
-            self._format_binding("open_claude_resume", "c", "Open Claude (session list)") + "\n"
+            self._format_binding(
+                "open_claude_resume", "c", "Open Claude CLI (resume if session exists, else new)"
+            )
+            + "\n"
         )
-        tools_section += self._format_binding("open_claude_new", "C", "Open new Claude session")
+        tools_section += self._format_binding(
+            "open_claude_gui_code", "C", "Open Claude desktop on Code page"
+        )
         sections.append(tools_section)
 
         # Git operations section

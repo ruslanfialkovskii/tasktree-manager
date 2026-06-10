@@ -285,6 +285,7 @@ All keybindings can be customized in [`config.toml`](configuration.md).
 | Key | Action           | Description                                               |
 |-----|------------------|-----------------------------------------------------------|
 | `n` | New task         | Create a new task with selected repositories              |
+| `y` | Clone task       | Create a new task pre-populated with the current task's repos |
 | `a` | Add repository   | Add additional repositories to the current task           |
 | `d` | Delete/finish    | Delete current task and remove worktrees                  |
 
@@ -295,6 +296,14 @@ All keybindings can be customized in [`config.toml`](configuration.md).
 4. Filter repos by typing in search box (optional)
 5. Select repos with `Space` (can select multiple)
 6. Tab to "Create" button, press `Enter`
+
+**Clone task workflow:**
+Useful when you're spinning up several similar tasks that share the same set of repos.
+
+1. Highlight the source task in the left panel
+2. Press `y`
+3. The modal opens with the source task's repos already selected — just enter a new task name
+4. Adjust the repo selection or base branch if needed, then press `Enter`
 
 **Task deletion workflow:**
 1. Highlight task in left panel
@@ -333,15 +342,16 @@ All keybindings can be customized in [`config.toml`](configuration.md).
 
 ### Claude Code Integration
 
-| Key     | Action                  | Description                                  |
-|---------|-------------------------|----------------------------------------------|
-| `c`     | Open Claude (resume)    | Resume Claude Code session in task directory |
-| `C`     | Open Claude (new)       | Start new Claude Code session in task directory |
+| Key     | Action                  | Description                                                |
+|---------|-------------------------|------------------------------------------------------------|
+| `c`     | Open Claude CLI         | Resume the task's Claude Code session if one exists, otherwise start a new one |
+| `C`     | Open Claude desktop     | Open the Claude desktop app on the Code page at the task folder |
 
 **How it works:**
-- Opens Claude Code in a new Ghostty terminal tab at the task directory
-- Generates `CLAUDE.md` files with task/worktree context
-- Installs hooks that report session status back to tasktree-manager
+- `c` opens Claude Code CLI in a new Ghostty terminal tab at the task directory.
+  - If `~/.claude/projects/<task-folder>/` already has session transcripts, runs `claude -r` to pick from them; otherwise runs `claude` to start fresh.
+- `C` opens the Claude desktop app via the `claude://code/new?folder=<task-folder>` URL scheme.
+- The CLI variant (`c`) generates `CLAUDE.md` files with task/worktree context and installs hooks that report session status back to tasktree-manager.
 - Session status (`⟳` running, `!` waiting, `✓` ended) appears next to the task name
 
 ### General

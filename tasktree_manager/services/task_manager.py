@@ -232,7 +232,9 @@ class TaskManager:
                     # Create symlink in worktree
                     rel_path = match.relative_to(source_repo)
                     link_path = worktree_path / rel_path
-                    if not link_path.exists():
+                    # is_symlink() check catches broken symlinks, for which
+                    # exists() returns False but symlink_to() would still fail
+                    if not (link_path.exists() or link_path.is_symlink()):
                         link_path.parent.mkdir(parents=True, exist_ok=True)
                         link_path.symlink_to(match)
 
@@ -305,6 +307,18 @@ class TaskManager:
             capture_output=True,
             text=True,
         )
+
+    def remove_worktree_from_task(self, task: Task, worktree: Worktree) -> None:
+        """Remove a single worktree from a task.
+
+        Args:
+            task: The task the worktree belongs to
+            worktree: The worktree to remove
+        """
+        self._remove_worktree(worktree, task.name)
+        if worktree.path.exists():
+            shutil.rmtree(worktree.path)
+        task.worktrees = self._get_worktrees(task)
 
     def get_repos_not_in_task(self, task: Task) -> list[str]:
         """Get list of repos that are not yet in the task."""
@@ -436,7 +450,7 @@ class TaskManager:
         for worktree in task.worktrees:
             wt_claude_md = worktree.path / "CLAUDE.md"
             if not wt_claude_md.exists():
-                self._create_worktree_claude_md(task, worktree)
+                self._create_worktree_claude_md(worktree)
 
     def _create_task_claude_md(self, task: Task) -> None:
         """Generate task CLAUDE.md with task name + worktree paths.
@@ -457,21 +471,26 @@ class TaskManager:
         content += "\n## Notes\n\nAdd task-specific context here.\n"
         (task.path / "CLAUDE.md").write_text(content)
 
-    def _create_worktree_claude_md(self, task: Task, worktree: Worktree) -> None:
-        """Generate worktree CLAUDE.md with branch/path info.
+    def _create_worktree_claude_md(self, worktree: Worktree) -> None:
+        """Generate general CLAUDE.md using standard /init template.
+
+        Creates a repo-level CLAUDE.md that can be committed and shared
+        across all worktrees/branches.
 
         Args:
-            task: The parent task
             worktree: The worktree to create CLAUDE.md for
         """
-        content = f"""# Worktree: {worktree.name}
+        content = """\
+# CLAUDE.md
 
-- **Path**: `{worktree.path}`
-- **Branch**: `{worktree.branch or "unknown"}`
-- **Task**: {task.name}
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Notes
+## Build & Run
 
-Add worktree-specific context here.
+## Lint & Format
+
+## Test
+
+## Code Style
 """
         (worktree.path / "CLAUDE.md").write_text(content)

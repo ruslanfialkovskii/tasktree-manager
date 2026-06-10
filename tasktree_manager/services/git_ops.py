@@ -1,9 +1,13 @@
 """Git operations service for tasktree-manager."""
 
+import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .models import GitStatus, Task, Worktree
+
+# Matches the "[ahead 1, behind 2]" suffix of a porcelain branch header
+_AHEAD_BEHIND_RE = re.compile(r"\[(?:ahead (\d+))?(?:, )?(?:behind (\d+))?\]")
 
 
 class GitOps:
@@ -11,85 +15,80 @@ class GitOps:
 
     @staticmethod
     def get_status(worktree: Worktree) -> GitStatus:
-        """Get the git status of a worktree."""
+        """Get the git status of a worktree.
+
+        Uses a single `git status --porcelain --branch` call to read the
+        branch name, ahead/behind counts and changed files at once.
+        """
         status = GitStatus()
 
         if not worktree.path.exists():
             return status
 
-        # Get current branch
         try:
             result = subprocess.run(
-                ["git", "branch", "--show-current"],
+                ["git", "status", "--porcelain", "--branch"],
                 cwd=worktree.path,
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
-            if result.returncode != 0:
-                status.error = f"Git error: {result.stderr.strip() or 'failed to get branch'}"
-                return status
-            status.branch = result.stdout.strip()
-        except subprocess.TimeoutExpired:
-            status.error = "Git operation timed out"
-            return status
-        except subprocess.SubprocessError as e:
-            status.error = f"Git error: {e}"
-            return status
-
-        # Get status
-        try:
-            result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=worktree.path,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode != 0:
-                status.error = f"Git status failed: {result.stderr.strip() or 'unknown error'}"
-                return status
-            for line in result.stdout.strip().split("\n"):
-                if not line:
-                    continue
-                status_code = line[:2]
-                filename = line[3:]
-
-                if status_code == "??":
-                    status.untracked.append(filename)
-                elif status_code[0] in "MADRCT":
-                    status.staged.append(filename)
-                elif status_code[1] in "MADRCT":
-                    status.modified.append(filename)
-                elif status_code[0] == " " and status_code[1] == "M":
-                    status.modified.append(filename)
-
         except subprocess.TimeoutExpired:
             status.error = "Git status timed out"
             return status
-        except subprocess.SubprocessError as e:
+        except (subprocess.SubprocessError, OSError) as e:
             status.error = f"Git status error: {e}"
             return status
 
-        # Get ahead/behind info
-        try:
-            result = subprocess.run(
-                ["git", "rev-list", "--left-right", "--count", f"{status.branch}...@{{upstream}}"],
-                cwd=worktree.path,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0:
-                parts = result.stdout.strip().split()
-                if len(parts) == 2:
-                    status.ahead = int(parts[0])
-                    status.behind = int(parts[1])
-        except (subprocess.TimeoutExpired, subprocess.SubprocessError, ValueError):
-            # ahead/behind info is not critical - don't report error
-            pass
+        if result.returncode != 0:
+            status.error = f"Git status failed: {result.stderr.strip() or 'unknown error'}"
+            return status
+
+        for line in result.stdout.splitlines():
+            if len(line) < 3:
+                continue
+            if line.startswith("## "):
+                GitOps._parse_branch_header(line[3:], status)
+                continue
+            status_code = line[:2]
+            filename = line[3:]
+
+            if status_code == "??":
+                status.untracked.append(filename)
+            elif "U" in status_code or status_code in ("AA", "DD"):
+                # Unmerged (conflict) entries - count as modified so the
+                # worktree shows as dirty and safety checks block deletion
+                status.modified.append(filename)
+            elif status_code[0] in "MADRCT":
+                status.staged.append(filename)
+            elif status_code[1] in "MADRCT":
+                status.modified.append(filename)
 
         return status
+
+    @staticmethod
+    def _parse_branch_header(header: str, status: GitStatus) -> None:
+        """Parse the `## ...` header of `git status --porcelain --branch`.
+
+        Handles the formats:
+            HEAD (no branch)                      <- detached, branch stays ""
+            No commits yet on <branch>
+            <branch>
+            <branch>...<upstream>
+            <branch>...<upstream> [ahead 1, behind 2]
+        """
+        if header.startswith("HEAD"):
+            return
+        if header.startswith("No commits yet on "):
+            status.branch = header[len("No commits yet on ") :]
+            return
+
+        status.branch = header.split("...", 1)[0]
+
+        match = _AHEAD_BEHIND_RE.search(header)
+        if match:
+            status.ahead = int(match.group(1) or 0)
+            status.behind = int(match.group(2) or 0)
 
     @staticmethod
     def update_worktree_status(worktree: Worktree) -> GitStatus:
@@ -116,7 +115,7 @@ class GitOps:
             return False, result.stderr or "Push failed"
         except subprocess.TimeoutExpired:
             return False, "Push timed out"
-        except subprocess.SubprocessError as e:
+        except (subprocess.SubprocessError, OSError) as e:
             return False, str(e)
 
     @staticmethod
@@ -135,7 +134,7 @@ class GitOps:
             return False, result.stderr or "Pull failed"
         except subprocess.TimeoutExpired:
             return False, "Pull timed out"
-        except subprocess.SubprocessError as e:
+        except (subprocess.SubprocessError, OSError) as e:
             return False, str(e)
 
     @staticmethod
@@ -212,7 +211,7 @@ class GitOps:
             return False
 
     @staticmethod
-    def update_all_worktree_statuses(worktrees: list[Worktree], max_workers: int = 5) -> None:
+    def update_all_worktree_statuses(worktrees: list[Worktree], max_workers: int = 8) -> None:
         """Update status for multiple worktrees in parallel.
 
         Args:
@@ -222,10 +221,43 @@ class GitOps:
         if not worktrees:
             return
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        workers = min(max_workers, len(worktrees))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {executor.submit(GitOps.update_worktree_status, wt): wt for wt in worktrees}
             for future in as_completed(futures):
-                future.result()  # Raises exceptions if any
+                try:
+                    future.result()
+                except Exception:
+                    # One failing worktree must not abort the whole refresh
+                    continue
+
+    @staticmethod
+    def get_statuses_parallel(
+        worktrees: list[Worktree], max_workers: int = 8
+    ) -> dict[str, GitStatus]:
+        """Get full statuses for multiple worktrees in parallel, keyed by name.
+
+        Args:
+            worktrees: List of worktrees to query
+            max_workers: Maximum number of parallel workers
+
+        Returns:
+            Dict mapping worktree name to its GitStatus
+        """
+        statuses: dict[str, GitStatus] = {}
+        if not worktrees:
+            return statuses
+
+        workers = min(max_workers, len(worktrees))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(GitOps.get_status, wt): wt for wt in worktrees}
+            for future in as_completed(futures):
+                wt = futures[future]
+                try:
+                    statuses[wt.name] = future.result()
+                except Exception:
+                    continue
+        return statuses
 
     @staticmethod
     def push_all_parallel(task: Task, max_workers: int = 3) -> list[tuple[str, bool, str]]:

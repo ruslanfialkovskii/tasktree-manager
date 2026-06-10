@@ -166,8 +166,8 @@ pull_all = "P"          # Pull all worktrees in current task (shift+p)
 refresh = "r"           # Refresh git status
 
 # Claude Code integration
-open_claude_resume = "c"    # Resume Claude Code session in task directory
-open_claude_new = "C"       # Start new Claude Code session (shift+c)
+open_claude_resume = "c"    # Open Claude CLI (resume if a session exists, else new)
+open_claude_gui_code = "C"  # Open Claude desktop on Code page in task folder (shift+c)
 
 # Messages panel
 toggle_messages = "m"       # Show/hide the activity messages panel
@@ -417,7 +417,7 @@ blocklist = ["*"]
 
 ## Keybindings Reference
 
-All 21 customizable keybindings with descriptions:
+All 22 customizable keybindings with descriptions:
 
 ### Application Control
 
@@ -431,6 +431,7 @@ All 21 customizable keybindings with descriptions:
 | Action        | Default | Description                            | Customization Example      |
 |---------------|---------|----------------------------------------|----------------------------|
 | `new_task`    | `n`     | Create a new task                      | `new_task = "ctrl+n"`      |
+| `clone_task`  | `y`     | Clone current task (same repos, new name) | `clone_task = "ctrl+y"`  |
 | `add_repo`    | `a`     | Add repository to current task         | `add_repo = "ctrl+a"`      |
 | `delete_task` | `d`     | Delete/finish current task             | `delete_task = "delete"`   |
 
@@ -448,11 +449,11 @@ All 21 customizable keybindings with descriptions:
 
 ### Claude Code Integration
 
-| Action               | Default | Description                              | Customization Example                |
-|----------------------|---------|------------------------------------------|--------------------------------------|
-| `open_claude_resume` | `c`     | Resume Claude Code session in task dir   | `open_claude_resume = "ctrl+c"`      |
-| `open_claude_new`    | `C`     | Start new Claude Code session            | `open_claude_new = "ctrl+shift+c"`   |
-| `toggle_messages`    | `m`     | Show/hide activity messages panel        | `toggle_messages = "ctrl+m"`         |
+| Action                | Default | Description                                          | Customization Example                |
+|-----------------------|---------|------------------------------------------------------|--------------------------------------|
+| `open_claude_resume`  | `c`     | Open Claude CLI (resume if session exists, else new) | `open_claude_resume = "ctrl+c"`      |
+| `open_claude_gui_code`| `C`     | Open Claude desktop on Code page in task folder      | `open_claude_gui_code = "ctrl+shift+c"` |
+| `toggle_messages`     | `m`     | Show/hide activity messages panel                    | `toggle_messages = "ctrl+m"`         |
 
 ### Navigation
 

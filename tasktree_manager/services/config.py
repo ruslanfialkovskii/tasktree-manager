@@ -20,6 +20,7 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "quit": "q",
     "help": "?",
     "new_task": "n",
+    "clone_task": "y",
     "add_repo": "a",
     "delete_task": "d",
     "open_lazygit": "g",
@@ -27,7 +28,7 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "open_shell": "enter",
     "open_editor": "e",
     "open_claude_resume": "c",
-    "open_claude_new": "C",
+    "open_claude_gui_code": "C",
     "push_all": "p",
     "pull_all": "P",
     "refresh": "r",
@@ -124,7 +125,10 @@ class Config:
         ui_config = config_data.get("ui", {})
         theme = ui_config.get("theme", "textual-dark")
         show_hidden_files = ui_config.get("show_hidden_files", False)
-        refresh_interval = ui_config.get("refresh_interval", 30)
+        try:
+            refresh_interval = int(ui_config.get("refresh_interval", 30))
+        except (TypeError, ValueError):
+            refresh_interval = 30
 
         # Git settings
         git_config = config_data.get("git", {})
@@ -334,6 +338,7 @@ shell = "{self._toml_escape(self.shell)}"
 quit = "{self._toml_escape(self.keybindings.get("quit", "q"))}"
 help = "{self._toml_escape(self.keybindings.get("help", "?"))}"
 new_task = "{self._toml_escape(self.keybindings.get("new_task", "n"))}"
+clone_task = "{self._toml_escape(self.keybindings.get("clone_task", "y"))}"
 add_repo = "{self._toml_escape(self.keybindings.get("add_repo", "a"))}"
 delete_task = "{self._toml_escape(self.keybindings.get("delete_task", "d"))}"
 open_lazygit = "{self._toml_escape(self.keybindings.get("open_lazygit", "g"))}"
@@ -341,7 +346,7 @@ open_folder = "{self._toml_escape(self.keybindings.get("open_folder", "o"))}"
 open_shell = "{self._toml_escape(self.keybindings.get("open_shell", "enter"))}"
 open_editor = "{self._toml_escape(self.keybindings.get("open_editor", "e"))}"
 open_claude_resume = "{self._toml_escape(self.keybindings.get("open_claude_resume", "c"))}"
-open_claude_new = "{self._toml_escape(self.keybindings.get("open_claude_new", "C"))}"
+open_claude_gui_code = "{self._toml_escape(self.keybindings.get("open_claude_gui_code", "C"))}"
 push_all = "{self._toml_escape(self.keybindings.get("push_all", "p"))}"
 pull_all = "{self._toml_escape(self.keybindings.get("pull_all", "P"))}"
 refresh = "{self._toml_escape(self.keybindings.get("refresh", "r"))}"

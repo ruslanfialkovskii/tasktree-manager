@@ -4,6 +4,19 @@ import json
 from pathlib import Path
 
 
+def has_claude_session(folder: Path) -> bool:
+    """Return True if Claude Code has a recorded session for the given folder.
+
+    Claude CLI stores transcripts at ~/.claude/projects/<encoded-path>/*.jsonl
+    where the encoding replaces "/" and "." with "-".
+    """
+    encoded = str(folder).replace("/", "-").replace(".", "-")
+    project_dir = Path.home() / ".claude" / "projects" / encoded
+    if not project_dir.is_dir():
+        return False
+    return any(project_dir.glob("*.jsonl"))
+
+
 def _make_hook(status: str, status_file: str) -> dict:
     """Create a single hook entry that writes status to the given file path."""
     safe_path = status_file.replace("'", "'\\''")
