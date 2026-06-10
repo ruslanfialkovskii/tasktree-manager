@@ -364,7 +364,7 @@ Useful when you're spinning up several similar tasks that share the same set of 
 
 | Key     | Action                  | Description                                  |
 |---------|-------------------------|----------------------------------------------|
-| `Ctrl+P`| Open Command Palette    | Switch themes and run commands               |
+| `Ctrl+P`| Open Command Palette    | Search and run any action (hotkeys shown), switch themes |
 | `o`     | Open folder             | Open current folder in new terminal tab      |
 | `m`     | Toggle messages         | Show/hide the activity messages panel        |
 | `?`     | Show help               | Display help modal with keybindings          |

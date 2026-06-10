@@ -10,6 +10,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Header, Static
 
+from .commands import TaskTreeCommands
 from .services.claude_hooks import ensure_claude_hooks, has_claude_session
 from .services.config import Config
 from .services.git_ops import GitOps
@@ -34,6 +35,10 @@ class TaskTreeApp(App):
     """TUI application for managing worktree-based tasks."""
 
     TITLE = "tasktree-manager"
+
+    # System commands plus all keybound tasktree actions (searchable by
+    # name, displayed with their configured hotkey)
+    COMMANDS = App.COMMANDS | {TaskTreeCommands}
 
     CSS = """
     /* Main layout */
@@ -226,7 +231,7 @@ class TaskTreeApp(App):
         Binding("c", "open_claude_resume", "Claude", show=False),
         Binding("p", "push_all", "Push", show=False),
         Binding("r", "refresh", "Refresh"),
-        Binding("m", "toggle_messages", "Messages", show=False),
+        Binding("m", "toggle_messages", "Messages"),
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
         Binding("enter", "open_shell", "Shell", show=False),
@@ -287,7 +292,7 @@ class TaskTreeApp(App):
             Binding(kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude", show=False),
             Binding(kb.get("push_all", "p"), "push_all", "Push", show=False),
             Binding(kb.get("refresh", "r"), "refresh", "Refresh"),
-            Binding(kb.get("toggle_messages", "m"), "toggle_messages", "Messages", show=False),
+            Binding(kb.get("toggle_messages", "m"), "toggle_messages", "Messages"),
             Binding(kb.get("quit", "q"), "quit", "Quit"),
             Binding(kb.get("help", "?"), "help", "Help"),
             Binding(kb.get("open_shell", "enter"), "open_shell", "Shell", show=False),
