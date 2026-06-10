@@ -210,28 +210,30 @@ class TaskTreeApp(App):
     }
     """
 
-    # Default bindings - will be overridden in __init__ with config values
-    # Footer order: n, a, d, g, o, c, p, r, m, q, ?
-    # Uppercase shown only when shift is pressed: C, P, S
+    # Default bindings - will be overridden in __init__ with config values.
+    # The footer is context-sensitive: app-level bindings keep every key
+    # working globally but stay hidden, except the always-visible globals
+    # (refresh/help/quit). The focused panel contributes its own visible
+    # bindings (see compose), lazygit-style.
     BINDINGS = [
-        Binding("n", "new_task", "New Task"),
-        Binding("y", "clone_task", "Clone Task"),
-        Binding("a", "add_repo", "Add Repo"),
-        Binding("d", "delete_task", "Delete Task"),
-        Binding("g", "open_lazygit", "Lazygit"),
-        Binding("e", "open_editor", "Editor"),
-        Binding("o", "open_folder", "Open"),
-        Binding("c", "open_claude_resume", "Claude"),
-        Binding("p", "push_all", "Push All"),
+        Binding("n", "new_task", "New", show=False),
+        Binding("y", "clone_task", "Clone", show=False),
+        Binding("a", "add_repo", "Add Repo", show=False),
+        Binding("d", "delete_task", "Delete", show=False),
+        Binding("g", "open_lazygit", "Lazygit", show=False),
+        Binding("e", "open_editor", "Editor", show=False),
+        Binding("o", "open_folder", "Open", show=False),
+        Binding("c", "open_claude_resume", "Claude", show=False),
+        Binding("p", "push_all", "Push", show=False),
         Binding("r", "refresh", "Refresh"),
-        Binding("m", "toggle_messages", "Messages"),
+        Binding("m", "toggle_messages", "Messages", show=False),
         Binding("q", "quit", "Quit"),
         Binding("?", "help", "Help"),
         Binding("enter", "open_shell", "Shell", show=False),
         Binding("C", "open_claude_gui_code", "Claude GUI", show=False),
         Binding("P", "pull_all", "Pull All", show=False),
         Binding("S", "toggle_grouping", "Group", show=False),
-        Binding("D", "delete_worktree", "Del Worktree", show=False),
+        Binding("D", "delete_worktree", "Del WT", show=False),
         Binding("tab", "focus_next", "Next Panel", show=False),
         Binding("shift+tab", "focus_previous", "Prev Panel", show=False),
         Binding("j", "cursor_down", "Down", show=False),
@@ -264,26 +266,28 @@ class TaskTreeApp(App):
         self._last_tasks_fingerprint: tuple | None = None
 
     def _build_bindings_from_config(self) -> list[Binding]:
-        """Build keybindings list from config.
+        """Build app-level keybindings from config.
+
+        Every key works globally regardless of focus, but only the global
+        actions (refresh/help/quit) are shown in the footer; the focused
+        panel contributes its own visible bindings (see compose).
 
         Returns:
             List of Binding objects with keys from config
         """
         kb = self.config.keybindings
-        # Footer order: n, a, d, g, o, c, p, r, m, q, ?
-        # Uppercase shown only when shift is pressed: C, P, S
         return [
-            Binding(kb.get("new_task", "n"), "new_task", "New Task"),
-            Binding(kb.get("clone_task", "y"), "clone_task", "Clone Task"),
-            Binding(kb.get("add_repo", "a"), "add_repo", "Add Repo"),
-            Binding(kb.get("delete_task", "d"), "delete_task", "Delete Task"),
-            Binding(kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit"),
-            Binding(kb.get("open_editor", "e"), "open_editor", "Editor"),
-            Binding(kb.get("open_folder", "o"), "open_folder", "Open"),
-            Binding(kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude"),
-            Binding(kb.get("push_all", "p"), "push_all", "Push All"),
+            Binding(kb.get("new_task", "n"), "new_task", "New", show=False),
+            Binding(kb.get("clone_task", "y"), "clone_task", "Clone", show=False),
+            Binding(kb.get("add_repo", "a"), "add_repo", "Add Repo", show=False),
+            Binding(kb.get("delete_task", "d"), "delete_task", "Delete", show=False),
+            Binding(kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit", show=False),
+            Binding(kb.get("open_editor", "e"), "open_editor", "Editor", show=False),
+            Binding(kb.get("open_folder", "o"), "open_folder", "Open", show=False),
+            Binding(kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude", show=False),
+            Binding(kb.get("push_all", "p"), "push_all", "Push", show=False),
             Binding(kb.get("refresh", "r"), "refresh", "Refresh"),
-            Binding(kb.get("toggle_messages", "m"), "toggle_messages", "Messages"),
+            Binding(kb.get("toggle_messages", "m"), "toggle_messages", "Messages", show=False),
             Binding(kb.get("quit", "q"), "quit", "Quit"),
             Binding(kb.get("help", "?"), "help", "Help"),
             Binding(kb.get("open_shell", "enter"), "open_shell", "Shell", show=False),
@@ -295,7 +299,7 @@ class TaskTreeApp(App):
             ),
             Binding(kb.get("pull_all", "P"), "pull_all", "Pull All", show=False),
             Binding(kb.get("toggle_grouping", "S"), "toggle_grouping", "Group", show=False),
-            Binding(kb.get("delete_worktree", "D"), "delete_worktree", "Del Worktree", show=False),
+            Binding(kb.get("delete_worktree", "D"), "delete_worktree", "Del WT", show=False),
             Binding(kb.get("focus_next", "tab"), "focus_next", "Next Panel", show=False),
             Binding(
                 kb.get("focus_previous", "shift+tab"), "focus_previous", "Prev Panel", show=False
@@ -312,16 +316,37 @@ class TaskTreeApp(App):
 
     def compose(self) -> ComposeResult:
         """Compose the app layout."""
+        kb = self.config.keybindings
+        # Footer bindings shown only while the respective panel has focus.
+        # The keys themselves also exist app-level (hidden) so they work
+        # regardless of focus; these entries only add footer visibility.
+        task_panel_bindings = [
+            (kb.get("new_task", "n"), "new_task", "New"),
+            (kb.get("clone_task", "y"), "clone_task", "Clone"),
+            (kb.get("add_repo", "a"), "add_repo", "Add Repo"),
+            (kb.get("delete_task", "d"), "delete_task", "Delete"),
+            (kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude"),
+            (kb.get("cycle_sort", "s"), "cycle_sort", "Sort"),
+        ]
+        worktree_panel_bindings = [
+            (kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit"),
+            (kb.get("open_editor", "e"), "open_editor", "Editor"),
+            (kb.get("open_folder", "o"), "open_folder", "Open"),
+            (kb.get("open_shell", "enter"), "open_shell", "Shell"),
+            (kb.get("push_all", "p"), "push_all", "Push"),
+            (kb.get("delete_worktree", "D"), "delete_worktree", "Del WT"),
+        ]
+
         yield Header()
         with Horizontal(id="main-container"):
             # Left column: Tasks (top) and Worktrees (bottom)
             with Vertical(id="left-column"):
                 with Vertical(id="task-panel"):
                     yield Static("Tasks", classes="panel-title", id="task-panel-title")
-                    yield TaskList(id="task-list")
+                    yield TaskList(id="task-list", context_bindings=task_panel_bindings)
                 with Vertical(id="worktree-panel"):
                     yield Static("Worktrees", classes="panel-title", id="worktree-panel-title")
-                    yield WorktreeList(id="worktree-list")
+                    yield WorktreeList(id="worktree-list", context_bindings=worktree_panel_bindings)
             # Right column: Info/Status panel
             with Vertical(id="right-column"):
                 with Vertical(id="status-panel"):
