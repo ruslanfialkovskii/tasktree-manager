@@ -244,6 +244,9 @@ class TaskTreeApp(App):
         self.config = Config.load()
         self.config.ensure_dirs()
 
+        # Apply the configured [git] timeout to network git operations
+        GitOps.network_timeout = self.config.git_timeout
+
         # Build bindings from config
         self._custom_bindings = self._build_bindings_from_config()
 
@@ -880,145 +883,93 @@ class TaskTreeApp(App):
     def _show_delete_task_dialog(self, task: Task, safety_report: TaskSafetyReport) -> None:
         """Show the appropriate delete dialog for the safety report."""
         if safety_report.is_safe():
-            # No issues - show simple confirm
-            message = f"Delete task '{task.name}' and all its worktrees?"
-
-            def handle_confirm(confirmed):
-                if confirmed:
-                    try:
-                        self.task_manager.finish_task(task)
-                        self._load_tasks()
-                        self.notify(f"Deleted task: {task.name}")
-                        self._log_activity(
-                            f"Task '{task.name}' deleted", MessageLevel.SUCCESS, task.name
-                        )
-                    except Exception as e:
-                        self.notify(f"Failed to delete task: {e}", severity="error")
-                        self._log_activity(
-                            f"Failed to delete task: {e}", MessageLevel.ERROR, task.name
-                        )
-
-            self.push_screen(ConfirmModal("Delete Task", message), handle_confirm)
+            self._confirm_and_finish_task(task, f"Delete task '{task.name}' and all its worktrees?")
         else:
-            # Issues found - show detailed safe delete modal
-            def handle_safe_delete(action):
-                if action == "push":
-                    # Push all branches
-                    self.notify(f"Pushing all branches for {task.name}...")
-                    success_repos, failed_repos = self.task_manager.push_all_branches(task)
+            self.push_screen(
+                SafeDeleteModal(task.name, safety_report),
+                lambda action: self._handle_safe_delete_action(task, safety_report, action),
+            )
 
-                    # Show results
-                    if failed_repos:
+    def _confirm_and_finish_task(
+        self, task: Task, message: str, title: str = "Delete Task", force: bool = False
+    ) -> None:
+        """Push a confirmation modal and delete the task if confirmed."""
 
-                        def handle_push_result(_):
-                            # Re-check safety after push
-                            new_report = self.task_manager.check_task_safety(task)
-                            if new_report.is_safe():
-                                # Now safe, ask to delete
-                                def final_confirm(confirmed):
-                                    if confirmed:
-                                        try:
-                                            self.task_manager.finish_task(task)
-                                            self._load_tasks()
-                                            self.notify(f"Deleted task: {task.name}")
-                                            self._log_activity(
-                                                f"Task '{task.name}' deleted",
-                                                MessageLevel.SUCCESS,
-                                                task.name,
-                                            )
-                                        except Exception as e:
-                                            self.notify(
-                                                f"Failed to delete task: {e}", severity="error"
-                                            )
-                                            self._log_activity(
-                                                f"Failed to delete task: {e}",
-                                                MessageLevel.ERROR,
-                                                task.name,
-                                            )
+        def handle_confirm(confirmed):
+            if confirmed:
+                self._finish_task(task, force=force)
 
-                                self.push_screen(
-                                    ConfirmModal("Delete Task", f"Delete task '{task.name}'?"),
-                                    final_confirm,
-                                )
-                            else:
-                                # Still has issues, show modal again
-                                self.push_screen(
-                                    SafeDeleteModal(task.name, new_report), handle_safe_delete
-                                )
+        self.push_screen(ConfirmModal(title, message), handle_confirm)
 
-                        self.push_screen(
-                            PushResultModal(success_repos, failed_repos), handle_push_result
-                        )
-                    else:
-                        # All pushed successfully
-                        self.notify(f"Pushed {len(success_repos)} branch(es) successfully")
-                        # Re-check safety
-                        new_report = self.task_manager.check_task_safety(task)
-                        if new_report.is_safe():
-                            # Now safe, ask to delete
-                            def final_confirm(confirmed):
-                                if confirmed:
-                                    try:
-                                        self.task_manager.finish_task(task)
-                                        self._load_tasks()
-                                        self.notify(f"Deleted task: {task.name}")
-                                        self._log_activity(
-                                            f"Task '{task.name}' deleted",
-                                            MessageLevel.SUCCESS,
-                                            task.name,
-                                        )
-                                    except Exception as e:
-                                        self.notify(f"Failed to delete task: {e}", severity="error")
-                                        self._log_activity(
-                                            f"Failed to delete task: {e}",
-                                            MessageLevel.ERROR,
-                                            task.name,
-                                        )
+    def _finish_task(self, task: Task, force: bool = False) -> None:
+        """Delete the task and report the outcome."""
+        try:
+            self.task_manager.finish_task(task)
+            self._load_tasks()
+            self.notify(f"Deleted task: {task.name}")
+            suffix = " (force)" if force else ""
+            self._log_activity(
+                f"Task '{task.name}' deleted{suffix}", MessageLevel.SUCCESS, task.name
+            )
+        except Exception as e:
+            self.notify(f"Failed to delete task: {e}", severity="error")
+            self._log_activity(f"Failed to delete task: {e}", MessageLevel.ERROR, task.name)
 
-                            self.push_screen(
-                                ConfirmModal("Delete Task", f"Delete task '{task.name}'?"),
-                                final_confirm,
-                            )
-                        else:
-                            # Still has issues, show modal again
-                            self.push_screen(
-                                SafeDeleteModal(task.name, new_report), handle_safe_delete
-                            )
+    def _handle_safe_delete_action(
+        self, task: Task, safety_report: TaskSafetyReport, action: str | None
+    ) -> None:
+        """Handle the user's choice from the safe-delete modal."""
+        if action == "push":
+            self.notify(f"Pushing all branches for {task.name}...")
+            self._push_branches_for_delete_worker(task)
+        elif action == "lazygit":
+            # Open lazygit in the first problematic worktree, then re-run checks
+            self._open_lazygit_for_task(task, safety_report)
+            self.action_delete_task()
+        elif action == "force":
+            self._confirm_and_finish_task(
+                task,
+                f"Really delete task '{task.name}'?\n\nYou may lose unpushed work!",
+                title="Force Delete",
+                force=True,
+            )
+        # else: cancelled, do nothing
 
-                elif action == "lazygit":
-                    # Open lazygit in first problematic worktree
-                    self._open_lazygit_for_task(task)
-                    # After return, refresh and offer to try deletion again
-                    self.action_delete_task()
+    @work(thread=True, exclusive=True, group="safety_check")
+    def _push_branches_for_delete_worker(self, task: Task) -> None:
+        """Push all branches and re-run safety checks in a background thread."""
+        success_repos, failed_repos = self.task_manager.push_all_branches(task)
+        new_report = self.task_manager.check_task_safety(task)
+        self.call_from_thread(
+            self._apply_delete_push_results, task, success_repos, failed_repos, new_report
+        )
 
-                elif action == "force":
-                    # Final confirmation before force delete
-                    message = f"Really delete task '{task.name}'?\n\nYou may lose unpushed work!"
+    def _apply_delete_push_results(
+        self,
+        task: Task,
+        success_repos: list[str],
+        failed_repos: list[str],
+        new_report: TaskSafetyReport,
+    ) -> None:
+        """Continue the delete flow after pushing branches (main thread)."""
+        if failed_repos:
+            self.push_screen(
+                PushResultModal(success_repos, failed_repos),
+                lambda _: self._continue_delete_after_push(task, new_report),
+            )
+        else:
+            self.notify(f"Pushed {len(success_repos)} branch(es) successfully")
+            self._continue_delete_after_push(task, new_report)
 
-                    def handle_force_confirm(confirmed):
-                        if confirmed:
-                            try:
-                                self.task_manager.finish_task(task)
-                                self._load_tasks()
-                                self.notify(f"Deleted task: {task.name}")
-                                self._log_activity(
-                                    f"Task '{task.name}' deleted (force)",
-                                    MessageLevel.SUCCESS,
-                                    task.name,
-                                )
-                            except Exception as e:
-                                self.notify(f"Failed to delete task: {e}", severity="error")
-                                self._log_activity(
-                                    f"Failed to delete task: {e}",
-                                    MessageLevel.ERROR,
-                                    task.name,
-                                )
-
-                    self.push_screen(ConfirmModal("Force Delete", message), handle_force_confirm)
-
-                # else: cancelled, do nothing
-
-            self.push_screen(SafeDeleteModal(task.name, safety_report), handle_safe_delete)
+    def _continue_delete_after_push(self, task: Task, report: TaskSafetyReport) -> None:
+        """Ask to delete if the task became safe, otherwise show the issues again."""
+        if report.is_safe():
+            self._confirm_and_finish_task(task, f"Delete task '{task.name}'?")
+        else:
+            self.push_screen(
+                SafeDeleteModal(task.name, report),
+                lambda action: self._handle_safe_delete_action(task, report, action),
+            )
 
     def action_delete_worktree(self) -> None:
         """Delete a single worktree from the current task."""
@@ -1055,18 +1006,23 @@ class TaskTreeApp(App):
 
         self.push_screen(ConfirmModal("Delete Worktree", message), handle_confirm)
 
-    def _open_lazygit_for_task(self, task: Task) -> None:
+    def _open_lazygit_for_task(
+        self, task: Task, safety_report: TaskSafetyReport | None = None
+    ) -> None:
         """Open lazygit in the first worktree with issues.
 
         Args:
             task: The task whose worktrees to check
+            safety_report: Pre-computed safety report; when omitted, a fresh
+                (blocking) check is run
         """
         # Save selection state BEFORE suspend (as local variables)
         saved_task_name = self.current_task.name if self.current_task else None
         saved_worktree_name = self.current_worktree.name if self.current_worktree else None
 
-        # Get safety report to find first problematic worktree
-        safety_report = self.task_manager.check_task_safety(task)
+        if safety_report is None:
+            # Get safety report to find first problematic worktree
+            safety_report = self.task_manager.check_task_safety(task)
 
         # Find first worktree with any issues
         first_issue_worktree = None

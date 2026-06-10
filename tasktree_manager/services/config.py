@@ -41,6 +41,26 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "cursor_up": "k",
 }
 
+# Default patterns excluded when symlinking gitignored files into worktrees
+DEFAULT_SYMLINK_BLOCKLIST: list[str] = [
+    "*.pyc",
+    "*.pyo",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".coverage",
+    "*.log",
+    "*.egg-info",
+    ".eggs",
+    "dist",
+    "build",
+    ".tox",
+    ".nox",
+    "*.so",
+    "*.dylib",
+]
+
 
 @dataclass
 class Config:
@@ -77,26 +97,7 @@ class Config:
     keybindings: dict[str, str] = field(default_factory=lambda: DEFAULT_KEYBINDINGS.copy())
 
     # Symlink settings - patterns to exclude from symlinking gitignored files
-    symlink_blocklist: list[str] = field(
-        default_factory=lambda: [
-            "*.pyc",
-            "*.pyo",
-            "__pycache__",
-            ".pytest_cache",
-            ".mypy_cache",
-            ".ruff_cache",
-            ".coverage",
-            "*.log",
-            "*.egg-info",
-            ".eggs",
-            "dist",
-            "build",
-            ".tox",
-            ".nox",
-            "*.so",
-            "*.dylib",
-        ]
-    )
+    symlink_blocklist: list[str] = field(default_factory=lambda: list(DEFAULT_SYMLINK_BLOCKLIST))
 
     @classmethod
     def load(cls) -> "Config":
@@ -134,7 +135,10 @@ class Config:
         git_config = config_data.get("git", {})
         default_base_branch = git_config.get("default_base_branch", "main")
         auto_push = git_config.get("auto_push", False)
-        git_timeout = git_config.get("timeout", 30)
+        try:
+            git_timeout = int(git_config.get("timeout", 30))
+        except (TypeError, ValueError):
+            git_timeout = 30
 
         # External tools
         tools_config = config_data.get("tools", {})
@@ -152,25 +156,7 @@ class Config:
 
         # Symlink settings
         symlink_config = config_data.get("symlinks", {})
-        default_blocklist = [
-            "*.pyc",
-            "*.pyo",
-            "__pycache__",
-            ".pytest_cache",
-            ".mypy_cache",
-            ".ruff_cache",
-            ".coverage",
-            "*.log",
-            "*.egg-info",
-            ".eggs",
-            "dist",
-            "build",
-            ".tox",
-            ".nox",
-            "*.so",
-            "*.dylib",
-        ]
-        symlink_blocklist = symlink_config.get("blocklist", default_blocklist)
+        symlink_blocklist = symlink_config.get("blocklist", list(DEFAULT_SYMLINK_BLOCKLIST))
 
         # Environment variables override config file
         if "REPOS_DIR" in os.environ:

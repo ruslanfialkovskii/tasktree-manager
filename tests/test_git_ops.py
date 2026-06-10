@@ -419,6 +419,63 @@ class TestStatusEdgeCases:
         assert status.changed_files >= 2
 
 
+class TestStatusRealCodes:
+    """Tests for real status codes, renames and exotic filenames."""
+
+    def test_rename_shows_old_and_new_name(self, sample_repo):
+        """Renames display as 'old -> new' with an R status code."""
+        repo_path, branch = sample_repo
+
+        original = repo_path / "original.txt"
+        original.write_text("content")
+        subprocess.run(["git", "add", "."], cwd=repo_path, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "add file"], cwd=repo_path, capture_output=True)
+        subprocess.run(
+            ["git", "mv", "original.txt", "renamed.txt"], cwd=repo_path, capture_output=True
+        )
+
+        worktree = Worktree(name="sample", path=repo_path)
+        status = GitOps.get_status(worktree)
+
+        assert "original.txt -> renamed.txt" in status.staged
+        rename_codes = [code for code, name in status.entries if "renamed.txt" in name]
+        assert any(code.startswith("R") for code in rename_codes)
+
+    def test_exotic_filename_unquoted(self, sample_repo):
+        """Filenames with quotes and spaces come through verbatim, not C-quoted."""
+        repo_path, branch = sample_repo
+
+        weird_name = 'weird "name" with spaces.txt'
+        (repo_path / weird_name).write_text("data")
+
+        worktree = Worktree(name="sample", path=repo_path)
+        status = GitOps.get_status(worktree)
+
+        assert weird_name in status.untracked
+
+    def test_entries_match_file_counts(self, sample_repo):
+        """Recorded entries mirror the per-bucket counts exactly."""
+        repo_path, branch = sample_repo
+
+        staged_file = repo_path / "staged.txt"
+        staged_file.write_text("staged")
+        subprocess.run(["git", "add", "staged.txt"], cwd=repo_path, capture_output=True)
+        (repo_path / "untracked.txt").write_text("untracked")
+
+        worktree = Worktree(name="sample", path=repo_path)
+        status = GitOps.get_status(worktree)
+
+        assert len(status.entries) == status.changed_files
+        assert status.all_changes == status.entries
+
+    def test_all_changes_falls_back_without_entries(self):
+        """Manually built GitStatus still reconstructs display codes."""
+        status = GitStatus(staged=["a.py"], modified=["b.py"], untracked=["c.py"])
+        assert ("A ", "a.py") in status.all_changes
+        assert (" M", "b.py") in status.all_changes
+        assert ("??", "c.py") in status.all_changes
+
+
 class TestBranchHeaderParsing:
     """Unit tests for the porcelain branch header parser."""
 

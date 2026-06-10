@@ -57,6 +57,8 @@ class GitStatus:
     staged: list[str] = field(default_factory=list)
     modified: list[str] = field(default_factory=list)
     untracked: list[str] = field(default_factory=list)
+    # Actual (XY code, display path) pairs in git's output order
+    entries: list[tuple[str, str]] = field(default_factory=list)
     ahead: int = 0
     behind: int = 0
     error: str | None = None  # Error message if status fetch failed
@@ -73,7 +75,14 @@ class GitStatus:
 
     @property
     def all_changes(self) -> list[tuple[str, str]]:
-        """All changes as (status, filename) tuples."""
+        """All changes as (status code, filename) tuples.
+
+        Prefers the actual git status codes recorded during parsing so
+        renames, conflicts etc. display truthfully. Falls back to
+        reconstructed codes for manually built instances.
+        """
+        if self.entries:
+            return list(self.entries)
         changes = []
         for f in self.staged:
             changes.append(("A ", f))
