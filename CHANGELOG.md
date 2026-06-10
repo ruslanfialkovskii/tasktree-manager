@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.3.0] - 2026-06-10
+
+### Added
+- Add task cloning, worktree deletion, and non-blocking git ops (#4)
+
+### Fixed
+- Honor git timeout, real status codes, non-blocking delete (#5)
+
+
 ## [2.2.0] - 2026-03-06
 
 ### Added
