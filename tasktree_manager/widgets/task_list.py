@@ -49,6 +49,8 @@ class TaskList(OptionList):
         super().__init__(*args, **kwargs)
         self.tasks: list[Task] = []
         self._sort_mode: SortMode = SortMode.NAME_ASC
+        # Last known Claude session statuses, kept so indicators survive reloads
+        self._claude_statuses: dict[str, str] = {}
 
     @property
     def index(self) -> int | None:
@@ -93,9 +95,10 @@ class TaskList(OptionList):
         sorted_tasks = self._sort_tasks(tasks)
         self.tasks = sorted_tasks
         self.clear_options()
-        statuses = claude_statuses or {}
+        if claude_statuses is not None:
+            self._claude_statuses = claude_statuses
         for task in sorted_tasks:
-            self.add_option(self._format_task_option(task, statuses.get(task.name)))
+            self.add_option(self._format_task_option(task, self._claude_statuses.get(task.name)))
 
         # Select item - preserve previous selection if specified
         if self.tasks and self.option_count > 0:
@@ -151,6 +154,7 @@ class TaskList(OptionList):
 
         Re-renders all option labels with updated claude status indicators.
         """
+        self._claude_statuses = statuses
         for i, task in enumerate(self.tasks):
             new_option = self._format_task_option(task, statuses.get(task.name))
             self.replace_option_prompt_at_index(i, new_option.prompt)
@@ -167,7 +171,9 @@ class TaskList(OptionList):
             self.tasks = sorted_tasks
             self.clear_options()
             for task in sorted_tasks:
-                self.add_option(self._format_task_option(task))
+                self.add_option(
+                    self._format_task_option(task, self._claude_statuses.get(task.name))
+                )
 
             if self.tasks and self.option_count > 0:
                 self.action_first()

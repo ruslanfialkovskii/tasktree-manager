@@ -202,6 +202,44 @@ class TestNewTaskAction:
             assert len(create_modals) == 1
 
 
+class TestCloneTaskAction:
+    """Tests for the clone_task action."""
+
+    async def test_clone_task_no_task_warning(self, app):
+        """Test that clone task with no task selected shows warning, no modal."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Press 'y' for clone with no task selected
+            await pilot.press("y")
+            await pilot.pause()
+
+            create_modals = [s for s in app.screen_stack if isinstance(s, CreateTaskModal)]
+            assert len(create_modals) == 0
+
+    async def test_clone_task_modal_prefills_repos(self, app, sample_repos, task_manager):
+        """Test that clone modal opens with current task's repos pre-selected."""
+        _, branch = sample_repos
+        task_manager.create_task("SOURCE-TASK", ["repo-alpha", "repo-beta"], branch)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Source task should be selected (first/only task)
+            assert app.current_task is not None
+            assert app.current_task.name == "SOURCE-TASK"
+
+            await pilot.press("y")
+            await pilot.pause()
+
+            create_modals = [s for s in app.screen_stack if isinstance(s, CreateTaskModal)]
+            assert len(create_modals) == 1
+
+            modal = create_modals[0]
+            assert modal.selected_repos == {"repo-alpha", "repo-beta"}
+            assert "SOURCE-TASK" in modal.title_text
+
+
 class TestAddRepoAction:
     """Tests for the add_repo action."""
 
@@ -277,8 +315,9 @@ class TestDeleteTaskAction:
         async with app.run_test() as pilot:
             await pilot.pause()
 
-            # Press 'd' for delete
+            # Press 'd' for delete - safety check runs in a background worker
             await pilot.press("d")
+            await app.workers.wait_for_complete()
             await pilot.pause()
 
             # Should show either ConfirmModal (safe) or SafeDeleteModal (unsafe)

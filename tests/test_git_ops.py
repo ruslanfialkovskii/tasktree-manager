@@ -367,6 +367,35 @@ class TestStatusEdgeCases:
         # Should have error or empty status
         assert status.error or status.branch == ""
 
+    def test_get_status_merge_conflict(self, sample_repo):
+        """Test that unresolved merge conflicts show as dirty."""
+        repo_path, branch = sample_repo
+
+        # Create a file on the base branch
+        conflict_file = repo_path / "conflict.txt"
+        conflict_file.write_text("base\n")
+        subprocess.run(["git", "add", "."], cwd=repo_path, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "base"], cwd=repo_path, capture_output=True)
+
+        # Branch A changes the file
+        subprocess.run(["git", "checkout", "-b", "side"], cwd=repo_path, capture_output=True)
+        conflict_file.write_text("side\n")
+        subprocess.run(["git", "commit", "-am", "side"], cwd=repo_path, capture_output=True)
+
+        # Base branch changes the file differently
+        subprocess.run(["git", "checkout", branch], cwd=repo_path, capture_output=True)
+        conflict_file.write_text("base change\n")
+        subprocess.run(["git", "commit", "-am", "base change"], cwd=repo_path, capture_output=True)
+
+        # Merge to create a conflict (UU state)
+        subprocess.run(["git", "merge", "side"], cwd=repo_path, capture_output=True)
+
+        worktree = Worktree(name="sample", path=repo_path)
+        status = GitOps.get_status(worktree)
+
+        assert status.is_dirty
+        assert "conflict.txt" in status.modified
+
     def test_get_status_multiple_status_codes(self, sample_repo):
         """Test getting status with multiple different changes."""
         repo_path, branch = sample_repo
@@ -388,6 +417,62 @@ class TestStatusEdgeCases:
         assert len(status.untracked) >= 1
         # Total changes should be at least 2
         assert status.changed_files >= 2
+
+
+class TestBranchHeaderParsing:
+    """Unit tests for the porcelain branch header parser."""
+
+    def test_plain_branch(self):
+        status = GitStatus()
+        GitOps._parse_branch_header("main", status)
+        assert status.branch == "main"
+        assert status.ahead == 0
+        assert status.behind == 0
+
+    def test_branch_with_upstream(self):
+        status = GitStatus()
+        GitOps._parse_branch_header("main...origin/main", status)
+        assert status.branch == "main"
+        assert status.ahead == 0
+        assert status.behind == 0
+
+    def test_ahead_only(self):
+        status = GitStatus()
+        GitOps._parse_branch_header("main...origin/main [ahead 3]", status)
+        assert status.branch == "main"
+        assert status.ahead == 3
+        assert status.behind == 0
+
+    def test_behind_only(self):
+        status = GitStatus()
+        GitOps._parse_branch_header("main...origin/main [behind 2]", status)
+        assert status.branch == "main"
+        assert status.ahead == 0
+        assert status.behind == 2
+
+    def test_ahead_and_behind(self):
+        status = GitStatus()
+        GitOps._parse_branch_header("feature/x...origin/feature/x [ahead 1, behind 4]", status)
+        assert status.branch == "feature/x"
+        assert status.ahead == 1
+        assert status.behind == 4
+
+    def test_gone_upstream(self):
+        status = GitStatus()
+        GitOps._parse_branch_header("main...origin/main [gone]", status)
+        assert status.branch == "main"
+        assert status.ahead == 0
+        assert status.behind == 0
+
+    def test_detached_head(self):
+        status = GitStatus()
+        GitOps._parse_branch_header("HEAD (no branch)", status)
+        assert status.branch == ""
+
+    def test_no_commits_yet(self):
+        status = GitStatus()
+        GitOps._parse_branch_header("No commits yet on main", status)
+        assert status.branch == "main"
 
 
 class TestGitStatusAheadBehind:
