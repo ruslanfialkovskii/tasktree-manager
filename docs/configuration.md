@@ -294,7 +294,8 @@ refresh_interval = 15  # Refresh every 15 seconds
 - Most users should use manual push (`p` key) for control
 
 **`timeout`:**
-- Timeout for git commands (clone, fetch, push, pull)
+- Timeout for git commands that touch the network (fetch, push, pull) and worktree creation
+- Local status queries use a fixed short timeout (5s) and are not affected
 - Increase for slow networks or large repositories
 - Set to `60` or higher for very large repos
 

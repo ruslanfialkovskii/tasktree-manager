@@ -6,6 +6,19 @@ from textual.widgets import Static
 from ..services.models import GitStatus, Task, Worktree
 
 
+def _style_for_code(status_code: str) -> str:
+    """Pick a display style for a git XY status code."""
+    if "U" in status_code or status_code in ("AA", "DD"):
+        return "bold red"  # merge conflicts
+    if status_code.strip().startswith("?"):
+        return "red"  # untracked
+    if "D" in status_code:
+        return "red"  # deletions
+    if "M" in status_code or "T" in status_code:
+        return "yellow"  # modifications
+    return "green"  # additions, renames, copies
+
+
 class StatusPanel(Static):
     """Panel displaying git status for selected worktree or task summary."""
 
@@ -74,16 +87,7 @@ class StatusPanel(Static):
 
             status = self._task_statuses.get(wt.name)
             if status:
-                for status_code, filename in status.all_changes:
-                    if status_code.strip().startswith("?"):
-                        text.append(f" {status_code} ", style="red")
-                        text.append(f"{filename}\n", style="red")
-                    elif status_code.strip().startswith("M") or status_code.strip() == "M":
-                        text.append(f" {status_code} ", style="yellow")
-                        text.append(f"{filename}\n")
-                    else:
-                        text.append(f" {status_code} ", style="green")
-                        text.append(f"{filename}\n")
+                self._append_changes(text, status)
             else:
                 text.append(f"  {wt.changed_files} files changed\n", style="dim italic")
 
@@ -129,18 +133,17 @@ class StatusPanel(Static):
         if not self._status.is_dirty:
             text.append("Working tree clean", style="green")
         else:
-            for status_code, filename in self._status.all_changes:
-                if status_code.strip().startswith("?"):
-                    text.append(f" {status_code} ", style="red")
-                    text.append(f"{filename}\n", style="red")
-                elif status_code.strip().startswith("M") or status_code.strip() == "M":
-                    text.append(f" {status_code} ", style="yellow")
-                    text.append(f"{filename}\n")
-                else:
-                    text.append(f" {status_code} ", style="green")
-                    text.append(f"{filename}\n")
+            self._append_changes(text, self._status)
 
         self.update(text)
+
+    @staticmethod
+    def _append_changes(text: Text, status: GitStatus) -> None:
+        """Append the status entries with per-code styling."""
+        for status_code, filename in status.all_changes:
+            style = _style_for_code(status_code)
+            text.append(f" {status_code} ", style=style)
+            text.append(f"{filename}\n", style="red" if "red" in style else "")
 
     def clear_status(self) -> None:
         """Clear the status display."""

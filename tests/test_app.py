@@ -326,6 +326,24 @@ class TestDeleteTaskAction:
             # One of them should be shown
             assert len(confirm_modals) + len(safe_modals) >= 1
 
+    async def test_delete_dirty_task_shows_safe_modal(self, app, sample_repo, task_manager):
+        """Test that deleting a task with uncommitted changes shows the safe-delete modal."""
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("DIRTY-DELETE", ["sample-repo"], branch)
+
+        # Make the worktree dirty
+        (task.worktrees[0].path / "dirty.txt").write_text("uncommitted")
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            await pilot.press("d")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            safe_modals = [s for s in app.screen_stack if isinstance(s, SafeDeleteModal)]
+            assert len(safe_modals) == 1
+
 
 class TestPushPullActions:
     """Tests for push_all and pull_all actions."""
@@ -546,3 +564,9 @@ class TestAppConfiguration:
         assert "quit" in binding_actions
         assert "help" in binding_actions
         assert "new_task" in binding_actions
+
+    async def test_git_timeout_wired_from_config(self, app):
+        """Test that app startup applies the [git] timeout to GitOps."""
+        from tasktree_manager.services.git_ops import GitOps
+
+        assert GitOps.network_timeout == app.config.git_timeout

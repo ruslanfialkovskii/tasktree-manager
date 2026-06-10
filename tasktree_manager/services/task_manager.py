@@ -130,12 +130,13 @@ class TaskManager:
         branch_flag = "-B" if branch_check.returncode == 0 else "-b"
 
         # Fetch and pull base branch to ensure worktree starts from latest code
+        network_timeout = self.config.git_timeout
         subprocess.run(
             ["git", "fetch", "origin", base_branch],
             cwd=repo_path,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=network_timeout,
         )
 
         # Pull to fast-forward the local base branch if possible
@@ -144,7 +145,7 @@ class TaskManager:
             cwd=repo_path,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=network_timeout,
         )
 
         # Create git worktree with task name as branch
@@ -153,7 +154,7 @@ class TaskManager:
             cwd=repo_path,
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=network_timeout,
         )
 
         if result.returncode != 0:

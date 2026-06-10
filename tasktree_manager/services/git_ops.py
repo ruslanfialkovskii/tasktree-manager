@@ -13,12 +13,20 @@ _AHEAD_BEHIND_RE = re.compile(r"\[(?:ahead (\d+))?(?:, )?(?:behind (\d+))?\]")
 class GitOps:
     """Git operations for worktrees."""
 
+    # Timeout for local-only git commands (status, rev-parse) in seconds
+    LOCAL_TIMEOUT = 5
+    # Timeout for commands that may hit the network (push/pull/fetch).
+    # Overridden at app startup from the [git] timeout config setting.
+    network_timeout: int = 30
+
     @staticmethod
     def get_status(worktree: Worktree) -> GitStatus:
         """Get the git status of a worktree.
 
-        Uses a single `git status --porcelain --branch` call to read the
-        branch name, ahead/behind counts and changed files at once.
+        Uses a single `git status --porcelain --branch -z` call to read the
+        branch name, ahead/behind counts and changed files at once. The -z
+        format is NUL-separated and unquoted, so exotic filenames (quotes,
+        spaces, newlines) come through verbatim.
         """
         status = GitStatus()
 
@@ -27,11 +35,11 @@ class GitOps:
 
         try:
             result = subprocess.run(
-                ["git", "status", "--porcelain", "--branch"],
+                ["git", "status", "--porcelain", "--branch", "-z"],
                 cwd=worktree.path,
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=GitOps.LOCAL_TIMEOUT,
             )
         except subprocess.TimeoutExpired:
             status.error = "Git status timed out"
@@ -44,14 +52,25 @@ class GitOps:
             status.error = f"Git status failed: {result.stderr.strip() or 'unknown error'}"
             return status
 
-        for line in result.stdout.splitlines():
-            if len(line) < 3:
+        # Rename/copy entries are followed by the original path as an
+        # extra NUL-separated token, hence the manual index walk
+        tokens = result.stdout.split("\0")
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            index += 1
+            if len(token) < 4:
                 continue
-            if line.startswith("## "):
-                GitOps._parse_branch_header(line[3:], status)
+            if token.startswith("## "):
+                GitOps._parse_branch_header(token[3:], status)
                 continue
-            status_code = line[:2]
-            filename = line[3:]
+            status_code = token[:2]
+            filename = token[3:]
+
+            if "R" in status_code or "C" in status_code:
+                if index < len(tokens) and tokens[index]:
+                    filename = f"{tokens[index]} -> {filename}"
+                    index += 1
 
             if status_code == "??":
                 status.untracked.append(filename)
@@ -63,6 +82,9 @@ class GitOps:
                 status.staged.append(filename)
             elif status_code[1] in "MADRCT":
                 status.modified.append(filename)
+            else:
+                continue
+            status.entries.append((status_code, filename))
 
         return status
 
@@ -108,7 +130,7 @@ class GitOps:
                 cwd=worktree.path,
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=GitOps.network_timeout,
             )
             if result.returncode == 0:
                 return True, result.stdout or "Pushed successfully"
@@ -127,7 +149,7 @@ class GitOps:
                 cwd=worktree.path,
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=GitOps.network_timeout,
             )
             if result.returncode == 0:
                 return True, result.stdout or "Pulled successfully"
@@ -151,7 +173,7 @@ class GitOps:
                 cwd=worktree.path,
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=GitOps.LOCAL_TIMEOUT,
             )
             if result.returncode == 0:
                 # Output is like "refs/remotes/origin/main"
@@ -167,7 +189,7 @@ class GitOps:
                     ["git", "rev-parse", "--verify", f"refs/remotes/origin/{branch}"],
                     cwd=worktree.path,
                     capture_output=True,
-                    timeout=5,
+                    timeout=GitOps.LOCAL_TIMEOUT,
                 )
                 if result.returncode == 0:
                     return branch
@@ -194,7 +216,7 @@ class GitOps:
                 ["git", "fetch", "origin", base_branch],
                 cwd=worktree.path,
                 capture_output=True,
-                timeout=10,
+                timeout=GitOps.network_timeout,
             )
             # Use git merge-base --is-ancestor to check if HEAD is reachable from base
             # This checks if the current branch has been merged
@@ -202,7 +224,7 @@ class GitOps:
                 ["git", "merge-base", "--is-ancestor", "HEAD", f"origin/{base_branch}"],
                 cwd=worktree.path,
                 capture_output=True,
-                timeout=5,
+                timeout=GitOps.LOCAL_TIMEOUT,
             )
             # Exit code 0 means HEAD is an ancestor of base (merged)
             return result.returncode == 0
