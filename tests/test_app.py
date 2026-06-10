@@ -570,3 +570,96 @@ class TestAppConfiguration:
         from tasktree_manager.services.git_ops import GitOps
 
         assert GitOps.network_timeout == app.config.git_timeout
+
+
+class TestContextSensitiveFooter:
+    """Tests for the context-sensitive footer bindings."""
+
+    @staticmethod
+    def _shown_actions(app) -> set[str]:
+        """Actions currently visible in the footer."""
+        return {
+            active.binding.action
+            for active in app.screen.active_bindings.values()
+            if active.binding.show
+        }
+
+    async def test_task_panel_footer_shows_task_actions(self, app, sample_repo, task_manager):
+        """Task list focused: task actions plus globals are visible."""
+        repo_path, branch = sample_repo
+        task_manager.create_task("FOOTER-TASKS", ["sample-repo"], branch)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            assert app.focused.id == "task-list"
+            shown = self._shown_actions(app)
+            assert "app.new_task" in shown
+            assert "app.clone_task" in shown
+            assert "app.delete_task" in shown
+            # Worktree-context actions are hidden in this context
+            assert "app.open_lazygit" not in shown
+            assert "app.open_shell" not in shown
+            # Globals always visible
+            assert "refresh" in shown
+            assert "help" in shown
+            assert "quit" in shown
+
+    async def test_worktree_panel_footer_shows_worktree_actions(
+        self, app, sample_repo, task_manager
+    ):
+        """Worktree list focused: worktree actions plus globals are visible."""
+        repo_path, branch = sample_repo
+        task_manager.create_task("FOOTER-WT", ["sample-repo"], branch)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("tab")
+            await pilot.pause()
+
+            assert app.focused.id == "worktree-list"
+            shown = self._shown_actions(app)
+            assert "app.open_lazygit" in shown
+            assert "app.open_shell" in shown
+            assert "app.push_all" in shown
+            # Task-context actions are hidden in this context
+            assert "app.new_task" not in shown
+            # Globals always visible
+            assert "refresh" in shown
+            assert "quit" in shown
+
+    async def test_keys_work_outside_their_panel(self, app, sample_repos, task_manager):
+        """A task-context key still works while the worktree list is focused."""
+        _, branch = sample_repos
+        task_manager.create_task("FOOTER-KEYS", ["repo-alpha"], branch)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("tab")  # focus worktree list
+            await pilot.pause()
+
+            # 'n' is a task-panel binding but must still open the modal
+            await pilot.press("n")
+            await pilot.pause()
+
+            create_modals = [s for s in app.screen_stack if isinstance(s, CreateTaskModal)]
+            assert len(create_modals) == 1
+
+    async def test_enter_opens_shell_from_worktree_list(
+        self, app, sample_repo, task_manager, monkeypatch
+    ):
+        """Enter on the worktree list triggers open_shell (was swallowed by select)."""
+        repo_path, branch = sample_repo
+        task_manager.create_task("FOOTER-ENTER", ["sample-repo"], branch)
+
+        called = []
+        monkeypatch.setattr(app, "action_open_shell", lambda: called.append(True))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("tab")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+
+        assert called

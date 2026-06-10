@@ -45,12 +45,26 @@ class TaskList(OptionList):
             self.label = label
             super().__init__()
 
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        *args,
+        context_bindings: list[tuple[str, str, str]] | None = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.tasks: list[Task] = []
         self._sort_mode: SortMode = SortMode.NAME_ASC
         # Last known Claude session statuses, kept so indicators survive reloads
         self._claude_statuses: dict[str, str] = {}
+        # Footer-visible (key, app action, description) bindings shown while
+        # this panel has focus; the keys also exist app-level (hidden) so
+        # they keep working regardless of focus
+        for key, action, description in context_bindings or []:
+            # Drop any inherited binding on the same key - dispatch and the
+            # footer both use the first binding found, so an OptionList
+            # default (e.g. "enter") would otherwise shadow the app action
+            self._bindings.key_to_bindings.pop(key, None)
+            self._bindings.bind(key, f"app.{action}", description, show=True)
 
     @property
     def index(self) -> int | None:

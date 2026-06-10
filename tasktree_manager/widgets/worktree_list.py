@@ -31,12 +31,25 @@ class WorktreeList(OptionList):
             self.enabled = enabled
             super().__init__()
 
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        *args,
+        context_bindings: list[tuple[str, str, str]] | None = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.worktrees: list[Worktree] = []
         self._grouping_enabled: bool = False
         # Maps option index to worktree index (for handling headers)
         self._option_to_worktree: dict[int, int] = {}
+        # Footer-visible (key, app action, description) bindings shown while
+        # this panel has focus; the keys also exist app-level (hidden) so
+        # they keep working regardless of focus. Replacing "enter" here also
+        # fixes shell opening: OptionList's own select binding used to
+        # swallow the key before the app's open_shell binding could see it.
+        for key, action, description in context_bindings or []:
+            self._bindings.key_to_bindings.pop(key, None)
+            self._bindings.bind(key, f"app.{action}", description, show=True)
 
     @property
     def index(self) -> int | None:

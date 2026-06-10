@@ -246,6 +246,12 @@ Shows detailed git status for the selected worktree:
 
 All keybindings can be customized in [`config.toml`](configuration.md).
 
+The footer is context-sensitive, lazygit-style: it shows the actions for the
+focused panel (task actions in the Task List, worktree/git actions in the
+Worktree List) plus the always-available `r` Refresh, `?` Help, and `q` Quit.
+Every key works regardless of which panel has focus — the footer only changes
+what is displayed. Press `?` for the full reference at any time.
+
 ### Navigation
 
 | Key        | Action                      | Description                                      |
