@@ -24,6 +24,7 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "add_repo": "a",
     "delete_task": "d",
     "open_lazygit": "g",
+    "show_diff": "h",
     "open_folder": "o",
     "open_shell": "enter",
     "open_editor": "e",
@@ -90,7 +91,9 @@ class Config:
     # External tools
     editor: str = ""
     lazygit_path: str = "lazygit"
+    hunk_path: str = "hunk"
     claude_path: str = "claude"
+    claude_memory_dir: str = "~/.claude/tasktree-memory"
     shell: str = ""
 
     # Keybindings (action -> key mapping)
@@ -144,7 +147,9 @@ class Config:
         tools_config = config_data.get("tools", {})
         editor = tools_config.get("editor", "")
         lazygit_path = tools_config.get("lazygit_path", "lazygit")
+        hunk_path = tools_config.get("hunk_path", "hunk")
         claude_path = tools_config.get("claude_path", "claude")
+        claude_memory_dir = tools_config.get("claude_memory_dir", "~/.claude/tasktree-memory")
         shell = tools_config.get("shell", "")
 
         # Keybindings - start with defaults and override with config
@@ -184,7 +189,9 @@ class Config:
             git_timeout=git_timeout,
             editor=editor,
             lazygit_path=lazygit_path,
+            hunk_path=hunk_path,
             claude_path=claude_path,
+            claude_memory_dir=claude_memory_dir,
             shell=shell,
             keybindings=keybindings,
             symlink_blocklist=symlink_blocklist,
@@ -308,8 +315,16 @@ editor = "{self._toml_escape(self.editor)}"
 # Path to lazygit executable
 lazygit_path = "{self._toml_escape(self.lazygit_path)}"
 
+# Path to hunk executable (terminal diff viewer, see https://github.com/modem-dev/hunk)
+hunk_path = "{self._toml_escape(self.hunk_path)}"
+
 # Path to claude CLI executable
 claude_path = "{self._toml_escape(self.claude_path)}"
+
+# Shared Claude Code auto-memory directory for task sessions.
+# Task folders are not git repos, so without this each task gets its own
+# memory that is orphaned when the task is deleted. Set to "" to disable.
+claude_memory_dir = "{self._toml_escape(self.claude_memory_dir)}"
 
 # Preferred shell (leave empty to use $SHELL)
 shell = "{self._toml_escape(self.shell)}"
@@ -328,6 +343,7 @@ clone_task = "{self._toml_escape(self.keybindings.get("clone_task", "y"))}"
 add_repo = "{self._toml_escape(self.keybindings.get("add_repo", "a"))}"
 delete_task = "{self._toml_escape(self.keybindings.get("delete_task", "d"))}"
 open_lazygit = "{self._toml_escape(self.keybindings.get("open_lazygit", "g"))}"
+show_diff = "{self._toml_escape(self.keybindings.get("show_diff", "h"))}"
 open_folder = "{self._toml_escape(self.keybindings.get("open_folder", "o"))}"
 open_shell = "{self._toml_escape(self.keybindings.get("open_shell", "enter"))}"
 open_editor = "{self._toml_escape(self.keybindings.get("open_editor", "e"))}"

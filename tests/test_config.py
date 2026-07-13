@@ -21,6 +21,16 @@ class TestConfig:
         assert config.repos_dir == repos_dir
         assert config.tasks_dir == tasks_dir
 
+    def test_claude_memory_dir_default(self):
+        """Test the default shared Claude memory directory."""
+        config = Config()
+        assert config.claude_memory_dir == "~/.claude/tasktree-memory"
+
+    def test_claude_memory_dir_custom(self):
+        """Test overriding the Claude memory directory."""
+        config = Config(claude_memory_dir="")
+        assert config.claude_memory_dir == ""
+
     def test_load_from_environment(self, temp_dirs, monkeypatch):
         """Test loading config from environment variables."""
         repos_dir, tasks_dir = temp_dirs
@@ -110,6 +120,7 @@ class TestConfig:
         assert config.git_timeout == 30
         assert config.editor == ""
         assert config.lazygit_path == "lazygit"
+        assert config.hunk_path == "hunk"
         assert config.shell == ""
 
     def test_load_theme_from_environment(self, temp_dirs, monkeypatch):
@@ -155,6 +166,7 @@ timeout = 60
 [tools]
 editor = "nvim"
 lazygit_path = "/usr/local/bin/lazygit"
+hunk_path = "/usr/local/bin/hunk"
 shell = "/bin/zsh"
 '''
         config_file.write_text(config_content)
@@ -175,6 +187,7 @@ shell = "/bin/zsh"
             assert config.git_timeout == 60
             assert config.editor == "nvim"
             assert config.lazygit_path == "/usr/local/bin/lazygit"
+            assert config.hunk_path == "/usr/local/bin/hunk"
             assert config.shell == "/bin/zsh"
         finally:
             if old_xdg is not None:
@@ -220,6 +233,7 @@ shell = "/bin/zsh"
             git_timeout=45,
             editor="vim",
             lazygit_path="/opt/bin/lazygit",
+            hunk_path="/opt/bin/hunk",
             shell="/bin/zsh",
         )
         original.save()
@@ -240,6 +254,7 @@ shell = "/bin/zsh"
             assert loaded.git_timeout == 45
             assert loaded.editor == "vim"
             assert loaded.lazygit_path == "/opt/bin/lazygit"
+            assert loaded.hunk_path == "/opt/bin/hunk"
             assert loaded.shell == "/bin/zsh"
         finally:
             if old_xdg is not None:
@@ -254,6 +269,7 @@ shell = "/bin/zsh"
         assert config.keybindings["help"] == "?"
         assert config.keybindings["new_task"] == "n"
         assert config.keybindings["open_lazygit"] == "g"
+        assert config.keybindings["show_diff"] == "h"
         assert config.keybindings["cursor_down"] == "j"
         assert config.keybindings["cursor_up"] == "k"
 

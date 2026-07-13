@@ -134,17 +134,22 @@ A **worktree** is a git working directory for a specific repository within a tas
    - Stage files, commit changes, resolve conflicts
    - Exit lazygit (press `q` in lazygit)
 
-3. **Or open a shell:**
+3. **Review the diff:**
+   - Press `h` from the worktree panel to review that repo's changes in [hunk](https://github.com/modem-dev/hunk)
+   - Press `h` from the task panel to review a combined diff across **all** the task's repos at once
+   - Exit hunk (press `q`)
+
+4. **Or open a shell:**
    - Press `Enter` to open a shell in the worktree
    - Make changes with your editor/IDE
    - Run build/test commands
    - Exit shell (type `exit`)
 
-4. **Push changes:**
+5. **Push changes:**
    - Press `p` to push all worktrees in the task
    - Or use lazygit (`g`) to push individually
 
-5. **Delete the task:**
+6. **Delete the task:**
    - Press `d` to delete/finish the task
    - Follow prompts if there are uncommitted or unpushed changes
    - Worktrees are removed (branches remain on remote)
@@ -168,7 +173,7 @@ tasktree-manager uses a **3-panel layout**:
 │   M  src/auth.py                                                       │
 │   ?? README.md                                                         │
 └──────────────────────────────────────────────────────────────────────────┘
-  n New  d Delete  g Lazygit  p Push  r Refresh  ? Help  q Quit
+  n New  d Delete  g Lazygit  h Diff  p Push  r Refresh  ? Help  q Quit
 ```
 
 ### Left Panel: Task List
@@ -325,6 +330,7 @@ Useful when you're spinning up several similar tasks that share the same set of 
 | Key     | Action             | Description                                          |
 |---------|--------------------|------------------------------------------------------|
 | `g`     | Open lazygit       | Open lazygit in the selected worktree                |
+| `h`     | Show diff          | Open hunk: all repos from the task panel, the selected repo from the worktree panel |
 | `e`     | Open editor        | Open editor in task/worktree folder (runs `$EDITOR .`) |
 | `Enter` | Open shell         | Open a shell in the selected worktree                |
 | `p`     | Push all           | Push all worktrees in the current task (parallel)    |
@@ -359,6 +365,7 @@ Useful when you're spinning up several similar tasks that share the same set of 
 - `C` opens the Claude desktop app via the `claude://code/new?folder=<task-folder>` URL scheme.
 - The CLI variant (`c`) generates `CLAUDE.md` files with task/worktree context and installs hooks that report session status back to tasktree-manager.
 - Session status (`⟳` running, `!` waiting, `✓` ended) appears next to the task name
+- Both variants point the session's Claude Code auto-memory at a shared pool (`claude_memory_dir`, default `~/.claude/tasktree-memory`). Task folders are not git repos, so without this each task would get its own memory directory that is orphaned when the task is deleted; with the shared pool, what Claude learns in one task carries over to future tasks.
 
 ### General
 
@@ -664,6 +671,34 @@ apt install lazygit
 
 # Others
 # See: https://github.com/jesseduffield/lazygit
+```
+
+### Hunk
+
+[hunk](https://github.com/modem-dev/hunk) is a review-first terminal diff viewer, well suited to reviewing agent-authored changesets across a multi-repo task.
+
+**Why hunk:**
+- Fast, keyboard-driven diff review with a desktop-inspired layout
+- Reviews an entire task's changes across all its repos in one view
+- Complements lazygit (which stages/commits per repo)
+
+**Using hunk:**
+1. From the **worktree panel**, press `h` to review the selected repo's uncommitted changes
+2. From the **task panel**, press `h` to review a combined diff across **all** the task's repos at once (each file is grouped under its repo name)
+3. tasktree-manager suspends, hunk opens
+4. Press `q` in hunk to return; status auto-refreshes and selection is preserved
+
+The combined task view includes both tracked (staged and unstaged) changes and untracked files.
+
+**Install hunk:**
+```bash
+# macOS
+brew install hunk
+
+# npm
+npm i -g hunkdiff
+
+# See: https://github.com/modem-dev/hunk
 ```
 
 ### Editors

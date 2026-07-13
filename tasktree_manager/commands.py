@@ -14,6 +14,11 @@ APP_COMMANDS: list[tuple[str, str, str]] = [
     ("delete_task", "Delete Task", "Delete the current task (with safety checks)"),
     ("delete_worktree", "Delete Worktree", "Delete the selected worktree from the task"),
     ("open_lazygit", "Open Lazygit", "Open lazygit in the selected worktree"),
+    (
+        "show_diff",
+        "Show Diff",
+        "Open hunk: all repos from the task panel, the selected repo from the worktree panel",
+    ),
     ("open_editor", "Open Editor", "Open your editor in the focused task/worktree folder"),
     ("open_folder", "Open Folder", "Open the focused folder in a new terminal tab"),
     ("open_shell", "Open Shell", "Open a shell in the selected worktree"),

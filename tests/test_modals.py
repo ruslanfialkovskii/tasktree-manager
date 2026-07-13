@@ -14,6 +14,11 @@ from tasktree_manager.widgets.create_modal import (
 )
 
 
+def _visible_values(repo_list: SelectionList) -> list[str]:
+    """Return the values currently rendered in a SelectionList, in order."""
+    return [repo_list.get_option_at_index(i).value for i in range(repo_list.option_count)]
+
+
 class TestCreateTaskModal:
     """Tests for CreateTaskModal."""
 
@@ -51,6 +56,47 @@ class TestCreateTaskModal:
             repo_list = modal.query_one("#repo-list", SelectionList)
             assert repo_list.option_count == 1
 
+    async def test_search_matches_folder_prefix(self, app, sample_repos):
+        """Typing a folder name shows every repo under that folder."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            modal = CreateTaskModal(
+                available_repos=[
+                    "mdp/docs",
+                    "mdp/gitops",
+                    "mdp/terraform",
+                    "ansible/devops_ansible",
+                    "data-engineering/market-data-catalog",
+                ]
+            )
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # 'mdp' is a folder; all repos under it match, and nothing else does.
+            modal._filter_repos("mdp")
+            await pilot.pause()
+
+            repo_list = modal.query_one("#repo-list", SelectionList)
+            assert _visible_values(repo_list) == ["mdp/docs", "mdp/gitops", "mdp/terraform"]
+
+    async def test_search_via_input_event_filters(self, app, sample_repos):
+        """Typing in the search Input drives filtering through the mixin handler."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            modal = CreateTaskModal(available_repos=["mdp/terraform", "ansible-ci", "airflow"])
+            app.push_screen(modal)
+            await pilot.pause()
+
+            # Set the Input value, which posts Input.Changed -> on_input_changed.
+            search = modal.query_one("#repo-search", Input)
+            search.value = "mdp"
+            await pilot.pause()
+
+            repo_list = modal.query_one("#repo-list", SelectionList)
+            assert _visible_values(repo_list) == ["mdp/terraform"]
+
     async def test_search_preserves_selections(self, app, sample_repos):
         """Test that search preserves previously selected repos."""
         async with app.run_test() as pilot:
@@ -76,6 +122,63 @@ class TestCreateTaskModal:
 
             # alpha-repo should still be in selected_repos
             assert "alpha-repo" in modal.selected_repos
+
+    async def test_select_then_search_then_select_keeps_both(self, app, sample_repos):
+        """Selecting a repo, searching, then selecting another keeps both.
+
+        Drives the real SelectionList.SelectedChanged handler (not a manual
+        selected_repos mutation) to guard against the filter resetting prior
+        selections.
+        """
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            modal = CreateTaskModal(available_repos=["ansible", "terraform", "postgres"])
+            app.push_screen(modal)
+            await pilot.pause()
+
+            repo_list = modal.query_one("#repo-list", SelectionList)
+
+            # Select ansible from the unfiltered list.
+            repo_list.select("ansible")
+            await pilot.pause()
+            assert modal.selected_repos == {"ansible"}
+
+            # Search for terraform, then select it while the list is filtered.
+            modal._filter_repos("terraform")
+            await pilot.pause()
+            repo_list.select("terraform")
+            await pilot.pause()
+
+            # Clear the search and confirm both survive.
+            modal._filter_repos("")
+            await pilot.pause()
+            assert modal.selected_repos == {"ansible", "terraform"}
+
+    async def test_deselect_under_filter_is_tracked(self, app, sample_repos):
+        """Deselecting a visible repo under a filter removes only that repo."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            modal = CreateTaskModal(
+                available_repos=["ansible", "terraform", "postgres"],
+                initial_repos=["ansible", "terraform"],
+            )
+            app.push_screen(modal)
+            await pilot.pause()
+
+            repo_list = modal.query_one("#repo-list", SelectionList)
+
+            # Filter to terraform and deselect it.
+            modal._filter_repos("terraform")
+            await pilot.pause()
+            repo_list.deselect("terraform")
+            await pilot.pause()
+
+            # ansible (outside the filter) is untouched; terraform is gone.
+            modal._filter_repos("")
+            await pilot.pause()
+            assert modal.selected_repos == {"ansible"}
 
     async def test_create_task_validates_empty_name(self, app, sample_repos):
         """Test that creating task with empty name shows error."""

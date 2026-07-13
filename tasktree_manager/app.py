@@ -226,6 +226,7 @@ class TaskTreeApp(App):
         Binding("a", "add_repo", "Add Repo", show=False),
         Binding("d", "delete_task", "Delete", show=False),
         Binding("g", "open_lazygit", "Lazygit", show=False),
+        Binding("h", "show_diff", "Diff", show=False),
         Binding("e", "open_editor", "Editor", show=False),
         Binding("o", "open_folder", "Open", show=False),
         Binding("c", "open_claude_resume", "Claude", show=False),
@@ -287,6 +288,7 @@ class TaskTreeApp(App):
             Binding(kb.get("add_repo", "a"), "add_repo", "Add Repo", show=False),
             Binding(kb.get("delete_task", "d"), "delete_task", "Delete", show=False),
             Binding(kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit", show=False),
+            Binding(kb.get("show_diff", "h"), "show_diff", "Diff", show=False),
             Binding(kb.get("open_editor", "e"), "open_editor", "Editor", show=False),
             Binding(kb.get("open_folder", "o"), "open_folder", "Open", show=False),
             Binding(kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude", show=False),
@@ -330,11 +332,13 @@ class TaskTreeApp(App):
             (kb.get("clone_task", "y"), "clone_task", "Clone"),
             (kb.get("add_repo", "a"), "add_repo", "Add Repo"),
             (kb.get("delete_task", "d"), "delete_task", "Delete"),
+            (kb.get("show_diff", "h"), "show_diff", "Diff"),
             (kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude"),
             (kb.get("cycle_sort", "s"), "cycle_sort", "Sort"),
         ]
         worktree_panel_bindings = [
             (kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit"),
+            (kb.get("show_diff", "h"), "show_diff", "Diff"),
             (kb.get("open_editor", "e"), "open_editor", "Editor"),
             (kb.get("open_folder", "o"), "open_folder", "Open"),
             (kb.get("open_shell", "enter"), "open_shell", "Shell"),
@@ -1111,6 +1115,101 @@ class TaskTreeApp(App):
         # Restore focus to worktree list
         self.query_one("#worktree-list", WorktreeList).focus()
 
+    def action_show_diff(self) -> None:
+        """Open the hunk diff viewer, scoped by which panel is focused.
+
+        From the task panel, shows a combined diff across all the task's repos.
+        From the worktree panel, shows the diff for the selected worktree only.
+        """
+        focused = self.focused
+        if isinstance(focused, TaskList):
+            self._show_task_diff()
+        elif isinstance(focused, WorktreeList):
+            self._show_worktree_diff()
+        else:
+            self.notify("Select a task or worktree first", severity="warning")
+
+    def _show_worktree_diff(self) -> None:
+        """Open hunk on the selected worktree's working-tree changes."""
+        if not self.current_worktree:
+            self.notify("No worktree selected", severity="warning")
+            return
+
+        worktree_path = self.current_worktree.path
+        if not worktree_path.exists():
+            self.notify("Worktree directory not found", severity="error")
+            return
+
+        # Save selection state BEFORE suspend (as local variables)
+        saved_task_name = self.current_task.name if self.current_task else None
+        saved_worktree_name = self.current_worktree.name
+
+        self.notify("Opening hunk...")
+
+        # Suspend app and run hunk on this worktree's changes
+        with self.suspend():
+            self._run_external_command(
+                [self.config.hunk_path, "diff"],
+                cwd=worktree_path,
+                name="hunk",
+                install_hint="brew install hunk",
+            )
+
+        # Refresh status after hunk exits, restoring saved selection
+        self._load_tasks_with_selection(saved_task_name, saved_worktree_name)
+        # Restore focus to worktree list
+        self.query_one("#worktree-list", WorktreeList).focus()
+
+    def _show_task_diff(self) -> None:
+        """Open hunk on a combined diff across all of the task's repos."""
+        import os
+        import tempfile
+
+        if not self.current_task:
+            self.notify("No task selected", severity="warning")
+            return
+
+        task = self.current_task
+
+        # Building the diff runs local git commands only (no network), so a
+        # brief synchronous call before suspend is fine. The fresh git read
+        # also makes the "no changes" check accurate regardless of stale UI.
+        diff = GitOps.build_task_diff(task)
+        if not diff.strip():
+            self.notify("No changes to show", severity="information")
+            return
+
+        # Save selection state BEFORE suspend (as local variables)
+        saved_task_name = task.name
+        saved_worktree_name = self.current_worktree.name if self.current_worktree else None
+
+        # hunk reads the combined patch from a file, so keyboard input stays on
+        # the terminal (a stdin pipe would fight the interactive TUI for it).
+        with tempfile.NamedTemporaryFile("w", suffix=".patch", delete=False, encoding="utf-8") as f:
+            f.write(diff)
+            patch_path = f.name
+
+        self.notify("Opening hunk...")
+
+        try:
+            with self.suspend():
+                self._run_external_command(
+                    [self.config.hunk_path, "patch", patch_path],
+                    cwd=task.path,
+                    name="hunk",
+                    install_hint="brew install hunk",
+                )
+        finally:
+            try:
+                os.unlink(patch_path)
+            except OSError:
+                pass
+
+        # Refresh status after hunk exits, restoring saved selection
+        self._load_tasks_with_selection(saved_task_name, saved_worktree_name)
+        # Restore focus to task list
+        self.query_one("#task-list", TaskList).focus()
+
     def action_open_shell(self) -> None:
         """Open a shell in the current worktree."""
         if not self.current_worktree:
@@ -1199,7 +1298,7 @@ class TaskTreeApp(App):
         if fresh_task:
             self.task_manager.ensure_claude_md_files(fresh_task)
 
-        ensure_claude_hooks(task_path)
+        ensure_claude_hooks(task_path, self.config.claude_memory_dir)
         if has_claude_session(task_path):
             self._open_ghostty_tab(task_path, command=f"{self.config.claude_path} -r")
             self.notify("Opened Claude Code in new tab (resume)")
@@ -1220,6 +1319,7 @@ class TaskTreeApp(App):
             self.notify("Task directory not found", severity="error")
             return
 
+        ensure_claude_hooks(task_path, self.config.claude_memory_dir)
         encoded_path = quote(str(task_path), safe="")
         url = f"claude://code/new?folder={encoded_path}"
         try:

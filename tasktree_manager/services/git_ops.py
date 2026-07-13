@@ -160,6 +160,76 @@ class GitOps:
             return False, str(e)
 
     @staticmethod
+    def _git_stdout(worktree: Worktree, args: list[str]) -> str:
+        """Run a local read-only git command in the worktree, returning stdout.
+
+        Returns "" on any failure. The exit code is intentionally ignored:
+        ``git diff --no-index`` returns non-zero whenever files differ, and a
+        failed command leaves stdout empty anyway.
+        """
+        try:
+            result = subprocess.run(
+                ["git", *args],
+                cwd=worktree.path,
+                capture_output=True,
+                text=True,
+                timeout=GitOps.LOCAL_TIMEOUT,
+            )
+        except (subprocess.SubprocessError, OSError):
+            return ""
+        return result.stdout
+
+    @staticmethod
+    def _list_untracked(worktree: Worktree) -> list[str]:
+        """List untracked (but not ignored) files in a worktree."""
+        out = GitOps._git_stdout(worktree, ["ls-files", "--others", "--exclude-standard", "-z"])
+        return [f for f in out.split("\0") if f]
+
+    @staticmethod
+    def get_worktree_diff(worktree: Worktree, label: str | None = None) -> str:
+        """Return a unified diff of all uncommitted changes in a worktree.
+
+        Combines staged and unstaged tracked changes (``git diff HEAD``) with
+        untracked files, so the result mirrors what a working-tree review shows.
+        When *label* is given, every file path is prefixed with ``<label>/`` so
+        diffs from several repos can be concatenated into one view without
+        colliding on identical relative paths.
+
+        Returns an empty string when the worktree is clean or missing.
+        """
+        if not worktree.path.exists():
+            return ""
+
+        # Without a label, git's default a/ b/ prefixes are used.
+        prefixes = [f"--src-prefix=a/{label}/", f"--dst-prefix=b/{label}/"] if label else []
+        parts: list[str] = []
+
+        # Tracked changes (staged + unstaged) relative to HEAD.
+        parts.append(GitOps._git_stdout(worktree, ["diff", "HEAD", "--no-color", *prefixes]))
+
+        # Untracked files, rendered as additions against /dev/null.
+        for untracked in GitOps._list_untracked(worktree):
+            parts.append(
+                GitOps._git_stdout(
+                    worktree,
+                    ["diff", "--no-index", "--no-color", *prefixes, "--", "/dev/null", untracked],
+                )
+            )
+
+        return "".join(parts)
+
+    @staticmethod
+    def build_task_diff(task: Task) -> str:
+        """Build a combined diff across all of a task's worktrees.
+
+        Each worktree's changes are labelled with its repo name so a single
+        review shows every repo without path collisions. Returns an empty
+        string when nothing in the task has changed.
+        """
+        parts = [GitOps.get_worktree_diff(wt, label=wt.name) for wt in task.worktrees]
+        return "".join(p for p in parts if p)
+
+    @staticmethod
     def get_default_branch(worktree: Worktree) -> str:
         """Get the default branch (main/master) for a worktree's repo.
 

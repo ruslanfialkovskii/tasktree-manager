@@ -314,6 +314,81 @@ class TestBranchOperations:
         assert isinstance(is_merged, bool)
 
 
+class TestDiff:
+    """Tests for diff generation used by the hunk integration."""
+
+    def test_get_worktree_diff_clean(self, sample_repo):
+        """A clean worktree produces an empty diff."""
+        repo_path, _ = sample_repo
+        worktree = Worktree(name="sample", path=repo_path)
+        assert GitOps.get_worktree_diff(worktree) == ""
+
+    def test_get_worktree_diff_nonexistent(self, tmp_path):
+        """A missing worktree produces an empty diff."""
+        worktree = Worktree(name="gone", path=tmp_path / "gone")
+        assert GitOps.get_worktree_diff(worktree) == ""
+
+    def test_get_worktree_diff_modified_file(self, sample_repo):
+        """Tracked modifications appear in the diff."""
+        repo_path, _ = sample_repo
+        (repo_path / "README.md").write_text("# Modified content\n")
+        worktree = Worktree(name="sample", path=repo_path)
+
+        diff = GitOps.get_worktree_diff(worktree)
+        assert "README.md" in diff
+        assert "+# Modified content" in diff
+
+    def test_get_worktree_diff_untracked_file(self, sample_repo):
+        """Untracked files are rendered as additions."""
+        repo_path, _ = sample_repo
+        (repo_path / "brand_new.txt").write_text("hello world\n")
+        worktree = Worktree(name="sample", path=repo_path)
+
+        diff = GitOps.get_worktree_diff(worktree)
+        assert "brand_new.txt" in diff
+        assert "+hello world" in diff
+
+    def test_get_worktree_diff_label_prefixes_paths(self, sample_repo):
+        """A label prefixes file paths so repos stay distinguishable."""
+        repo_path, _ = sample_repo
+        (repo_path / "README.md").write_text("# Changed\n")
+        (repo_path / "extra.txt").write_text("extra\n")
+        worktree = Worktree(name="sample", path=repo_path)
+
+        diff = GitOps.get_worktree_diff(worktree, label="myrepo")
+        # Both tracked and untracked entries carry the repo prefix
+        assert "a/myrepo/README.md" in diff
+        assert "b/myrepo/extra.txt" in diff
+
+    def test_build_task_diff_empty_task(self):
+        """A task with no worktrees yields an empty combined diff."""
+        task = Task(name="empty", path=Path("/tmp/empty"), worktrees=[])
+        assert GitOps.build_task_diff(task) == ""
+
+    def test_build_task_diff_clean_worktrees(self, sample_repos):
+        """A task whose worktrees are all clean yields an empty diff."""
+        repos, _ = sample_repos
+        worktrees = [Worktree(name=repo.name, path=repo) for repo in repos]
+        task = Task(name="clean", path=repos[0].parent, worktrees=worktrees)
+        assert GitOps.build_task_diff(task) == ""
+
+    def test_build_task_diff_combines_repos(self, sample_repos):
+        """The combined diff labels each repo's changes distinctly."""
+        repos, _ = sample_repos
+        # Make a change in two different repos
+        (repos[0] / "README.md").write_text("# alpha changed\n")
+        (repos[1] / "README.md").write_text("# beta changed\n")
+        worktrees = [Worktree(name=repo.name, path=repo) for repo in repos]
+        task = Task(name="multi", path=repos[0].parent, worktrees=worktrees)
+
+        diff = GitOps.build_task_diff(task)
+        # Each repo's change is present and prefixed by that repo's name
+        assert f"a/{repos[0].name}/README.md" in diff
+        assert f"a/{repos[1].name}/README.md" in diff
+        assert "+# alpha changed" in diff
+        assert "+# beta changed" in diff
+
+
 class TestStatusEdgeCases:
     """Tests for edge cases in status operations."""
 
