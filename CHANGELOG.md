@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.7.1] - 2026-07-13
+
+### Changed
+- **tests**: Format new test classes with ruff
+
+
 ## [2.7.0] - 2026-07-13
 
 ### Added
