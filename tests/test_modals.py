@@ -564,3 +564,56 @@ class TestHelpModal:
         assert "Git Operations" in content
         assert "General" in content
         assert "Tips" in content
+
+
+class TestEscapeDismissesModals:
+    """Escape cancels modals with the same result as the Cancel button."""
+
+    async def test_escape_dismisses_create_task_modal(self, app, sample_repos):
+        """Escape closes CreateTaskModal with a None (cancelled) result."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            results = []
+            modal = CreateTaskModal(available_repos=["repo-a"])
+            app.push_screen(modal, results.append)
+            await pilot.pause()
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert modal not in app.screen_stack
+            assert results == [None]
+
+    async def test_escape_dismisses_while_input_focused(self, app, sample_repos):
+        """Escape works even when a text input inside the modal has focus."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            modal = CreateTaskModal(available_repos=["repo-a"])
+            app.push_screen(modal)
+            await pilot.pause()
+
+            modal.query_one("#task-name", Input).focus()
+            await pilot.pause()
+            await pilot.press("t", "escape")
+            await pilot.pause()
+
+            assert modal not in app.screen_stack
+
+    async def test_escape_cancels_confirm_modal_with_false(self, app, sample_repos):
+        """Escape on ConfirmModal dismisses with False, not None."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            results = []
+            modal = ConfirmModal(title="Confirm", message="Confirm action?")
+            app.push_screen(modal, results.append)
+            await pilot.pause()
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            assert modal not in app.screen_stack
+            assert results == [False]
+

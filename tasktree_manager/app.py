@@ -3,19 +3,23 @@
 import json
 import subprocess
 import threading
+from pathlib import Path
 
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Footer, Static
 
+from . import __version__
 from .commands import TaskTreeCommands
 from .services.claude_hooks import ensure_claude_hooks, has_claude_session
 from .services.config import Config
 from .services.git_ops import GitOps
 from .services.models import GitStatus, Task, TaskSafetyReport, Worktree
 from .services.task_manager import TaskManager
+from .themes import ALL_THEMES, THEME_CYCLE
+from .widgets.app_header import AppHeader
 from .widgets.create_modal import (
     AddRepoModal,
     ConfirmModal,
@@ -40,6 +44,12 @@ class TaskTreeApp(App):
     # name, displayed with their configured hotkey)
     COMMANDS = App.COMMANDS | {TaskTreeCommands}
 
+    # Layered-panel look from the TaskTree design system, driven entirely
+    # by design tokens so every theme restyles the whole UI: panel bodies
+    # ($panel) sit darker than the screen ground ($background), title bars
+    # carry a [n] number + context and a right-aligned counter above a
+    # hairline, the focused panel swaps $border-blurred for $border, and
+    # list selection uses the theme's $block-cursor-* variables.
     CSS = """
     /* Main layout */
     Screen {
@@ -60,89 +70,69 @@ class TaskTreeApp(App):
         height: 100%;
     }
 
-    /* Task panel - top left */
-    #task-panel {
-        height: 1fr;
-        min-height: 8;
-        border: round $primary;
-        background: $background;
-        padding: 0;
-    }
-
-    #task-panel:focus-within {
-        border: round $accent;
-    }
-
-    /* Worktree panel - bottom left */
-    #worktree-panel {
-        height: 1fr;
-        min-height: 8;
-        border: round $primary;
-        background: $background;
-        padding: 0;
-    }
-
-    #worktree-panel:focus-within {
-        border: round $accent;
-    }
-
     /* Right column - Info/Status panel */
     #right-column {
         width: 65%;
         height: 100%;
     }
 
-    /* Status panel - right side */
-    #status-panel {
+    /* Panels */
+    #task-panel, #worktree-panel {
+        height: 1fr;
+        min-height: 8;
+    }
+
+    #task-panel, #worktree-panel, #status-panel, #messages-panel {
+        border: round $border-blurred;
+        background: $panel;
+        padding: 0;
+    }
+
+    #task-panel:focus-within, #worktree-panel:focus-within {
+        border: round $border;
+    }
+
+    #status-panel, #messages-panel {
         height: 100%;
-        border: round $primary;
-        background: $background;
-        padding: 0;
     }
 
-    /* Panel titles */
-    .panel-title {
-        text-style: bold;
-        color: $text;
-        background: transparent;
-        text-align: left;
+    /* Panel title bars: [n] Name · context ......... counter */
+    .panel-title-bar {
+        height: 2;
         width: 100%;
+        border-bottom: solid $border-blurred;
+        background: transparent;
+    }
+
+    .panel-title {
+        width: 1fr;
         padding: 0 1;
+        color: $text;
+        text-align: left;
     }
 
-    /* Task list (OptionList) */
-    #task-list {
+    .panel-counter {
+        width: auto;
+        padding: 0 1;
+        color: $text-muted;
+    }
+
+    #task-panel:focus-within .panel-title,
+    #worktree-panel:focus-within .panel-title {
+        color: $accent;
+    }
+
+    /* Task/worktree lists (OptionList): the panel supplies border and
+       background; selection styling comes from $block-cursor-* tokens */
+    #task-list, #worktree-list {
         height: 1fr;
-        background: $background;
+        background: transparent;
         scrollbar-gutter: stable;
         border: none;
         padding: 0;
 
         &:focus {
             border: none;
-        }
-
-        & > .option-list--option-highlighted {
-            background: $accent;
-            color: $text;
-        }
-    }
-
-    /* Worktree list (OptionList) */
-    #worktree-list {
-        height: 1fr;
-        background: $background;
-        scrollbar-gutter: stable;
-        border: none;
-        padding: 0;
-
-        &:focus {
-            border: none;
-        }
-
-        & > .option-list--option-highlighted {
-            background: $accent;
-            color: $text;
         }
     }
 
@@ -150,7 +140,7 @@ class TaskTreeApp(App):
     #status-display {
         height: 100%;
         padding: 1 1 0 1;
-        background: $background;
+        background: transparent;
         color: $text;
         overflow-y: auto;
         scrollbar-gutter: stable;
@@ -163,10 +153,6 @@ class TaskTreeApp(App):
 
     /* Messages panel */
     #messages-panel {
-        height: 100%;
-        border: round $primary;
-        background: $background;
-        padding: 0;
         display: none;
     }
 
@@ -177,41 +163,19 @@ class TaskTreeApp(App):
     #messages-display {
         height: 100%;
         padding: 0 1;
-        background: $background;
+        background: transparent;
         color: $text;
         overflow-y: auto;
         scrollbar-gutter: stable;
     }
 
-    /* Header */
-    Header {
-        background: $surface;
-        color: $text;
-        text-style: bold;
-        dock: top;
-        height: 1;
-    }
-
-    /* Footer */
-    Footer {
-        background: $surface;
-    }
-
     /* Scrollbar */
-    Scrollbar {
-        background: $background;
-    }
-
     ScrollBar > .scrollbar--bar {
         background: $panel;
     }
 
     ScrollBar > .scrollbar--bar:hover {
         background: $foreground-muted;
-    }
-
-    ListItem {
-        height: 1;
     }
     """
 
@@ -231,10 +195,11 @@ class TaskTreeApp(App):
         Binding("o", "open_folder", "Open", show=False),
         Binding("c", "open_claude_resume", "Claude", show=False),
         Binding("p", "push_all", "Push", show=False),
+        Binding("t", "cycle_theme", "Theme"),
         Binding("r", "refresh", "Refresh"),
-        Binding("m", "toggle_messages", "Messages"),
-        Binding("q", "quit", "Quit"),
+        Binding("m", "toggle_messages", "Messages", show=False),
         Binding("?", "help", "Help"),
+        Binding("q", "quit", "Quit"),
         Binding("enter", "open_shell", "Shell", show=False),
         Binding("C", "open_claude_gui_code", "Claude GUI", show=False),
         Binding("P", "pull_all", "Pull All", show=False),
@@ -264,6 +229,8 @@ class TaskTreeApp(App):
         self.current_worktree: Worktree | None = None
         self.current_status: GitStatus | None = None
         self._show_messages_panel: bool = False
+        # Mirrors the worktree list's grouping mode for the panel title
+        self._worktrees_grouped: bool = False
         # Used to preserve worktree selection during task list reload
         self._preserved_worktree_name: str | None = None
         # Claude session statuses: task_name -> status string
@@ -293,10 +260,11 @@ class TaskTreeApp(App):
             Binding(kb.get("open_folder", "o"), "open_folder", "Open", show=False),
             Binding(kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude", show=False),
             Binding(kb.get("push_all", "p"), "push_all", "Push", show=False),
+            Binding(kb.get("cycle_theme", "t"), "cycle_theme", "Theme"),
             Binding(kb.get("refresh", "r"), "refresh", "Refresh"),
-            Binding(kb.get("toggle_messages", "m"), "toggle_messages", "Messages"),
-            Binding(kb.get("quit", "q"), "quit", "Quit"),
+            Binding(kb.get("toggle_messages", "m"), "toggle_messages", "Messages", show=False),
             Binding(kb.get("help", "?"), "help", "Help"),
+            Binding(kb.get("quit", "q"), "quit", "Quit"),
             Binding(kb.get("open_shell", "enter"), "open_shell", "Shell", show=False),
             Binding(
                 kb.get("open_claude_gui_code", "C"),
@@ -346,34 +314,110 @@ class TaskTreeApp(App):
             (kb.get("delete_worktree", "D"), "delete_worktree", "Del WT"),
         ]
 
-        yield Header()
+        yield AppHeader()
         with Horizontal(id="main-container"):
             # Left column: Tasks (top) and Worktrees (bottom)
             with Vertical(id="left-column"):
                 with Vertical(id="task-panel"):
-                    yield Static("Tasks", classes="panel-title", id="task-panel-title")
+                    with Horizontal(classes="panel-title-bar"):
+                        yield Static(
+                            self._panel_title(1, "Tasks", "by name ↑"),
+                            classes="panel-title",
+                            id="task-panel-title",
+                        )
+                        yield Static("", classes="panel-counter", id="task-panel-counter")
                     yield TaskList(id="task-list", context_bindings=task_panel_bindings)
                 with Vertical(id="worktree-panel"):
-                    yield Static("Worktrees", classes="panel-title", id="worktree-panel-title")
+                    with Horizontal(classes="panel-title-bar"):
+                        yield Static(
+                            self._panel_title(2, "Worktrees"),
+                            classes="panel-title",
+                            id="worktree-panel-title",
+                        )
+                        yield Static("", classes="panel-counter", id="worktree-panel-counter")
                     yield WorktreeList(id="worktree-list", context_bindings=worktree_panel_bindings)
             # Right column: Info/Status panel
             with Vertical(id="right-column"):
                 with Vertical(id="status-panel"):
-                    yield Static("Info", classes="panel-title", id="status-panel-title")
+                    with Horizontal(classes="panel-title-bar"):
+                        yield Static(
+                            self._panel_title(3, "Info"),
+                            classes="panel-title",
+                            id="status-panel-title",
+                        )
+                        yield Static(
+                            f"tasktree-manager {__version__.split('+')[0]}",
+                            classes="panel-counter",
+                            id="status-panel-counter",
+                        )
                     yield StatusPanel(id="status-display")
                 with Vertical(id="messages-panel"):
                     yield MessagesPanel(id="messages-display")
         yield Footer()
 
+    @staticmethod
+    def _panel_title(number: int, name: str, context: str | None = None) -> str:
+        """Format a panel title: dim [n] number, bold name, dim context suffix."""
+        title = f"[dim]\\[{number}][/dim] [b]{name}[/b]"
+        if context:
+            title += f"[dim] · {context}[/dim]"
+        return title
+
+    def _set_counter(self, counter_id: str, text: str) -> None:
+        """Update a panel title-bar counter."""
+        try:
+            counter = self.query_one(f"#{counter_id}", Static)
+        except Exception:
+            return
+        counter.update(text)
+
+    def _set_info_title(self, context: str | None) -> None:
+        """Update the Info panel title's context suffix."""
+        try:
+            title = self.query_one("#status-panel-title", Static)
+        except Exception:
+            return
+        title.update(self._panel_title(3, "Info", context))
+
+    def _update_worktree_panel_title(self) -> None:
+        """Update the Worktrees panel title from current task and grouping."""
+        try:
+            title = self.query_one("#worktree-panel-title", Static)
+        except Exception:
+            return
+        if self._worktrees_grouped:
+            context = "grouped"
+        else:
+            context = self.current_task.name if self.current_task else None
+        title.update(self._panel_title(2, "Worktrees", context))
+
+    def _update_header_stats(self, tasks: list[Task]) -> None:
+        """Refresh the header bar's task/dirty counts."""
+        try:
+            header = self.query_one(AppHeader)
+        except Exception:
+            return
+        dirty_count = sum(1 for task in tasks if task.is_dirty)
+        tasks_dir = str(self.config.tasks_dir)
+        home = str(Path.home())
+        if tasks_dir.startswith(home):
+            tasks_dir = "~" + tasks_dir[len(home) :]
+        header.update_stats(len(tasks), dirty_count, tasks_dir)
+
     def on_mount(self) -> None:
         """Handle app mount."""
-        # Apply theme from config
+        # Register the design-system themes (the five popular palettes
+        # override Textual built-ins of the same name), then apply the
+        # configured one
+        for theme in ALL_THEMES:
+            self.register_theme(theme)
         if self.config.theme:
             try:
                 self.theme = self.config.theme
             except Exception:
                 # Invalid theme name, use default
                 pass
+        self.query_one(AppHeader).set_theme(self.theme)
 
         # Check if configuration is valid
         if not self.config.is_configured():
@@ -392,10 +436,23 @@ class TaskTreeApp(App):
             self.set_interval(self.config.refresh_interval, self._periodic_git_refresh)
 
     def watch_theme(self, theme: str) -> None:
-        """Save theme to config when changed."""
+        """Save theme to config and show it in the header when changed."""
         if hasattr(self, "config") and self.config.theme != theme:
             self.config.theme = theme
             self.config.save()
+        try:
+            self.query_one(AppHeader).set_theme(theme)
+        except Exception:
+            # Header not mounted yet during startup
+            pass
+
+    def action_cycle_theme(self) -> None:
+        """Cycle through the design-system theme list."""
+        try:
+            index = THEME_CYCLE.index(self.theme)
+        except ValueError:
+            index = -1
+        self.theme = THEME_CYCLE[(index + 1) % len(THEME_CYCLE)]
 
     def _show_setup_wizard(self) -> None:
         """Show setup wizard for first-time configuration."""
@@ -451,6 +508,7 @@ class TaskTreeApp(App):
             GitOps.update_all_worktree_statuses(all_worktrees)
             self._last_tasks_fingerprint = self._tasks_fingerprint(tasks)
 
+            self._update_header_stats(tasks)
             task_list.load_tasks(tasks, preserve_selection=current_task_name)
         finally:
             task_list.loading = False
@@ -479,6 +537,7 @@ class TaskTreeApp(App):
             GitOps.update_all_worktree_statuses(all_worktrees)
             self._last_tasks_fingerprint = self._tasks_fingerprint(tasks)
 
+            self._update_header_stats(tasks)
             task_list.load_tasks(tasks, preserve_selection=task_name)
         finally:
             task_list.loading = False
@@ -544,6 +603,7 @@ class TaskTreeApp(App):
         if not force_ui and fingerprint == self._last_tasks_fingerprint:
             return
         self._last_tasks_fingerprint = fingerprint
+        self._update_header_stats(tasks)
 
         try:
             task_list = self.query_one("#task-list", TaskList)
@@ -568,6 +628,8 @@ class TaskTreeApp(App):
                 self.current_status = None
                 worktree_list.clear_worktrees()
                 status_panel.clear_status()
+                self._set_counter("task-panel-counter", "")
+                self._set_counter("worktree-panel-counter", "")
                 return
 
             if current_task_name:
@@ -641,10 +703,13 @@ class TaskTreeApp(App):
         if isinstance(event.widget, TaskList):
             # Task list focused → show task changed files
             if self.current_task:
+                self._set_info_title(self.current_task.name)
                 status_panel.set_loading(True)
                 self._update_task_summary(self.current_task)
         elif isinstance(event.widget, WorktreeList):
             # Worktree list focused → show worktree details
+            if self.current_worktree:
+                self._set_info_title(self.current_worktree.name)
             if self.current_worktree and self.current_status:
                 status_panel.update_status(self.current_worktree, self.current_status)
             elif self.current_worktree:
@@ -655,12 +720,20 @@ class TaskTreeApp(App):
         """Handle task highlight in task list."""
         self.current_task = event.task
         try:
+            task_list = self.query_one("#task-list", TaskList)
             worktree_list = self.query_one("#worktree-list", WorktreeList)
             status_panel = self.query_one("#status-display", StatusPanel)
         except Exception:
             # Widgets not mounted yet during app startup
             return
 
+        self._update_worktree_panel_title()
+        if event.task and task_list.highlighted is not None:
+            self._set_counter(
+                "task-panel-counter", f"{task_list.highlighted + 1} of {len(task_list.tasks)}"
+            )
+        else:
+            self._set_counter("task-panel-counter", "")
         if event.task:
             # Use preserved worktree name if set (during reload after lazygit/shell)
             preserved = self._preserved_worktree_name
@@ -668,13 +741,14 @@ class TaskTreeApp(App):
             worktree_list.load_worktrees(event.task.worktrees, preserve_selection=preserved)
 
             # Show task summary if task list is focused
-            task_list = self.query_one("#task-list", TaskList)
             if task_list.has_focus:
+                self._set_info_title(event.task.name)
                 status_panel.set_loading(True)
                 self._update_task_summary(event.task)
         else:
             worktree_list.clear_worktrees()
             status_panel.clear_status()
+            self._set_info_title(None)
 
     def on_worktree_list_worktree_highlighted(
         self, event: WorktreeList.WorktreeHighlighted
@@ -690,7 +764,16 @@ class TaskTreeApp(App):
         # Only update status panel if worktree list is focused
         worktree_list = self.query_one("#worktree-list", WorktreeList)
         if event.worktree:
+            try:
+                index = worktree_list.worktrees.index(event.worktree)
+                self._set_counter(
+                    "worktree-panel-counter",
+                    f"{index + 1} of {len(worktree_list.worktrees)}",
+                )
+            except ValueError:
+                self._set_counter("worktree-panel-counter", "")
             if worktree_list.has_focus:
+                self._set_info_title(event.worktree.name)
                 status_panel.set_loading(True)
                 self._update_worktree_status(event.worktree)
             else:
@@ -698,6 +781,7 @@ class TaskTreeApp(App):
                 self._update_worktree_status(event.worktree)
         else:
             self.current_status = None
+            self._set_counter("worktree-panel-counter", "")
             if worktree_list.has_focus:
                 status_panel.clear_status()
 
@@ -1241,8 +1325,6 @@ class TaskTreeApp(App):
 
     def action_open_editor(self) -> None:
         """Open editor in the current folder (task or worktree based on focus)."""
-        from pathlib import Path
-
         focused = self.focused
 
         # Determine folder based on focus (like open_folder does)
@@ -1332,8 +1414,6 @@ class TaskTreeApp(App):
 
     def action_open_folder(self) -> None:
         """Open current folder in a new terminal tab."""
-        from pathlib import Path
-
         focused = self.focused
 
         # Determine which folder to open based on focus
@@ -1517,7 +1597,7 @@ class TaskTreeApp(App):
     def on_task_list_sort_mode_changed(self, event: TaskList.SortModeChanged) -> None:
         """Handle sort mode change in task list."""
         title = self.query_one("#task-panel-title", Static)
-        title.update(f"Tasks ({event.label})")
+        title.update(self._panel_title(1, "Tasks", event.label))
 
     def action_toggle_grouping(self) -> None:
         """Toggle worktree grouping mode."""
@@ -1526,11 +1606,8 @@ class TaskTreeApp(App):
 
     def on_worktree_list_grouping_changed(self, event: WorktreeList.GroupingChanged) -> None:
         """Handle grouping mode change in worktree list."""
-        title = self.query_one("#worktree-panel-title", Static)
-        if event.enabled:
-            title.update("Worktrees (grouped)")
-        else:
-            title.update("Worktrees")
+        self._worktrees_grouped = event.enabled
+        self._update_worktree_panel_title()
 
 
 def main():

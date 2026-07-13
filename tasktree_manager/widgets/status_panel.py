@@ -65,7 +65,7 @@ class StatusPanel(Static):
             self._render_worktree_status()
 
     def _render_task_summary(self) -> None:
-        """Render the task summary view — changed files grouped by repo."""
+        """Render the task summary view — every repo with its changes or 'clean'."""
         if self._current_task is None:
             self.update(Text("No task selected", style="dim"))
             return
@@ -73,23 +73,19 @@ class StatusPanel(Static):
         task = self._current_task
         text = Text()
 
-        dirty_worktrees = [wt for wt in task.worktrees if wt.is_dirty]
-
-        if not dirty_worktrees:
-            text.append("All repos clean", style="green")
-            self.update(text)
-            return
-
-        for wt in dirty_worktrees:
+        for wt in task.worktrees:
             # Repo header
             text.append(f"{wt.name}", style="bold")
             text.append("\n")
 
-            status = self._task_statuses.get(wt.name)
-            if status:
-                self._append_changes(text, status)
+            if not wt.is_dirty:
+                text.append("clean\n", style="dim")
             else:
-                text.append(f"  {wt.changed_files} files changed\n", style="dim italic")
+                status = self._task_statuses.get(wt.name)
+                if status:
+                    self._append_changes(text, status)
+                else:
+                    text.append(f"  {wt.changed_files} files changed\n", style="dim italic")
 
             text.append("\n")
 
@@ -118,20 +114,22 @@ class StatusPanel(Static):
         text.append("Branch: ", style="cyan")
         text.append(f"{self._status.branch}\n", style="green")
 
-        # Sync info
+        # Sync info — always shown; "up to date" when not ahead/behind
+        text.append("Sync:   ", style="cyan")
         if self._status.ahead or self._status.behind:
-            text.append("Sync:   ", style="cyan")
             if self._status.ahead:
                 text.append(f"↑{self._status.ahead} ", style="green")
             if self._status.behind:
                 text.append(f"↓{self._status.behind}", style="yellow")
             text.append("\n")
+        else:
+            text.append("up to date\n", style="dim")
 
         text.append("\n")
 
         # Status
         if not self._status.is_dirty:
-            text.append("Working tree clean", style="green")
+            text.append("working tree clean", style="dim")
         else:
             self._append_changes(text, self._status)
 

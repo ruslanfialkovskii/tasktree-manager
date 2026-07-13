@@ -149,7 +149,7 @@ class WorktreeList(OptionList):
         """Add a single worktree option to the list."""
         branch = worktree.branch or "unknown"
         name_col = f"{worktree.name:<{max_name_len}}"
-        branch_col = f"{branch:<{max_branch_len}}"
+        branch_col = f"[dim]{branch:<{max_branch_len}}[/]"
         claude_indicator = "[blue]◆[/]" if worktree.has_claude_md else " "
 
         if worktree.is_dirty:

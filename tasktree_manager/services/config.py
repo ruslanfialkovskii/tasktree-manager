@@ -34,6 +34,7 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "pull_all": "P",
     "refresh": "r",
     "toggle_messages": "m",
+    "cycle_theme": "t",
     "toggle_grouping": "S",
     "cycle_sort": "s",
     "focus_next": "tab",
@@ -79,7 +80,7 @@ class Config:
     config_dir: Path = field(default_factory=lambda: Path.home() / ".config" / "tasktree-manager")
 
     # UI settings
-    theme: str = "textual-dark"
+    theme: str = "tasktree"
     show_hidden_files: bool = False
     refresh_interval: int = 30  # Auto-refresh interval in seconds (0 = disabled)
 
@@ -127,7 +128,7 @@ class Config:
 
         # UI settings
         ui_config = config_data.get("ui", {})
-        theme = ui_config.get("theme", "textual-dark")
+        theme = ui_config.get("theme", "tasktree")
         show_hidden_files = ui_config.get("show_hidden_files", False)
         try:
             refresh_interval = int(ui_config.get("refresh_interval", 30))
@@ -281,7 +282,8 @@ tasks_dir = "{self._toml_escape(str(self.tasks_dir))}"
 # ============================================================================
 [ui]
 
-# Theme to use (textual-dark, textual-light, nord, gruvbox, tokyo-night, monokai, dracula)
+# Theme to use (tasktree, tokyo-night, catppuccin-mocha, catppuccin-latte,
+# nord, gruvbox, dracula, monokai, rose-pine, textual-dark, textual-light, ...)
 theme = "{self._toml_escape(self.theme)}"
 
 # Show hidden files in file listings

@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Static
@@ -12,7 +13,14 @@ class SetupModal(ModalScreen[tuple[Path, Path] | None]):
     """Modal for first-time setup configuration.
 
     Dismisses with: (repos_dir, tasks_dir) tuple or None if cancelled.
+    Escape cancels like the Cancel button (the app exits without setup).
     """
+
+    BINDINGS = [Binding("escape", "cancel", "Close", show=False)]
+
+    def action_cancel(self) -> None:
+        """Dismiss the wizard as cancelled."""
+        self.dismiss(None)
 
     DEFAULT_CSS = """
     SetupModal {
@@ -22,15 +30,15 @@ class SetupModal(ModalScreen[tuple[Path, Path] | None]):
     SetupModal > Container {
         width: 80;
         height: auto;
-        border: round $primary;
-        background: $surface;
+        border: round $border;
+        background: $panel;
         padding: 1 2;
     }
 
     SetupModal .modal-title {
         text-align: center;
         text-style: bold;
-        color: $text;
+        color: $accent;
         margin-bottom: 1;
     }
 
@@ -52,14 +60,14 @@ class SetupModal(ModalScreen[tuple[Path, Path] | None]):
     }
 
     SetupModal Input {
-        background: $background;
-        border: round $primary;
+        background: $surface;
+        border: round $border-blurred;
         color: $text;
         margin-bottom: 1;
     }
 
     SetupModal Input:focus {
-        border: round $accent;
+        border: round $border;
     }
 
     SetupModal .button-row {

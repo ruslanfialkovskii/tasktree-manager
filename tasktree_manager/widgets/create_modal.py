@@ -1,9 +1,10 @@
 """Modal widgets for creating tasks and adding repos."""
 
 import re
-from typing import TypeVar
+from typing import Any, ClassVar, TypeVar
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.message import Message
 from textual.screen import ModalScreen
@@ -14,7 +15,20 @@ T = TypeVar("T")
 
 
 class ThemedModalScreen(ModalScreen[T]):
-    """Base class for themed modal screens with typed dismiss results."""
+    """Base class for themed modal screens with typed dismiss results.
+
+    Escape dismisses with ``CANCEL_RESULT`` — the same result the modal's
+    Cancel/Close button produces.
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "Close", show=False)]
+
+    # Result returned when the modal is cancelled via Escape
+    CANCEL_RESULT: ClassVar[Any] = None
+
+    def action_cancel(self) -> None:
+        """Dismiss the modal as cancelled."""
+        self.dismiss(self.CANCEL_RESULT)
 
     DEFAULT_CSS = """
     ThemedModalScreen {
@@ -25,8 +39,8 @@ class ThemedModalScreen(ModalScreen[T]):
         width: 70;
         height: auto;
         max-height: 80%;
-        border: round $primary;
-        background: $surface;
+        border: round $border;
+        background: $panel;
         padding: 1 2;
         offset: 0 3;
         opacity: 0;
@@ -41,7 +55,7 @@ class ThemedModalScreen(ModalScreen[T]):
     ThemedModalScreen .modal-title {
         text-align: center;
         text-style: bold;
-        color: $text;
+        color: $accent;
         margin-bottom: 1;
     }
 
@@ -52,21 +66,25 @@ class ThemedModalScreen(ModalScreen[T]):
     }
 
     ThemedModalScreen Input {
-        background: $background;
-        border: round $primary;
+        background: $surface;
+        border: round $border-blurred;
         color: $text;
         margin-bottom: 1;
     }
 
     ThemedModalScreen Input:focus {
-        border: round $accent;
+        border: round $border;
     }
 
     ThemedModalScreen SelectionList {
         height: 12;
         margin-bottom: 1;
-        background: $background;
-        border: round $primary;
+        background: $surface;
+        border: round $border-blurred;
+    }
+
+    ThemedModalScreen SelectionList:focus {
+        border: round $border;
     }
 
     ThemedModalScreen .button-row {
@@ -302,6 +320,8 @@ class ConfirmModal(ThemedModalScreen[bool]):
 
     Dismisses with: True if confirmed, False if cancelled.
     """
+
+    CANCEL_RESULT: ClassVar[bool] = False
 
     DEFAULT_CSS = (
         ThemedModalScreen.DEFAULT_CSS
@@ -647,6 +667,7 @@ class HelpModal(ThemedModalScreen[None]):
         general_section += (
             self._format_binding("toggle_grouping", "S", "Toggle worktree grouping") + "\n"
         )
+        general_section += self._format_binding("cycle_theme", "t", "Cycle color theme") + "\n"
         general_section += self._format_binding("help", "?", "Show this help") + "\n"
         general_section += self._format_binding("quit", "q", "Quit tasktree-manager")
         sections.append(general_section)

@@ -14,7 +14,7 @@
 - 🌳 **Git Worktree Management** - Create, delete, and manage worktrees seamlessly
 - 📊 **Real-Time Status** - See uncommitted changes, branch info, and sync status at a glance
 - 🔀 **Sorting & Grouping** - Sort tasks by name/date/status, group worktrees by dirty/clean
-- 🎨 **Beautiful Themes** - 7 built-in themes via Command Palette (Ctrl+P)
+- 🎨 **Beautiful Themes** - lazygit-inspired default plus 20+ themes (Catppuccin, Tokyo Night, Nord, ...) via Command Palette (Ctrl+P)
 - ⌨️ **Keyboard-First** - Navigate and control everything without touching the mouse
 - 🚀 **Fast & Responsive** - Parallel git operations with loading indicators
 - 🔧 **Flexible Configuration** - TOML config file, custom keybindings, environment variables
@@ -83,10 +83,10 @@ For detailed workflows and examples, see the [User Guide](docs/user-guide.md).
 | `c` | Claude (resume) | `C` | Claude (new) |
 | `r` | Refresh | `s` | Sort tasks |
 | `S` | Group worktrees | `m` | Messages |
-| `Tab` | Next panel | `?` | Show help |
-| `q` | Quit | | |
+| `t` | Cycle theme | `Tab` | Next panel |
+| `?` | Show help | `q` | Quit |
 
-**Themes:** Press `Ctrl+P` to switch between 7 built-in themes (textual-dark, nord, gruvbox, tokyo-night, monokai, dracula, textual-light).
+**Themes:** The default `tasktree` theme pairs a lazygit-classic ANSI palette with layered panels, numbered title bars, green focus borders, and a keycap footer. Five more design-system palettes ship tuned to the same shape — tokyo-night, catppuccin-mocha, gruvbox, dracula, nord — and every other Textual built-in theme works too (`Ctrl+P` to switch); the whole UI is styled with Textual design tokens, so any theme restyles it consistently.
 
 ## 🏗️ How It Works
 

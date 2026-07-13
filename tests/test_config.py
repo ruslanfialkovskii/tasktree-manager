@@ -113,7 +113,7 @@ class TestConfig:
     def test_default_new_options(self):
         """Test default values for new configuration options."""
         config = Config()
-        assert config.theme == "textual-dark"
+        assert config.theme == "tasktree"
         assert config.show_hidden_files is False
         assert config.default_base_branch == "main"
         assert config.auto_push is False

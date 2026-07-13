@@ -85,9 +85,10 @@ tasks_dir = "/Users/username/tasks"
 [ui]
 
 # Theme to use for the interface
-# Options: textual-dark, textual-light, nord, gruvbox, tokyo-night, monokai, dracula
-# Default: textual-dark
-theme = "textual-dark"
+# Options: tasktree (default), tokyo-night, catppuccin-mocha, catppuccin-latte,
+# catppuccin-frappe, catppuccin-macchiato, nord, gruvbox, dracula, monokai,
+# rose-pine, textual-dark, textual-light, ...
+theme = "tasktree"
 
 # Show hidden files in file listings
 # Default: false
@@ -202,6 +203,9 @@ cursor_up = "k"             # Move cursor up
 cycle_sort = "s"            # Cycle task sort mode
 toggle_grouping = "S"       # Toggle worktree grouping (shift+s)
 
+# Appearance
+cycle_theme = "t"           # Cycle through the design-system themes
+
 # ============================================================================
 # Symlinks
 # ============================================================================
@@ -258,7 +262,7 @@ tasks_dir = "/Volumes/FastSSD/worktrees"
 
 | Option              | Type    | Default         | Environment Variable  | Description                              |
 |--------------------|---------|-----------------|-----------------------|------------------------------------------|
-| `theme`            | string  | `textual-dark`  | `TASKTREE_THEME`     | Color theme for the interface            |
+| `theme`            | string  | `tasktree`      | `TASKTREE_THEME`     | Color theme for the interface            |
 | `show_hidden_files` | boolean | `false`         | -                     | Show hidden files in listings            |
 | `refresh_interval`  | integer | `30`            | -                     | Auto-refresh interval in seconds (0 = disabled) |
 
@@ -266,13 +270,21 @@ tasks_dir = "/Volumes/FastSSD/worktrees"
 
 Available themes (press `Ctrl+P` in app to switch):
 
-- `textual-dark` - Default dark theme with blue accents
-- `textual-light` - Light theme with high contrast
-- `nord` - Arctic, north-bluish color palette
-- `gruvbox` - Retro groove warm color scheme
-- `tokyo-night` - Clean, dark theme inspired by Tokyo's night
-- `monokai` - Classic dark theme with vibrant colors
-- `dracula` - Dark theme with pastel-like colors
+- `tasktree` - Default: lazygit-classic ANSI palette with green focus borders
+- `tokyo-night` - Blue accent on deep blue-black
+- `catppuccin-mocha` - Mauve accent, soothing pastels
+- `gruvbox` - Orange accent, retro warm
+- `dracula` - Purple accent, high-contrast pastels
+- `nord` - Frost cyan accent, arctic palette
+
+These six come from the tasktree design system, with matched panel layering
+and selection colors. All other Textual built-in themes also work
+(`catppuccin-latte`, `rose-pine`, `monokai`, `solarized-dark`,
+`textual-dark`/`-light`, ...).
+
+The whole UI is styled with Textual design tokens (panel surfaces, focus
+borders, selection bars, footer keycaps), so every theme restyles all of it
+consistently.
 
 ### `show_hidden_files`
 
@@ -500,6 +512,7 @@ All 22 customizable keybindings with descriptions:
 |-------------------|---------|------------------------------------------|----------------------------------|
 | `cycle_sort`      | `s`     | Cycle task sort mode                     | `cycle_sort = "ctrl+s"`          |
 | `toggle_grouping` | `S`     | Toggle worktree grouping by dirty/clean  | `toggle_grouping = "ctrl+g"`     |
+| `cycle_theme`     | `t`     | Cycle through the design-system themes   | `cycle_theme = "ctrl+t"`         |
 
 ### Available Key Syntax
 
@@ -614,15 +627,14 @@ TASKTREE_THEME=dracula tasktree-manager
 
 ### Theme Descriptions
 
-| Theme           | Style               | Best For                          |
-|-----------------|---------------------|-----------------------------------|
-| `textual-dark`  | Dark with blue      | Default, general use              |
-| `textual-light` | Light with contrast | Bright environments               |
-| `nord`          | Arctic blue         | Low-contrast, easy on eyes        |
-| `gruvbox`       | Retro warm          | Nostalgic, comfortable            |
-| `tokyo-night`   | Modern dark         | Clean, professional               |
-| `monokai`       | Vibrant colors      | High contrast, code-focused       |
-| `dracula`       | Pastel dark         | Popular, easy to read             |
+| Theme                | Style               | Best For                          |
+|----------------------|---------------------|-----------------------------------|
+| `tasktree`           | Lazygit-style ANSI  | Default, terminal-native feel     |
+| `tokyo-night`        | Modern dark         | Clean, professional               |
+| `catppuccin-mocha`   | Soothing pastel     | Popular, easy on the eyes         |
+| `gruvbox`            | Retro warm          | Nostalgic, comfortable            |
+| `dracula`            | Pastel dark         | Popular, easy to read             |
+| `nord`               | Arctic blue         | Low-contrast, easy on eyes        |
 
 ### Theme Persistence
 

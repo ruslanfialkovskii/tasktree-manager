@@ -208,7 +208,7 @@ Shows worktrees for the selected task:
 
 **Navigation:**
 - `j/k` or arrow keys: Move up/down
-- `S`: Toggle grouping by dirty/clean (panel title shows "(grouped)" when active)
+- `S`: Toggle grouping by dirty/clean (panel subtitle shows "grouped" when active)
 - Highlighting a worktree: Shows detailed status in bottom panel
 
 ### Bottom Panel: Status Display
@@ -277,6 +277,7 @@ what is displayed. Press `?` for the full reference at any time.
 |-----|-----------------------|------------------------------------------------------------|
 | `s` | Cycle sort mode       | Cycle through: name ↑/↓, date ↑/↓, dirty first, clean first |
 | `S` | Toggle grouping       | Group worktrees by dirty/clean status (Shift+S)            |
+| `t` | Cycle theme           | Cycle tasktree → tokyo-night → catppuccin (4x) → gruvbox → dracula → nord |
 
 **Sort modes:**
 - `by name ↑` - Alphabetical A-Z (default)

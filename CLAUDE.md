@@ -42,7 +42,7 @@ pytest tests/test_app.py::TestTaskTreeApp::test_app_starts -v
 
 ### Theming
 
-Uses Textual's built-in theming system with design tokens (`$primary`, `$background`, `$error`, etc.). Switch themes via the Command Palette (`Ctrl+P`). Available themes include: textual-dark, textual-light, nord, gruvbox, tokyo-night, monokai, dracula.
+Uses Textual's theming system with design tokens (`$panel`, `$surface`, `$border`, `$border-blurred`, `$block-cursor-*`, `$footer-key-*`, etc.) so all styling adapts to any theme. `tasktree_manager/themes.py` registers six themes from the design system: the default `tasktree` (lazygit-classic ANSI palette) plus tuned `tokyo-night`, `catppuccin-mocha`, `gruvbox`, `dracula`, and `nord` (these override Textual's built-ins of the same name so the design's panel layering and selection colors apply). Panels sit darker than the screen ground; title bars carry a `[n]` number, dim context, and a right-aligned counter. Switch themes via the Command Palette (`Ctrl+P`); other Textual built-ins also work. The design source of truth is the "TaskTree-Manager design system" Claude Design project (tokens, component specs, full-app mockup).
 
 ### Widgets Layer (`tasktree_manager/widgets/`)
 

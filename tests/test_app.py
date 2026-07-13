@@ -653,10 +653,12 @@ class TestContextSensitiveFooter:
             assert "app.open_lazygit" not in shown
             assert "app.open_shell" not in shown
             # Globals always visible
+            assert "cycle_theme" in shown
             assert "refresh" in shown
-            assert "toggle_messages" in shown
             assert "help" in shown
             assert "quit" in shown
+            # Messages toggle still works but is not shown in the footer
+            assert "toggle_messages" not in shown
 
     async def test_worktree_panel_footer_shows_worktree_actions(
         self, app, sample_repo, task_manager
