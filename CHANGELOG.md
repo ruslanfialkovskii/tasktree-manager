@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.7.2] - 2026-07-13
+
+### Changed
+- Ignore uv.lock
+
+
 ## [2.7.1] - 2026-07-13
 
 ### Changed
