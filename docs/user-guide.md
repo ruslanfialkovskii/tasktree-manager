@@ -364,7 +364,7 @@ Useful when you're spinning up several similar tasks that share the same set of 
 - `c` opens Claude Code CLI in a new Ghostty terminal tab at the task directory.
   - If `~/.claude/projects/<task-folder>/` already has session transcripts, runs `claude -r` to pick from them; otherwise runs `claude` to start fresh.
 - `C` opens the Claude desktop app via the `claude://code/new?folder=<task-folder>` URL scheme.
-- The CLI variant (`c`) generates `CLAUDE.md` files with task/worktree context and installs hooks that report session status back to tasktree-manager.
+- The CLI variant (`c`) generates a task-level `CLAUDE.md` with task/worktree context, copies each repo's own `CLAUDE.md` into worktrees whose branch predates it (never generating stub content), and installs hooks that report session status back to tasktree-manager.
 - Session status (`⟳` running, `!` waiting, `✓` ended) appears next to the task name
 - Both variants point the session's Claude Code auto-memory at a shared pool (`claude_memory_dir`, default `~/.claude/tasktree-memory`). Task folders are not git repos, so without this each task would get its own memory directory that is orphaned when the task is deleted; with the shared pool, what Claude learns in one task carries over to future tasks.
 

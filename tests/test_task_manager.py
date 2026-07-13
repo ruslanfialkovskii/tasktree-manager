@@ -742,3 +742,84 @@ class TestWorktreeBaseFreshness:
 
         worktree = task.path / "sample-repo"
         assert (worktree / "README.md").exists()
+
+
+
+class TestEnsureClaudeMdFiles:
+    """Worktree CLAUDE.md comes from the repo itself, never from a stub."""
+
+    def test_no_stub_when_repo_has_no_claude_md(self, task_manager, sample_repo):
+        """Repos without CLAUDE.md get no generated worktree stub."""
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("CMD-1", ["sample-repo"], branch)
+
+        task_manager.ensure_claude_md_files(task)
+
+        assert (task.path / "CLAUDE.md").exists()  # task-level file is generated
+        assert not (task.path / "sample-repo" / "CLAUDE.md").exists()
+
+    def test_backfills_from_repo_checkout(self, task_manager, sample_repo):
+        """A repo CLAUDE.md added after the branch was cut is copied in."""
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("CMD-2", ["sample-repo"], branch)
+        worktree_md = task.path / "sample-repo" / "CLAUDE.md"
+        assert not worktree_md.exists()
+
+        (repo_path / "CLAUDE.md").write_text("# Repo guidance\n")
+        task_manager.ensure_claude_md_files(task)
+
+        assert worktree_md.read_text() == "# Repo guidance\n"
+
+    def test_prefers_remote_default_branch_content(self, task_manager, config):
+        """With an origin remote, the committed CLAUDE.md wins over the checkout file."""
+        upstream = config.repos_dir.parent / "claude-upstream"
+        upstream.mkdir()
+        for args in (
+            ["init", "-q", "-b", "master"],
+            ["config", "user.email", "t@example.com"],
+            ["config", "user.name", "t"],
+        ):
+            subprocess.run(["git", *args], cwd=upstream, check=True, capture_output=True)
+        (upstream / "README.md").write_text("readme\n")
+        subprocess.run(["git", "add", "."], cwd=upstream, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "init"], cwd=upstream, check=True, capture_output=True
+        )
+
+        clone = config.repos_dir / "claude-repo"
+        subprocess.run(
+            ["git", "clone", "-q", str(upstream), str(clone)], check=True, capture_output=True
+        )
+        task = task_manager.create_task("CMD-3", ["claude-repo"], "master")
+        worktree_md = task.path / "claude-repo" / "CLAUDE.md"
+        assert not worktree_md.exists()
+
+        # Commit CLAUDE.md upstream (after the branch was cut) and fetch it;
+        # also plant a different file in the clone checkout
+        (upstream / "CLAUDE.md").write_text("# committed guidance\n")
+        subprocess.run(["git", "add", "."], cwd=upstream, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "add claude md"],
+            cwd=upstream,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(["git", "fetch", "-q", "origin"], cwd=clone, check=True, capture_output=True)
+        (clone / "CLAUDE.md").write_text("# local checkout file\n")
+
+        task_manager.ensure_claude_md_files(task)
+
+        assert worktree_md.read_text() == "# committed guidance\n"
+
+    def test_never_overwrites_existing_worktree_claude_md(self, task_manager, sample_repo):
+        """An existing worktree CLAUDE.md is left untouched."""
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("CMD-4", ["sample-repo"], branch)
+        worktree_md = task.path / "sample-repo" / "CLAUDE.md"
+        worktree_md.write_text("# my notes\n")
+        (repo_path / "CLAUDE.md").write_text("# repo guidance\n")
+
+        task_manager.ensure_claude_md_files(task)
+
+        assert worktree_md.read_text() == "# my notes\n"
+

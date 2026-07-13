@@ -457,7 +457,12 @@ class TaskManager:
         return success_repos, failed_repos
 
     def ensure_claude_md_files(self, task: Task) -> None:
-        """Create CLAUDE.md files if they don't exist (never overwrite).
+        """Create the task CLAUDE.md and backfill worktree ones from the repo.
+
+        The task-level file is generated (the task dir is not a git repo).
+        Worktree-level files are never generated: when a worktree's branch
+        predates the repo's own CLAUDE.md, the repo's file is copied in;
+        when the repo has none, the worktree gets none.
 
         Args:
             task: The task to create CLAUDE.md files for
@@ -469,7 +474,7 @@ class TaskManager:
         for worktree in task.worktrees:
             wt_claude_md = worktree.path / "CLAUDE.md"
             if not wt_claude_md.exists():
-                self._create_worktree_claude_md(worktree)
+                self._copy_repo_claude_md(worktree)
 
     def _create_task_claude_md(self, task: Task) -> None:
         """Generate task CLAUDE.md with task name + worktree paths.
@@ -490,26 +495,48 @@ class TaskManager:
         content += "\n## Notes\n\nAdd task-specific context here.\n"
         (task.path / "CLAUDE.md").write_text(content)
 
-    def _create_worktree_claude_md(self, worktree: Worktree) -> None:
-        """Generate general CLAUDE.md using standard /init template.
+    def _copy_repo_claude_md(self, worktree: Worktree) -> None:
+        """Copy the source repo's CLAUDE.md into a worktree that lacks one.
 
-        Creates a repo-level CLAUDE.md that can be committed and shared
-        across all worktrees/branches.
+        Happens when the worktree's branch predates the repo's CLAUDE.md.
+        Prefers the committed file on the remote default branch (the main
+        checkout may be stale or on another branch); falls back to the main
+        checkout's working-tree file. Does nothing when the repo has no
+        CLAUDE.md — tasktree never generates stub content for repos.
 
         Args:
-            worktree: The worktree to create CLAUDE.md for
+            worktree: The worktree to backfill
         """
-        content = """\
-# CLAUDE.md
+        repo_path = self.config.repos_dir / worktree.name
+        if not repo_path.exists():
+            return
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+        content: str | None = None
+        try:
+            head = subprocess.run(
+                ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if head.returncode == 0:
+                show = subprocess.run(
+                    ["git", "show", f"{head.stdout.strip()}:CLAUDE.md"],
+                    cwd=repo_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if show.returncode == 0:
+                    content = show.stdout
+        except (OSError, subprocess.SubprocessError):
+            pass
 
-## Build & Run
+        if content is None:
+            repo_claude_md = repo_path / "CLAUDE.md"
+            if repo_claude_md.exists():
+                content = repo_claude_md.read_text()
 
-## Lint & Format
-
-## Test
-
-## Code Style
-"""
-        (worktree.path / "CLAUDE.md").write_text(content)
+        if content:
+            (worktree.path / "CLAUDE.md").write_text(content)
