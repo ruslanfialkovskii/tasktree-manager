@@ -35,9 +35,7 @@ class TestEnsureClaudeHooks:
 
         settings_file = tmp_path / ".claude" / "settings.local.json"
         settings = json.loads(settings_file.read_text())
-        assert settings["autoMemoryDirectory"] == str(
-            Path.home() / ".claude" / "tasktree-memory"
-        )
+        assert settings["autoMemoryDirectory"] == str(Path.home() / ".claude" / "tasktree-memory")
 
     def test_preserves_existing_settings(self, tmp_path):
         """Test that unrelated existing settings keys survive a rewrite."""

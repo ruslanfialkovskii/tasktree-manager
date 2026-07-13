@@ -85,9 +85,7 @@ class TestCreateTaskModal:
         async with app.run_test() as pilot:
             await pilot.pause()
 
-            modal = CreateTaskModal(
-                available_repos=["mdp/terraform", "ansible-ci", "airflow"]
-            )
+            modal = CreateTaskModal(available_repos=["mdp/terraform", "ansible-ci", "airflow"])
             app.push_screen(modal)
             await pilot.pause()
 
