@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.6.0] - 2026-07-13
+
+### Changed
+- Hunk diff viewer, shared Claude memory pool, repo filter fix (#8)
+
+
 ## [2.5.0] - 2026-06-10
 
 ### Added
