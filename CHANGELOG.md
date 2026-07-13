@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.7.0] - 2026-07-13
+
+### Added
+- **ui**: Design-system themes, layered panels, theme cycling
+
+### Fixed
+- **claude**: Copy repo CLAUDE.md into worktrees instead of stub
+- **worktree**: Base new worktrees on origin base branch
+
+
 ## [2.6.0] - 2026-07-13
 
 ### Changed
