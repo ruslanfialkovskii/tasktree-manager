@@ -77,9 +77,11 @@ jobs:
           release_type="${{ inputs.release_type || 'auto' }}"
 
           if [ "$release_type" = "auto" ]; then
-            # Use semantic-release to determine bump type from commit history
+            # Use semantic-release to determine bump type from commit history.
+            # When no qualifying commits exist, `version --print` prints the
+            # CURRENT version — require an actual bump before releasing.
             VERSION=$(semantic-release version --print 2>/dev/null || echo "")
-            if [ -n "$VERSION" ]; then
+            if [ -n "$VERSION" ] && [ "$VERSION" != "$current_version" ]; then
               # Determine bump type by comparing versions
               IFS='.' read -r cur_major cur_minor cur_patch <<< "$current_version"
               IFS='.' read -r new_major new_minor new_patch <<< "$VERSION"
