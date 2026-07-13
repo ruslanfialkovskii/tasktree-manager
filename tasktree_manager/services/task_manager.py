@@ -129,9 +129,14 @@ class TaskManager:
         # Use -B to reset branch if it exists, -b if it doesn't
         branch_flag = "-B" if branch_check.returncode == 0 else "-b"
 
-        # Fetch and pull base branch to ensure worktree starts from latest code
+        # Fetch the base branch and base the worktree on the remote-tracking
+        # ref directly. The local base branch is not trustworthy: the main
+        # checkout may sit on another branch or be behind origin, and pulling
+        # it (the old approach) silently did nothing in those cases, creating
+        # worktrees from stale code. Falls back to the local branch when the
+        # fetch fails (offline, or a repo without an "origin" remote).
         network_timeout = self.config.git_timeout
-        subprocess.run(
+        fetch = subprocess.run(
             ["git", "fetch", "origin", base_branch],
             cwd=repo_path,
             capture_output=True,
@@ -139,18 +144,31 @@ class TaskManager:
             timeout=network_timeout,
         )
 
-        # Pull to fast-forward the local base branch if possible
-        subprocess.run(
-            ["git", "pull", "--ff-only", "origin", base_branch],
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-            timeout=network_timeout,
-        )
+        start_point = base_branch
+        if fetch.returncode == 0:
+            remote_ref = subprocess.run(
+                ["git", "rev-parse", "--verify", f"refs/remotes/origin/{base_branch}"],
+                cwd=repo_path,
+                capture_output=True,
+                timeout=10,
+            )
+            if remote_ref.returncode == 0:
+                start_point = f"origin/{base_branch}"
 
-        # Create git worktree with task name as branch
+        # Create git worktree with task name as branch. --no-track keeps the
+        # task branch from tracking origin/<base>; push sets its own upstream
+        # (git push -u origin HEAD).
         result = subprocess.run(
-            ["git", "worktree", "add", branch_flag, task.name, str(worktree_path), base_branch],
+            [
+                "git",
+                "worktree",
+                "add",
+                "--no-track",
+                branch_flag,
+                task.name,
+                str(worktree_path),
+                start_point,
+            ],
             cwd=repo_path,
             capture_output=True,
             text=True,

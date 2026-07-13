@@ -1,5 +1,7 @@
 """Tests for the task manager service."""
 
+import subprocess
+
 import pytest
 
 from tasktree_manager.services.task_manager import RepoIssue, Task, TaskSafetyReport, Worktree
@@ -688,3 +690,55 @@ config.local.json
         assert not task_manager._matches_blocklist("config.json", blocklist)
         assert not task_manager._matches_blocklist(".mise.toml", blocklist)
         assert not task_manager._matches_blocklist("README.md", blocklist)
+
+
+class TestWorktreeBaseFreshness:
+    """Worktrees must start from the up-to-date remote base branch."""
+
+    @staticmethod
+    def _git(*args, cwd):
+        subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+    def _make_commit(self, repo, filename, message):
+        (repo / filename).write_text(f"{filename}\n")
+        self._git("add", ".", cwd=repo)
+        self._git("commit", "-q", "-m", message, cwd=repo)
+
+    def test_worktree_uses_remote_base_when_local_is_stale(self, config, task_manager):
+        """Stale local master + checkout on another branch: worktree must
+        still contain the latest origin/master commit (regression: worktrees
+        were created from the stale local base branch)."""
+        upstream = config.repos_dir.parent / "upstream-repo"
+        upstream.mkdir()
+        self._git("init", "-q", "-b", "master", cwd=upstream)
+        self._git("config", "user.email", "test@example.com", cwd=upstream)
+        self._git("config", "user.name", "Test", cwd=upstream)
+        self._make_commit(upstream, "base.txt", "base")
+
+        # Clone into repos_dir, then move the clone onto an unrelated branch
+        # so its local master ref goes stale relative to origin
+        clone = config.repos_dir / "cloned-repo"
+        self._git("clone", "-q", str(upstream), str(clone), cwd=config.repos_dir)
+        self._git("config", "user.email", "test@example.com", cwd=clone)
+        self._git("config", "user.name", "Test", cwd=clone)
+        self._git("checkout", "-q", "-b", "unrelated-feature", cwd=clone)
+
+        # Upstream master moves ahead of the clone
+        self._make_commit(upstream, "newer.txt", "newer")
+
+        task = task_manager.create_task("FRESH-1", ["cloned-repo"], "master")
+
+        worktree = task.path / "cloned-repo"
+        assert (worktree / "base.txt").exists()
+        assert (worktree / "newer.txt").exists(), (
+            "worktree must be based on origin/master, not the stale local master"
+        )
+
+    def test_worktree_falls_back_to_local_base_without_remote(self, config, task_manager, sample_repo):
+        """Repos without an origin remote still work (offline fallback)."""
+        repo_path, branch = sample_repo
+
+        task = task_manager.create_task("FRESH-2", ["sample-repo"], branch)
+
+        worktree = task.path / "sample-repo"
+        assert (worktree / "README.md").exists()
