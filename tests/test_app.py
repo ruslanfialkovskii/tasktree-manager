@@ -407,8 +407,60 @@ class TestOpenExternalCommands:
             assert app.is_running
 
 
-class TestEventHandlers:
-    """Tests for event handlers."""
+class TestShowDiffAction:
+    """Tests for the hunk diff action (h)."""
+
+    async def test_show_diff_dispatches_by_focus(self, app, sample_repos, task_manager):
+        """h routes to the task diff from the task panel and the worktree diff
+        from the worktree panel."""
+        repos, branch = sample_repos
+        task_manager.create_task("DIFF-TEST", ["repo-alpha", "repo-beta"], branch)
+
+        calls = []
+        app._show_task_diff = lambda: calls.append("task")
+        app._show_worktree_diff = lambda: calls.append("worktree")
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            app.query_one("#task-list", TaskList).focus()
+            await pilot.pause()
+            app.action_show_diff()
+            assert calls == ["task"]
+
+            app.query_one("#worktree-list", WorktreeList).focus()
+            await pilot.pause()
+            app.action_show_diff()
+            assert calls == ["task", "worktree"]
+
+    async def test_show_worktree_diff_no_worktree_warning(self, app, sample_repo, task_manager):
+        """Worktree diff with no worktree selected warns and stays running."""
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            app.current_worktree = None
+            app._show_worktree_diff()
+            await pilot.pause()
+
+            assert app.is_running
+
+    async def test_show_task_diff_no_changes(self, app, sample_repos, task_manager):
+        """Task diff over clean worktrees reports no changes and never suspends."""
+        repos, branch = sample_repos
+        task_manager.create_task("CLEAN-DIFF", ["repo-alpha"], branch)
+
+        suspended = []
+        app.suspend = lambda: suspended.append(True)  # would raise if called wrongly
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            # current_task is the freshly created, clean task
+            app._show_task_diff()
+            await pilot.pause()
+
+            assert app.is_running
+            # Clean worktrees => empty combined diff => hunk never launched
+            assert suspended == []
 
     async def test_task_highlighted_updates_worktree_list(self, app, sample_repos, task_manager):
         """Test that task highlight updates worktree list."""

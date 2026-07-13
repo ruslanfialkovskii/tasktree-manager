@@ -133,6 +133,25 @@ editor = ""
 # Default: "lazygit" (searches PATH)
 lazygit_path = "lazygit"
 
+# Path to hunk executable (terminal diff viewer)
+# https://github.com/modem-dev/hunk
+# Default: "hunk" (searches PATH)
+hunk_path = "hunk"
+
+# Path to claude CLI executable
+# Default: "claude" (searches PATH)
+claude_path = "claude"
+
+# Shared Claude Code auto-memory directory for task sessions.
+# Task folders are not git repositories, so by default Claude Code would key
+# its auto memory to the task path — memory that is orphaned when the task is
+# deleted. tasktree-manager writes this path as "autoMemoryDirectory" into each
+# task's .claude/settings.local.json so every task session reads and writes one
+# shared memory pool that persists across tasks.
+# Set to "" to disable (each task keeps its own throwaway memory).
+# Default: "~/.claude/tasktree-memory"
+claude_memory_dir = "~/.claude/tasktree-memory"
+
 # Preferred shell
 # Leave empty to use $SHELL environment variable
 # Default: "" (uses $SHELL, falls back to /bin/bash)
@@ -158,6 +177,7 @@ delete_task = "d"       # Delete/finish task
 
 # Git operations
 open_lazygit = "g"      # Open lazygit in selected worktree
+show_diff = "h"         # Open hunk diff (task panel = all repos, worktree panel = one repo)
 open_editor = "e"       # Open editor in selected task/worktree
 open_folder = "o"       # Open folder in new terminal tab
 open_shell = "enter"    # Open shell in selected worktree
@@ -305,6 +325,7 @@ refresh_interval = 15  # Refresh every 15 seconds
 |---------------|--------|-------------|---------------------|--------------------------------------|
 | `editor`      | string | `""`        | `EDITOR`            | Command to launch your editor        |
 | `lazygit_path` | string | `"lazygit"` | -                   | Path to lazygit executable           |
+| `hunk_path`   | string | `"hunk"`    | -                   | Path to hunk diff-viewer executable  |
 | `shell`       | string | `""`        | `SHELL`             | Shell to use when opening terminals  |
 
 ### Details
@@ -319,6 +340,13 @@ refresh_interval = 15  # Refresh every 15 seconds
 - Default `"lazygit"` searches PATH
 - Use absolute path for custom location: `"/opt/homebrew/bin/lazygit"`
 - Install lazygit: `brew install lazygit` (macOS), `apt install lazygit` (Ubuntu)
+
+**`hunk_path`:**
+- [hunk](https://github.com/modem-dev/hunk) is a review-first terminal diff viewer
+- Default `"hunk"` searches PATH
+- Use absolute path for custom location: `"/opt/homebrew/bin/hunk"`
+- Install hunk: `brew install hunk` (macOS) or `npm i -g hunkdiff`
+- Used when pressing `h`: from the task panel it opens a combined diff across all the task's repos; from the worktree panel it opens the selected repo's diff
 
 **`shell`:**
 - Leave empty (`""`) to use `$SHELL` environment variable
@@ -441,6 +469,7 @@ All 22 customizable keybindings with descriptions:
 | Action         | Default  | Description                           | Customization Example       |
 |----------------|----------|---------------------------------------|-----------------------------|
 | `open_lazygit` | `g`      | Open lazygit in selected worktree     | `open_lazygit = "ctrl+g"`   |
+| `show_diff`    | `h`      | Open hunk diff (task = all repos, worktree = one) | `show_diff = "ctrl+h"` |
 | `open_editor`  | `e`      | Open editor in task/worktree folder   | `open_editor = "ctrl+e"`    |
 | `open_folder`  | `o`      | Open folder in new terminal tab       | `open_folder = "ctrl+o"`    |
 | `open_shell`   | `enter`  | Open shell in selected worktree       | `open_shell = "ctrl+t"`     |

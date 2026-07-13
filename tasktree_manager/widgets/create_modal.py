@@ -97,7 +97,59 @@ class ThemedModalScreen(ModalScreen[T]):
         container.add_class("-visible")
 
 
-class CreateTaskModal(ThemedModalScreen[tuple[str, list[str], str] | None]):
+class RepoFilterMixin:
+    """Search-filter + selection tracking for a repo ``SelectionList``.
+
+    The repo list is rebuilt from scratch on every search keystroke, so the
+    selected state cannot live solely in the widget. ``selected_repos`` is the
+    source of truth and this mixin keeps it in sync as the visible options
+    change, so selections made before (or under) a previous search survive.
+    """
+
+    available_repos: list[str]
+    selected_repos: set[str]
+
+    def _reset_visible_repos(self) -> None:
+        """Mark every available repo as visible (no active filter)."""
+        self._visible_repos: set[str] = set(self.available_repos)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Handle search input changes."""
+        if event.input.id == "repo-search":
+            self._filter_repos(event.value)
+
+    def _filter_repos(self, search_term: str) -> None:
+        """Rebuild the repo list to show only repos matching ``search_term``."""
+        repo_list = self.query_one("#repo-list", SelectionList)
+
+        # Case-insensitive substring match against the full repo path, so typing
+        # a folder name like "mdp" shows every repo under that folder.
+        search_lower = search_term.strip().lower()
+        if search_lower:
+            filtered = [repo for repo in self.available_repos if search_lower in repo.lower()]
+        else:
+            filtered = list(self.available_repos)
+        self._visible_repos = set(filtered)
+
+        # Clear and rebuild the list, restoring selection state from the
+        # source-of-truth set.
+        repo_list.clear_options()
+        for repo in filtered:
+            repo_list.add_option(Selection(repo, repo, initial_state=repo in self.selected_repos))
+
+    def on_selection_list_selected_changed(self, event: SelectionList.SelectedChanged) -> None:
+        """Reconcile selection changes, scoped to the currently visible repos.
+
+        Only repos in the active filter can have their state toggled here, so
+        selections outside the filter are preserved untouched.
+        """
+        if event.selection_list.id != "repo-list":
+            return
+        selected_now = set(event.selection_list.selected)
+        self.selected_repos = (self.selected_repos - self._visible_repos) | selected_now
+
+
+class CreateTaskModal(RepoFilterMixin, ThemedModalScreen[tuple[str, list[str], str] | None]):
     """Modal for creating a new task.
 
     Dismisses with: (name, repos, branch) tuple or None if cancelled.
@@ -126,6 +178,7 @@ class CreateTaskModal(ThemedModalScreen[tuple[str, list[str], str] | None]):
         self.selected_repos: set[str] = set(initial_repos or [])
         self.initial_base_branch = initial_base_branch
         self.title_text = title
+        self._reset_visible_repos()
 
     def compose(self) -> ComposeResult:
         with Container():
@@ -147,36 +200,6 @@ class CreateTaskModal(ThemedModalScreen[tuple[str, list[str], str] | None]):
             with Horizontal(classes="button-row"):
                 yield Button("Create", variant="primary", id="create-btn")
                 yield Button("Cancel", variant="default", id="cancel-btn")
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        """Handle search input changes."""
-        if event.input.id == "repo-search":
-            self._filter_repos(event.value)
-
-    def _filter_repos(self, search_term: str) -> None:
-        """Filter repository list based on search term."""
-        repo_list = self.query_one("#repo-list", SelectionList)
-
-        # Save current selections
-        self.selected_repos.update(repo_list.selected)
-
-        # Filter repos (case-insensitive substring match)
-        search_lower = search_term.lower()
-        if search_lower:
-            filtered = [repo for repo in self.available_repos if search_lower in repo.lower()]
-        else:
-            filtered = self.available_repos
-
-        # Clear and rebuild the list
-        repo_list.clear_options()
-        for repo in filtered:
-            # Restore selection state
-            repo_list.add_option(Selection(repo, repo, initial_state=repo in self.selected_repos))
-
-    def on_selection_list_selected_changed(self, event: SelectionList.SelectedChanged) -> None:
-        """Track selections across filter changes."""
-        if event.selection_list.id == "repo-list":
-            self.selected_repos = set(event.selection_list.selected)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press."""
@@ -215,7 +238,7 @@ class CreateTaskModal(ThemedModalScreen[tuple[str, list[str], str] | None]):
         self.dismiss((name, selected_repos, base_branch))
 
 
-class AddRepoModal(ThemedModalScreen[tuple[list[str], str] | None]):
+class AddRepoModal(RepoFilterMixin, ThemedModalScreen[tuple[list[str], str] | None]):
     """Modal for adding repos to an existing task.
 
     Dismisses with: (repos, branch) tuple or None if cancelled.
@@ -226,6 +249,7 @@ class AddRepoModal(ThemedModalScreen[tuple[list[str], str] | None]):
         self.task_name = task_name
         self.available_repos = available_repos
         self.selected_repos: set[str] = set()
+        self._reset_visible_repos()
 
     def compose(self) -> ComposeResult:
         with Container():
@@ -247,36 +271,6 @@ class AddRepoModal(ThemedModalScreen[tuple[list[str], str] | None]):
             with Horizontal(classes="button-row"):
                 yield Button("Add", variant="primary", id="add-btn")
                 yield Button("Cancel", variant="default", id="cancel-btn")
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        """Handle search input changes."""
-        if event.input.id == "repo-search":
-            self._filter_repos(event.value)
-
-    def _filter_repos(self, search_term: str) -> None:
-        """Filter repository list based on search term."""
-        repo_list = self.query_one("#repo-list", SelectionList)
-
-        # Save current selections
-        self.selected_repos.update(repo_list.selected)
-
-        # Filter repos (case-insensitive substring match)
-        search_lower = search_term.lower()
-        if search_lower:
-            filtered = [repo for repo in self.available_repos if search_lower in repo.lower()]
-        else:
-            filtered = self.available_repos
-
-        # Clear and rebuild the list
-        repo_list.clear_options()
-        for repo in filtered:
-            # Restore selection state
-            repo_list.add_option(Selection(repo, repo, initial_state=repo in self.selected_repos))
-
-    def on_selection_list_selected_changed(self, event: SelectionList.SelectedChanged) -> None:
-        """Track selections across filter changes."""
-        if event.selection_list.id == "repo-list":
-            self.selected_repos = set(event.selection_list.selected)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press."""
@@ -611,6 +605,12 @@ class HelpModal(ThemedModalScreen[None]):
         tools_section = "[bold $primary]Tools[/]\n"
         tools_section += (
             self._format_binding("open_lazygit", "g", "Open lazygit in worktree") + "\n"
+        )
+        tools_section += (
+            self._format_binding(
+                "show_diff", "h", "Open hunk diff (task = all repos, worktree = one)"
+            )
+            + "\n"
         )
         tools_section += (
             self._format_binding("open_shell", "enter", "Open shell in worktree") + "\n"

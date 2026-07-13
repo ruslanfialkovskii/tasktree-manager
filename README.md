@@ -57,8 +57,9 @@ On first run, you'll configure:
 
 1. **Create a task** - Press `n`, enter task name, select repositories
 2. **Work on code** - Press `e` for editor, `g` for lazygit, or `Enter` for shell
-3. **Push changes** - Press `p` to push all worktrees
-4. **Delete task** - Press `d` when finished
+3. **Review changes** - Press `h` to view the diff in [hunk](https://github.com/modem-dev/hunk) (all repos from the task panel, one repo from the worktree panel)
+4. **Push changes** - Press `p` to push all worktrees
+5. **Delete task** - Press `d` when finished
 
 For detailed workflows and examples, see the [User Guide](docs/user-guide.md).
 
@@ -75,14 +76,15 @@ For detailed workflows and examples, see the [User Guide](docs/user-guide.md).
 | Key | Action | Key | Action |
 |-----|--------|-----|--------|
 | `n` | New task | `g` | Open lazygit |
-| `a` | Add repo | `e` | Open editor |
-| `d` | Delete task | `o` | Open folder |
-| `p` | Push all | `P` | Pull all |
+| `a` | Add repo | `h` | Show diff (hunk) |
+| `d` | Delete task | `e` | Open editor |
+| `p` | Push all | `o` | Open folder |
+| `P` | Pull all | `Enter` | Open shell |
 | `c` | Claude (resume) | `C` | Claude (new) |
 | `r` | Refresh | `s` | Sort tasks |
 | `S` | Group worktrees | `m` | Messages |
-| `Enter` | Open shell | `Tab` | Next panel |
-| `?` | Show help | `q` | Quit |
+| `Tab` | Next panel | `?` | Show help |
+| `q` | Quit | | |
 
 **Themes:** Press `Ctrl+P` to switch between 7 built-in themes (textual-dark, nord, gruvbox, tokyo-night, monokai, dracula, textual-light).
 

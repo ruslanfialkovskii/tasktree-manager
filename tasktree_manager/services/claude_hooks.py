@@ -38,11 +38,16 @@ def _build_hooks_config(task_path: Path) -> dict:
     }
 
 
-def ensure_claude_hooks(task_path: Path) -> None:
+def ensure_claude_hooks(task_path: Path, memory_dir: str = "") -> None:
     """Create .claude/settings.local.json with status-reporting hooks.
 
     Merges with existing settings if the file already exists, preserving
     user's own configuration while adding/updating the status hooks.
+
+    Task folders are not git repositories, so Claude Code keys its auto
+    memory to the task path — memory that becomes orphaned when the task
+    is deleted. When memory_dir is set, autoMemoryDirectory redirects all
+    task sessions to one shared pool that persists across tasks.
     """
     claude_dir = task_path / ".claude"
     claude_dir.mkdir(exist_ok=True)
@@ -59,5 +64,8 @@ def ensure_claude_hooks(task_path: Path) -> None:
 
     # Merge hooks into existing settings
     existing["hooks"] = _build_hooks_config(task_path)
+
+    if memory_dir:
+        existing["autoMemoryDirectory"] = str(Path(memory_dir).expanduser())
 
     settings_file.write_text(json.dumps(existing, indent=2) + "\n")
