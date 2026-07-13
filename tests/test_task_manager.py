@@ -734,7 +734,9 @@ class TestWorktreeBaseFreshness:
             "worktree must be based on origin/master, not the stale local master"
         )
 
-    def test_worktree_falls_back_to_local_base_without_remote(self, config, task_manager, sample_repo):
+    def test_worktree_falls_back_to_local_base_without_remote(
+        self, config, task_manager, sample_repo
+    ):
         """Repos without an origin remote still work (offline fallback)."""
         repo_path, branch = sample_repo
 
@@ -742,7 +744,6 @@ class TestWorktreeBaseFreshness:
 
         worktree = task.path / "sample-repo"
         assert (worktree / "README.md").exists()
-
 
 
 class TestEnsureClaudeMdFiles:
@@ -822,4 +823,3 @@ class TestEnsureClaudeMdFiles:
         task_manager.ensure_claude_md_files(task)
 
         assert worktree_md.read_text() == "# my notes\n"
-

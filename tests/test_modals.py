@@ -616,4 +616,3 @@ class TestEscapeDismissesModals:
 
             assert modal not in app.screen_stack
             assert results == [False]
-
