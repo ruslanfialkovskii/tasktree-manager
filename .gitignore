@@ -55,3 +55,7 @@ tasktree/_version.py
 PRD.md
 specs/
 CLAUDE.md
+
+# uv project-mode lockfile — tooling installs via `uv pip`/pip from pyproject.toml,
+# nothing consumes a lock; ignore accidental `uv sync`/`uv lock` artifacts
+uv.lock
