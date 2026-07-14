@@ -64,6 +64,38 @@ def _load_settings(settings_file: Path) -> dict:
     return {}
 
 
+def _is_tasktree_hook_group(group: object) -> bool:
+    """True if a hook group was written by tasktree (targets .claude_status)."""
+    if not isinstance(group, dict):
+        return False
+    hooks = group.get("hooks", [])
+    if not isinstance(hooks, list):
+        return False
+    return any(
+        isinstance(hook, dict) and ".claude_status" in hook.get("command", "") for hook in hooks
+    )
+
+
+def _merge_hooks(existing_hooks: object, new_hooks: dict) -> dict:
+    """Merge tasktree's status hooks into an existing hooks config.
+
+    User-defined hook groups are preserved untouched (settings.local.json
+    holds executable configuration the user may have written by hand);
+    only groups previously written by tasktree are replaced, so repeated
+    calls do not stack duplicates.
+    """
+    merged = dict(existing_hooks) if isinstance(existing_hooks, dict) else {}
+    for event, groups in new_hooks.items():
+        current = merged.get(event)
+        kept = (
+            [g for g in current if not _is_tasktree_hook_group(g)]
+            if isinstance(current, list)
+            else []
+        )
+        merged[event] = kept + groups
+    return merged
+
+
 def ensure_claude_hooks(task_path: Path, memory_dir: str = "") -> None:
     """Create .claude/settings.local.json with status-reporting hooks.
 
@@ -81,8 +113,10 @@ def ensure_claude_hooks(task_path: Path, memory_dir: str = "") -> None:
     settings_file = claude_dir / "settings.local.json"
     existing = _load_settings(settings_file)
 
-    # Merge hooks into existing settings
-    existing["hooks"] = _build_hooks_config(str(task_path / ".claude_status"))
+    # Merge hooks into existing settings, preserving user-defined groups
+    existing["hooks"] = _merge_hooks(
+        existing.get("hooks"), _build_hooks_config(str(task_path / ".claude_status"))
+    )
 
     if memory_dir:
         existing["autoMemoryDirectory"] = str(Path(memory_dir).expanduser())
@@ -132,7 +166,8 @@ def ensure_worktree_claude_settings(
     settings_file = claude_dir / "settings.local.json"
     existing = _load_settings(settings_file)
 
-    existing["hooks"] = _build_hooks_config(str(status_file))
+    # Merge, preserving user-defined hook groups (same policy as task hooks)
+    existing["hooks"] = _merge_hooks(existing.get("hooks"), _build_hooks_config(str(status_file)))
     existing["autoMemoryDirectory"] = str(repo_memory_dir(repo_path))
 
     settings_file.write_text(json.dumps(existing, indent=2) + "\n")

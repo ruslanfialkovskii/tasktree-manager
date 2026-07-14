@@ -222,7 +222,7 @@ cycle_theme = "t"           # Cycle through the design-system themes
 # Symlinks
 # ============================================================================
 # When creating worktrees, gitignored files are symlinked from the source repo.
-# Blocklist specifies patterns to exclude (e.g., cache files).
+# Blocklist specifies patterns to exclude (e.g., cache files, key material).
 [symlinks]
 blocklist = [
     "*.pyc",
@@ -233,6 +233,9 @@ blocklist = [
     ".ruff_cache",
     ".coverage",
     "*.log",
+    "*.pem",
+    "*.key",
+    "id_rsa",
 ]
 ```
 
@@ -388,7 +391,9 @@ When creating worktrees, tasktree-manager automatically symlinks gitignored file
 
 ### Default Blocklist
 
-By default, these patterns are excluded from symlinking:
+By default, these patterns are excluded from symlinking. Caches and build
+artifacts are excluded as noise; key material (`*.pem`, `*.key`, SSH keys)
+is excluded so private keys never spread beyond the main checkout:
 
 ```toml
 [symlinks]
@@ -409,14 +414,27 @@ blocklist = [
     ".nox",
     "*.so",
     "*.dylib",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "*.keystore",
+    "id_rsa",
+    "id_ecdsa",
+    "id_ed25519",
 ]
 ```
 
 ### How It Works
 
-1. When a worktree is created, tasktree-manager reads the source repo's `.gitignore`
-2. For each gitignored file pattern, it finds matching files
-3. Files matching the blocklist are skipped
+1. When a worktree is created, tasktree-manager asks git for the repo's
+   ignored files (`git ls-files --others --ignored --exclude-standard`), so
+   full gitignore semantics apply: nested `.gitignore` files work, and a
+   root pattern like `*.log` matches in subdirectories
+2. Wholly-ignored directories (e.g. `node_modules/`) are skipped entirely —
+   their contents are never walked or symlinked
+3. Files matching the blocklist (by filename) and anything under `.git/` or
+   `.claude/` are skipped
 4. Remaining files are symlinked to the worktree
 
 ### Customizing the Blocklist

@@ -12,12 +12,46 @@ from .claude_hooks import ensure_worktree_claude_settings
 from .config import Config
 from .models import RepoIssue, Task, TaskSafetyReport, Worktree
 
+# Task name validation pattern
+TASK_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9._/\-]+$")
+
+
+def validate_task_name(name: str) -> str | None:
+    """Validate a task name, returning an error message or None if valid.
+
+    Task names become directory paths under TASKS_DIR and git branch names,
+    so they must not traverse outside the tasks directory ('..', '.' or
+    empty path segments) or look like a git option (leading '-').
+    """
+    if not name:
+        return "Task name cannot be empty"
+    if name.startswith("-"):
+        return "Task name cannot start with '-'"
+    if not TASK_NAME_PATTERN.match(name):
+        return "Task name can only contain letters, numbers, '.', '_', '/', '-'"
+    parts = name.split("/")
+    if "" in parts:
+        return "Task name cannot have empty path segments"
+    if any(part in (".", "..") for part in parts):
+        return "Task name cannot contain '.' or '..' path segments"
+    return None
+
+
+def validate_branch_name(branch: str) -> str | None:
+    """Validate a base branch name, returning an error message or None.
+
+    Branch names are passed as positional git arguments; a leading '-'
+    would be parsed as a git option (e.g. --upload-pack=<command>).
+    """
+    if not branch:
+        return "Branch name cannot be empty"
+    if branch.startswith("-"):
+        return "Branch name cannot start with '-'"
+    return None
+
 
 class TaskManager:
     """Manages tasks and worktrees."""
-
-    # Task name validation pattern
-    TASK_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9._/\-]+$")
 
     def __init__(self, config: Config):
         self.config = config
@@ -28,12 +62,15 @@ class TaskManager:
         Raises:
             ValueError: If task name is invalid
         """
-        if not name:
-            raise ValueError("Task name cannot be empty")
-        if name.startswith("-"):
-            raise ValueError("Task name cannot start with '-'")
-        if not self.TASK_NAME_PATTERN.match(name):
-            raise ValueError("Task name can only contain letters, numbers, '.', '_', '/', '-'")
+        error = validate_task_name(name)
+        if error:
+            raise ValueError(error)
+        # Belt and braces: the segment checks make escapes impossible, but
+        # a task path must never resolve outside the tasks directory —
+        # finish_task() runs rmtree on it.
+        task_path = (self.config.tasks_dir / name).resolve()
+        if not task_path.is_relative_to(self.config.tasks_dir.resolve()):
+            raise ValueError("Task name resolves outside the tasks directory")
 
     def list_tasks(self) -> list[Task]:
         """List all tasks in the tasks directory."""
@@ -107,6 +144,10 @@ class TaskManager:
 
     def _create_worktree(self, task: Task, repo_name: str, base_branch: str) -> None:
         """Create a worktree for a repo within a task."""
+        error = validate_branch_name(base_branch)
+        if error:
+            raise ValueError(error)
+
         repo_path = self.config.repos_dir / repo_name
         worktree_path = task.path / repo_name
 
@@ -189,33 +230,36 @@ class TaskManager:
         if self.config.claude_repo_memory:
             ensure_worktree_claude_settings(worktree_path, repo_path, task.path / ".claude_status")
 
-    def _parse_gitignore(self, gitignore_path: Path) -> list[str]:
-        """Parse .gitignore and return glob patterns for files (not directories).
+    def _list_gitignored_files(self, repo_path: Path) -> list[str]:
+        """List gitignored files in a repo, relative to the repo root.
 
-        Args:
-            gitignore_path: Path to the .gitignore file
-
-        Returns:
-            List of glob patterns to match files
+        Delegates to git so full gitignore semantics apply (nested
+        .gitignore files, directory-wide patterns like ``*.log``).
+        ``--directory`` collapses wholly-ignored directories into single
+        (later skipped) entries, so huge ignored trees like node_modules
+        are never walked or symlinked file-by-file.
         """
-        patterns = []
-        for line in gitignore_path.read_text().splitlines():
-            line = line.strip()
-            # Skip comments and empty lines
-            if not line or line.startswith("#"):
-                continue
-            # Skip negation patterns
-            if line.startswith("!"):
-                continue
-            # Skip directory-only patterns (ending with /)
-            if line.endswith("/"):
-                continue
-            # Strip leading / (gitignore root-relative marker) since we glob from repo root
-            line = line.lstrip("/")
-            if not line:
-                continue
-            patterns.append(line)
-        return patterns
+        try:
+            result = subprocess.run(
+                [
+                    "git",
+                    "ls-files",
+                    "--others",
+                    "--ignored",
+                    "--exclude-standard",
+                    "--directory",
+                    "-z",
+                ],
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (subprocess.SubprocessError, OSError):
+            return []
+        if result.returncode != 0:
+            return []
+        return [f for f in result.stdout.split("\0") if f and not f.endswith("/")]
 
     def _matches_blocklist(self, filename: str, blocklist: list[str]) -> bool:
         """Check if filename matches any blocklist pattern.
@@ -234,35 +278,32 @@ class TaskManager:
 
         This allows gitignored files like .env to be shared between the main repo
         and worktrees without having to manually copy them. Files matching the
-        symlink_blocklist in config are excluded.
+        symlink_blocklist in config are excluded, as is anything under .git or
+        .claude (tasktree writes its own worktree .claude settings; a symlink
+        there would redirect writes into the main checkout).
 
         Args:
             source_repo: Path to the source repository
             worktree_path: Path to the new worktree
         """
-        gitignore_path = source_repo / ".gitignore"
-        if not gitignore_path.exists():
-            return
-
-        # Parse .gitignore patterns
-        patterns = self._parse_gitignore(gitignore_path)
         blocklist = self.config.symlink_blocklist
 
-        # Find matching files in source repo (not directories, not nested in .git)
-        for pattern in patterns:
-            for match in source_repo.glob(pattern):
-                if match.is_file() and ".git" not in match.parts:
-                    # Skip files matching the blocklist
-                    if self._matches_blocklist(match.name, blocklist):
-                        continue
-                    # Create symlink in worktree
-                    rel_path = match.relative_to(source_repo)
-                    link_path = worktree_path / rel_path
-                    # is_symlink() check catches broken symlinks, for which
-                    # exists() returns False but symlink_to() would still fail
-                    if not (link_path.exists() or link_path.is_symlink()):
-                        link_path.parent.mkdir(parents=True, exist_ok=True)
-                        link_path.symlink_to(match)
+        for rel_name in self._list_gitignored_files(source_repo):
+            match = source_repo / rel_name
+            if not match.is_file():
+                continue
+            rel_path = Path(rel_name)
+            if ".git" in rel_path.parts or ".claude" in rel_path.parts:
+                continue
+            # Skip files matching the blocklist
+            if self._matches_blocklist(match.name, blocklist):
+                continue
+            link_path = worktree_path / rel_path
+            # is_symlink() check catches broken symlinks, for which
+            # exists() returns False but symlink_to() would still fail
+            if not (link_path.exists() or link_path.is_symlink()):
+                link_path.parent.mkdir(parents=True, exist_ok=True)
+                link_path.symlink_to(match)
 
     def add_repo_to_task(self, task: Task, repo_name: str, base_branch: str = "master") -> None:
         """Add a repo worktree to an existing task."""
@@ -289,13 +330,17 @@ class TaskManager:
 
         # Try to find main repo from the worktree itself (if it exists and is valid)
         if worktree.path.exists():
-            result = subprocess.run(
-                ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-                cwd=worktree.path,
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
+            try:
+                result = subprocess.run(
+                    ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                    cwd=worktree.path,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+            except (subprocess.SubprocessError, OSError):
+                result = None
+            if result and result.returncode == 0:
                 main_git_dir = Path(result.stdout.strip())
                 main_repo = main_git_dir.parent if main_git_dir.name == ".git" else main_git_dir
 
@@ -309,30 +354,33 @@ class TaskManager:
             # Can't find main repo - just clean up the directory if it exists
             return
 
-        # Remove the worktree using git (if path exists)
+        # Remove the worktree using git (if path exists). This deletes the
+        # worktree's file tree, so give it the (longer) configured timeout.
         if worktree.path.exists():
-            subprocess.run(
+            self._run_cleanup_git(
                 ["git", "worktree", "remove", "--force", str(worktree.path)],
                 cwd=main_repo,
-                capture_output=True,
-                text=True,
+                timeout=self.config.git_timeout,
             )
 
         # Prune stale worktree references (handles case where path was already deleted)
-        subprocess.run(
-            ["git", "worktree", "prune"],
-            cwd=main_repo,
-            capture_output=True,
-            text=True,
-        )
+        self._run_cleanup_git(["git", "worktree", "prune"], cwd=main_repo, timeout=10)
 
         # Delete the branch
-        subprocess.run(
-            ["git", "branch", "-D", branch_name],
-            cwd=main_repo,
-            capture_output=True,
-            text=True,
-        )
+        self._run_cleanup_git(["git", "branch", "-D", branch_name], cwd=main_repo, timeout=10)
+
+    @staticmethod
+    def _run_cleanup_git(cmd: list[str], cwd: Path, timeout: int) -> None:
+        """Run a best-effort git cleanup command, ignoring failures.
+
+        The timeout keeps a hung git (e.g. a repo on an unreachable network
+        mount) from blocking task deletion forever; anything git leaves
+        behind is caught by the caller's rmtree or the next worktree prune.
+        """
+        try:
+            subprocess.run(cmd, cwd=cwd, capture_output=True, timeout=timeout)
+        except (subprocess.SubprocessError, OSError):
+            pass
 
     def remove_worktree_from_task(self, task: Task, worktree: Worktree) -> None:
         """Remove a single worktree from a task.

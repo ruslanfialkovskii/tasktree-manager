@@ -90,6 +90,38 @@ class TestEnsureClaudeHooks:
         assert "hooks" in settings
         assert "autoMemoryDirectory" in settings
 
+    def test_preserves_user_hooks(self, tmp_path):
+        """User-written hook groups survive: settings.local.json holds
+        executable config the user may have added by hand."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_file = claude_dir / "settings.local.json"
+        user_stop_hook = {"hooks": [{"type": "command", "command": "echo user-stop"}]}
+        user_post_tool = {"hooks": [{"type": "command", "command": "echo post-tool"}]}
+        settings_file.write_text(
+            json.dumps({"hooks": {"Stop": [user_stop_hook], "PostToolUse": [user_post_tool]}})
+        )
+
+        ensure_claude_hooks(tmp_path)
+
+        settings = json.loads(settings_file.read_text())
+        # Untouched event survives entirely
+        assert settings["hooks"]["PostToolUse"] == [user_post_tool]
+        # Shared event keeps the user group and gains the tasktree group
+        stop_commands = json.dumps(settings["hooks"]["Stop"])
+        assert "echo user-stop" in stop_commands
+        assert ".claude_status" in stop_commands
+
+    def test_rerun_does_not_duplicate_hooks(self, tmp_path):
+        """Repeated calls replace tasktree's own groups instead of stacking."""
+        ensure_claude_hooks(tmp_path)
+        ensure_claude_hooks(tmp_path)
+
+        settings_file = tmp_path / ".claude" / "settings.local.json"
+        settings = json.loads(settings_file.read_text())
+        for event in ("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"):
+            assert len(settings["hooks"][event]) == 1
+
 
 class TestRepoMemoryDir:
     """Tests for repo_memory_dir."""
@@ -170,6 +202,26 @@ class TestEnsureWorktreeClaudeSettings:
 
         lines = (repo_path / ".git" / "info" / "exclude").read_text().splitlines()
         assert lines.count(".claude/settings.local.json") == 1
+
+    def test_preserves_user_hooks(self, tmp_path, monkeypatch):
+        """User-written hook groups in a worktree's settings survive, and
+        reruns do not stack duplicate tasktree groups."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        repo_path, worktree_path, status_file = self._make_repo_and_worktree(tmp_path)
+        claude_dir = worktree_path / ".claude"
+        claude_dir.mkdir()
+        user_stop_hook = {"hooks": [{"type": "command", "command": "echo user-stop"}]}
+        (claude_dir / "settings.local.json").write_text(
+            json.dumps({"hooks": {"Stop": [user_stop_hook]}})
+        )
+
+        ensure_worktree_claude_settings(worktree_path, repo_path, status_file)
+        ensure_worktree_claude_settings(worktree_path, repo_path, status_file)
+
+        settings = json.loads((claude_dir / "settings.local.json").read_text())
+        stop_groups = settings["hooks"]["Stop"]
+        assert user_stop_hook in stop_groups
+        assert len(stop_groups) == 2  # user group + one tasktree group, no dupes
 
     def test_git_file_instead_of_dir(self, tmp_path, monkeypatch):
         """Test that a .git file (linked worktree/submodule) is skipped safely."""

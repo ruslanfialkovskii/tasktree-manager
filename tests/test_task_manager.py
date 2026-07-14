@@ -95,6 +95,57 @@ class TestTaskManager:
             task_manager.create_task("FAIL-TASK", ["nonexistent-repo"], "main")
 
 
+class TestTaskNameValidation:
+    """Tests for task name safety validation."""
+
+    @pytest.mark.parametrize(
+        "name",
+        ["..", "../evil", "../../repos/x", "a/../b", "a/./b", "/absolute", "a//b", "trailing/"],
+    )
+    def test_rejects_traversal_names(self, task_manager, name):
+        """Names with '..', '.' or empty path segments must be rejected.
+
+        A task path is rmtree'd on finish, so '..' would delete outside
+        TASKS_DIR.
+        """
+        with pytest.raises(ValueError):
+            task_manager.create_task(name, [], "main")
+
+    def test_rejects_leading_dash(self, task_manager):
+        """Names starting with '-' (git-option lookalikes) are rejected."""
+        with pytest.raises(ValueError, match="cannot start with '-'"):
+            task_manager.create_task("-rf", [], "main")
+
+    def test_rejects_invalid_characters(self, task_manager):
+        """Names with markup/shell-significant characters are rejected."""
+        with pytest.raises(ValueError, match="can only contain"):
+            task_manager.create_task("bad name[1]", [], "main")
+
+    def test_accepts_normal_names(self, task_manager, sample_repo):
+        """Ordinary ticket-style names still work, including subdirectories."""
+        _, branch = sample_repo
+        task = task_manager.create_task("team/DIC-1813.hotfix", ["sample-repo"], branch)
+        assert task.path.exists()
+
+
+class TestBranchNameValidation:
+    """Tests for base branch safety validation."""
+
+    def test_rejects_option_like_branch(self, task_manager, sample_repo):
+        """A base branch starting with '-' would be parsed as a git option
+        (e.g. --upload-pack=<command>), so it must be rejected."""
+        _, _branch = sample_repo
+        with pytest.raises(ValueError, match="Branch name"):
+            task_manager.create_task("INJ-TEST", ["sample-repo"], "--upload-pack=/bin/true")
+
+    def test_rejects_option_like_branch_on_add(self, task_manager, sample_repos):
+        """The same validation applies when adding a repo to a task."""
+        _, branch = sample_repos
+        task = task_manager.create_task("INJ-ADD", ["repo-alpha"], branch)
+        with pytest.raises(ValueError, match="Branch name"):
+            task_manager.add_repo_to_task(task, "repo-beta", "-b")
+
+
 class TestTask:
     """Tests for Task dataclass."""
 
@@ -549,29 +600,80 @@ class TestGitignoreSymlinks:
         # .env should be symlinked
         assert (worktree_path / ".env").is_symlink()
 
-    def test_parse_gitignore_method(self, task_manager, sample_repo):
-        """Test the _parse_gitignore method directly."""
+    def test_list_gitignored_files(self, task_manager, sample_repo):
+        """Test the _list_gitignored_files helper directly."""
         repo_path, branch = sample_repo
 
         gitignore = repo_path / ".gitignore"
-        gitignore.write_text("""# Comment
-.env
-!negation
+        gitignore.write_text(".env\nnode_modules/\n*.secret\n")
 
-node_modules/
-*.log
-config.local.json
-""")
+        (repo_path / ".env").write_text("SECRET\n")
+        (repo_path / "node_modules").mkdir()
+        (repo_path / "node_modules" / "package.json").write_text("{}\n")
+        conf_dir = repo_path / "conf"
+        conf_dir.mkdir()
+        (conf_dir / "api.secret").write_text("key\n")
 
-        patterns = task_manager._parse_gitignore(gitignore)
+        files = task_manager._list_gitignored_files(repo_path)
 
-        # Should include file patterns, exclude comments, negations, and directory patterns
-        assert ".env" in patterns
-        assert "*.log" in patterns
-        assert "config.local.json" in patterns
-        assert "# Comment" not in patterns
-        assert "!negation" not in patterns
-        assert "node_modules/" not in patterns
+        # Individual ignored files are listed, including nested ones;
+        # ignored directories are collapsed and skipped, not walked
+        assert ".env" in files
+        assert "conf/api.secret" in files
+        assert all("node_modules" not in f for f in files)
+
+    def test_symlinks_nested_gitignored_files(self, task_manager, sample_repo):
+        """A root pattern like *.secret matches in subdirectories (gitignore
+        semantics), so nested ignored files are symlinked too."""
+        repo_path, branch = sample_repo
+
+        gitignore = repo_path / ".gitignore"
+        gitignore.write_text("*.secret\n")
+
+        conf_dir = repo_path / "conf"
+        conf_dir.mkdir()
+        (conf_dir / "api.secret").write_text("key\n")
+
+        task = task_manager.create_task("NESTED-SYMLINK", ["sample-repo"], branch)
+        worktree_path = task.worktrees[0].path
+
+        assert (worktree_path / "conf" / "api.secret").is_symlink()
+
+    def test_symlinks_skip_claude_settings(self, task_manager, sample_repo):
+        """Files under .claude are never symlinked: tasktree writes its own
+        worktree settings there, and a symlink would redirect those writes
+        into the main checkout."""
+        repo_path, branch = sample_repo
+
+        (repo_path / ".gitignore").write_text(".claude/\n.env\n")
+        claude_dir = repo_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "settings.local.json").write_text("{}\n")
+        (repo_path / ".env").write_text("SECRET\n")
+
+        task = task_manager.create_task("CLAUDE-SKIP", ["sample-repo"], branch)
+        worktree_path = task.worktrees[0].path
+
+        assert (worktree_path / ".env").is_symlink()
+        assert not (worktree_path / ".claude" / "settings.local.json").is_symlink()
+
+    def test_symlinks_skip_key_material(self, task_manager, sample_repo):
+        """Private keys and certificates are blocklisted by default."""
+        repo_path, branch = sample_repo
+
+        (repo_path / ".gitignore").write_text("*.pem\n*.key\nid_rsa\n.env\n")
+        (repo_path / "server.pem").write_text("cert\n")
+        (repo_path / "private.key").write_text("key\n")
+        (repo_path / "id_rsa").write_text("ssh\n")
+        (repo_path / ".env").write_text("SECRET\n")
+
+        task = task_manager.create_task("KEYS-SKIP", ["sample-repo"], branch)
+        worktree_path = task.worktrees[0].path
+
+        assert (worktree_path / ".env").is_symlink()
+        assert not (worktree_path / "server.pem").exists()
+        assert not (worktree_path / "private.key").exists()
+        assert not (worktree_path / "id_rsa").exists()
 
     def test_symlinks_skip_blocklisted_files(self, task_manager, sample_repo):
         """Test that files matching blocklist patterns are not symlinked."""

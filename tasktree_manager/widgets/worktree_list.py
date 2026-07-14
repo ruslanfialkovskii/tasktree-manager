@@ -1,5 +1,6 @@
 """Worktree list widget for tasktree-manager."""
 
+from rich.markup import escape
 from textual.message import Message
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option, OptionDoesNotExist
@@ -148,8 +149,11 @@ class WorktreeList(OptionList):
     ) -> None:
         """Add a single worktree option to the list."""
         branch = worktree.branch or "unknown"
-        name_col = f"{worktree.name:<{max_name_len}}"
-        branch_col = f"[dim]{branch:<{max_branch_len}}[/]"
+        # Pad first, then escape: git allows markup-significant brackets in
+        # branch names, and escaping adds characters that would skew padding
+        name_col = escape(f"{worktree.name:<{max_name_len}}")
+        branch_padded = escape(f"{branch:<{max_branch_len}}")
+        branch_col = f"[dim]{branch_padded}[/]"
         claude_indicator = "[blue]◆[/]" if worktree.has_claude_md else " "
 
         if worktree.is_dirty:

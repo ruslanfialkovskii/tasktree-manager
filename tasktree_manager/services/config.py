@@ -43,7 +43,10 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "cursor_up": "k",
 }
 
-# Default patterns excluded when symlinking gitignored files into worktrees
+# Default patterns excluded when symlinking gitignored files into worktrees.
+# Caches/build artifacts are excluded as noise; key material is excluded so
+# private keys and certificates never spread beyond the main checkout
+# (.env files remain shared — that is the point of the feature).
 DEFAULT_SYMLINK_BLOCKLIST: list[str] = [
     "*.pyc",
     "*.pyo",
@@ -61,6 +64,14 @@ DEFAULT_SYMLINK_BLOCKLIST: list[str] = [
     ".nox",
     "*.so",
     "*.dylib",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "*.keystore",
+    "id_rsa",
+    "id_ecdsa",
+    "id_ed25519",
 ]
 
 

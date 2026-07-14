@@ -2,6 +2,7 @@
 
 from enum import Enum, auto
 
+from rich.markup import escape
 from textual.message import Message
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option, OptionDoesNotExist
@@ -87,10 +88,14 @@ class TaskList(OptionList):
             hook_indicator = " [green]✓[/]"
         else:
             hook_indicator = ""
+        # Escape the name: task directories can be created outside tasktree,
+        # and markup-significant brackets in a name must not style (or crash)
+        # the list rendering
+        name = escape(task.name)
         if task.is_dirty:
-            prompt = f"[red]●[/]{claude_md}{task.name} [red]({task.dirty_count})[/]{hook_indicator}"
+            prompt = f"[red]●[/]{claude_md}{name} [red]({task.dirty_count})[/]{hook_indicator}"
         else:
-            prompt = f"  {claude_md}{task.name}{hook_indicator}"
+            prompt = f"  {claude_md}{name}{hook_indicator}"
         return Option(prompt, id=task.name)
 
     def load_tasks(

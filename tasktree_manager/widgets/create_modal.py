@@ -1,8 +1,8 @@
 """Modal widgets for creating tasks and adding repos."""
 
-import re
 from typing import Any, ClassVar, TypeVar
 
+from rich.markup import escape
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal
@@ -10,6 +10,8 @@ from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, SelectionList, Static
 from textual.widgets.selection_list import Selection
+
+from ..services.task_manager import validate_branch_name, validate_task_name
 
 T = TypeVar("T")
 
@@ -153,7 +155,9 @@ class RepoFilterMixin:
         # source-of-truth set.
         repo_list.clear_options()
         for repo in filtered:
-            repo_list.add_option(Selection(repo, repo, initial_state=repo in self.selected_repos))
+            repo_list.add_option(
+                Selection(escape(repo), repo, initial_state=repo in self.selected_repos)
+            )
 
     def on_selection_list_selected_changed(self, event: SelectionList.SelectedChanged) -> None:
         """Reconcile selection changes, scoped to the currently visible repos.
@@ -200,7 +204,7 @@ class CreateTaskModal(RepoFilterMixin, ThemedModalScreen[tuple[str, list[str], s
 
     def compose(self) -> ComposeResult:
         with Container():
-            yield Label(self.title_text, classes="modal-title")
+            yield Label(escape(self.title_text), classes="modal-title")
             yield Label("Task Name:", classes="section-label")
             yield Input(placeholder="e.g., FEAT-123-new-feature", id="task-name")
             yield Label("Base Branch:", classes="section-label")
@@ -210,7 +214,7 @@ class CreateTaskModal(RepoFilterMixin, ThemedModalScreen[tuple[str, list[str], s
             yield Label("Select Repositories:", classes="section-label")
             yield SelectionList[str](
                 *[
-                    Selection(repo, repo, initial_state=repo in self.selected_repos)
+                    Selection(escape(repo), repo, initial_state=repo in self.selected_repos)
                     for repo in self.available_repos
                 ],
                 id="repo-list",
@@ -235,18 +239,10 @@ class CreateTaskModal(RepoFilterMixin, ThemedModalScreen[tuple[str, list[str], s
         base_branch = branch_input.value.strip() or "master"
         selected_repos = list(self.selected_repos)
 
-        if not name:
-            self.notify("Task name is required", severity="error")
-            return
-
-        # Validate task name for safety
-        if name.startswith("-"):
-            self.notify("Task name cannot start with '-'", severity="error")
-            return
-        if not re.match(r"^[a-zA-Z0-9._/\-]+$", name):
-            self.notify(
-                "Task name can only contain letters, numbers, '.', '_', '/', '-'", severity="error"
-            )
+        # Same validation the TaskManager enforces, surfaced early in the UI
+        error = validate_task_name(name) or validate_branch_name(base_branch)
+        if error:
+            self.notify(error, severity="error")
             return
 
         if not selected_repos:
@@ -271,7 +267,7 @@ class AddRepoModal(RepoFilterMixin, ThemedModalScreen[tuple[list[str], str] | No
 
     def compose(self) -> ComposeResult:
         with Container():
-            yield Label(f"Add Repos to: {self.task_name}", classes="modal-title")
+            yield Label(escape(f"Add Repos to: {self.task_name}"), classes="modal-title")
             yield Label("Base Branch:", classes="section-label")
             yield Input(value="master", placeholder="master", id="base-branch")
             if self.available_repos:
@@ -281,7 +277,7 @@ class AddRepoModal(RepoFilterMixin, ThemedModalScreen[tuple[list[str], str] | No
                 )
                 yield Label("Select Repositories to Add:", classes="section-label")
                 yield SelectionList[str](
-                    *[Selection(repo, repo) for repo in self.available_repos],
+                    *[Selection(escape(repo), repo) for repo in self.available_repos],
                     id="repo-list",
                 )
             else:
@@ -307,6 +303,11 @@ class AddRepoModal(RepoFilterMixin, ThemedModalScreen[tuple[list[str], str] | No
 
         base_branch = branch_input.value.strip() or "master"
         selected_repos = list(self.selected_repos)
+
+        error = validate_branch_name(base_branch)
+        if error:
+            self.notify(error, severity="error")
+            return
 
         if not selected_repos:
             self.notify("Select at least one repository", severity="error")
@@ -409,26 +410,27 @@ class SafeDeleteModal(ThemedModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Container():
-            yield Label(f"Delete Task: {self.task_name}", classes="modal-title")
+            yield Label(escape(f"Delete Task: {self.task_name}"), classes="modal-title")
             yield Static("WARNING: Issues detected", classes="modal-message")
 
-            # Build warnings content
+            # Build warnings content (repo names are escaped: they come from
+            # the filesystem and may contain markup-significant brackets)
             warnings_content = ""
 
             if self.safety_report.has_unpushed():
                 warnings_content += "\n[bold red]Unpushed commits:[/]\n"
                 for issue in self.safety_report.unpushed:
-                    warnings_content += f"  * {issue.repo_name} ({issue.details})\n"
+                    warnings_content += escape(f"  * {issue.repo_name} ({issue.details})") + "\n"
 
             if self.safety_report.has_unmerged():
                 warnings_content += "\n[bold red]Unmerged branches:[/]\n"
                 for issue in self.safety_report.unmerged:
-                    warnings_content += f"  * {issue.repo_name} ({issue.details})\n"
+                    warnings_content += escape(f"  * {issue.repo_name} ({issue.details})") + "\n"
 
             if self.safety_report.has_dirty():
                 warnings_content += "\n[bold red]Uncommitted changes:[/]\n"
                 for issue in self.safety_report.dirty:
-                    warnings_content += f"  * {issue.repo_name} ({issue.details})\n"
+                    warnings_content += escape(f"  * {issue.repo_name} ({issue.details})") + "\n"
 
             yield Static(warnings_content.strip(), classes="scrollable-content")
 
@@ -478,14 +480,14 @@ class PushResultModal(ThemedModalScreen[None]):
             if self.success_repos:
                 result_text += "[bold green]Successfully pushed:[/]\n"
                 for repo in self.success_repos:
-                    result_text += f"  [green]✓[/] {repo}\n"
+                    result_text += f"  [green]✓[/] {escape(repo)}\n"
 
             if self.failed_repos:
                 if result_text:
                     result_text += "\n"
                 result_text += "[bold red]Failed to push:[/]\n"
                 for repo in self.failed_repos:
-                    result_text += f"  [red]✗[/] {repo}\n"
+                    result_text += f"  [red]✗[/] {escape(repo)}\n"
 
             yield Static(result_text.strip(), classes="modal-message")
 

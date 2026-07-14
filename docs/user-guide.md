@@ -309,6 +309,11 @@ what is displayed. Press `?` for the full reference at any time.
 5. Select repos with `Space` (can select multiple)
 6. Tab to "Create" button, press `Enter`
 
+Task names may contain letters, numbers, `.`, `_`, `/` and `-`. Because the
+name becomes a directory under your tasks dir (and a git branch), names with
+`.`/`..` path segments, empty segments, or a leading `-` are rejected; base
+branch names must not start with `-` either.
+
 **Clone task workflow:**
 Useful when you're spinning up several similar tasks that share the same set of repos.
 
