@@ -31,6 +31,16 @@ class TestConfig:
         config = Config(claude_memory_dir="")
         assert config.claude_memory_dir == ""
 
+    def test_claude_repo_memory_default(self):
+        """Test that per-repo worktree memory is enabled by default."""
+        config = Config()
+        assert config.claude_repo_memory is True
+
+    def test_claude_repo_memory_custom(self):
+        """Test disabling per-repo worktree memory."""
+        config = Config(claude_repo_memory=False)
+        assert config.claude_repo_memory is False
+
     def test_load_from_environment(self, temp_dirs, monkeypatch):
         """Test loading config from environment variables."""
         repos_dir, tasks_dir = temp_dirs

@@ -823,3 +823,52 @@ class TestEnsureClaudeMdFiles:
         task_manager.ensure_claude_md_files(task)
 
         assert worktree_md.read_text() == "# my notes\n"
+
+
+class TestWorktreeClaudeSettings:
+    """Tests for per-repo Claude memory settings in worktrees."""
+
+    def test_create_task_writes_worktree_settings(self, task_manager, sample_repo):
+        """New worktrees get settings pointing memory at the repo's memory dir."""
+        import json
+
+        from tasktree_manager.services.claude_hooks import repo_memory_dir
+
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("MEM-1", ["sample-repo"], branch)
+
+        settings_file = task.path / "sample-repo" / ".claude" / "settings.local.json"
+        assert settings_file.exists()
+        settings = json.loads(settings_file.read_text())
+        assert settings["autoMemoryDirectory"] == str(repo_memory_dir(repo_path))
+        assert str(task.path / ".claude_status") in json.dumps(settings["hooks"])
+
+    def test_worktree_stays_clean(self, task_manager, sample_repo):
+        """The generated settings file must not show up as a dirty worktree."""
+        from tasktree_manager.services.git_ops import GitOps
+
+        _, branch = sample_repo
+        task = task_manager.create_task("MEM-2", ["sample-repo"], branch)
+
+        status = GitOps.get_status(task.worktrees[0])
+        assert status.is_dirty is False
+
+    def test_disabled_by_config(self, task_manager, sample_repo):
+        """No settings file is written when claude_repo_memory is off."""
+        task_manager.config.claude_repo_memory = False
+        _, branch = sample_repo
+        task = task_manager.create_task("MEM-3", ["sample-repo"], branch)
+
+        assert not (task.path / "sample-repo" / ".claude").exists()
+
+    def test_ensure_worktree_settings_backfills(self, task_manager, sample_repo):
+        """Existing worktrees without settings get them backfilled."""
+        task_manager.config.claude_repo_memory = False
+        _, branch = sample_repo
+        task = task_manager.create_task("MEM-4", ["sample-repo"], branch)
+        assert not (task.path / "sample-repo" / ".claude").exists()
+
+        task_manager.config.claude_repo_memory = True
+        task_manager.ensure_worktree_settings(task)
+
+        assert (task.path / "sample-repo" / ".claude" / "settings.local.json").exists()

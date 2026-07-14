@@ -95,6 +95,7 @@ class Config:
     hunk_path: str = "hunk"
     claude_path: str = "claude"
     claude_memory_dir: str = "~/.claude/tasktree-memory"
+    claude_repo_memory: bool = True
     shell: str = ""
 
     # Keybindings (action -> key mapping)
@@ -151,6 +152,7 @@ class Config:
         hunk_path = tools_config.get("hunk_path", "hunk")
         claude_path = tools_config.get("claude_path", "claude")
         claude_memory_dir = tools_config.get("claude_memory_dir", "~/.claude/tasktree-memory")
+        claude_repo_memory = bool(tools_config.get("claude_repo_memory", True))
         shell = tools_config.get("shell", "")
 
         # Keybindings - start with defaults and override with config
@@ -193,6 +195,7 @@ class Config:
             hunk_path=hunk_path,
             claude_path=claude_path,
             claude_memory_dir=claude_memory_dir,
+            claude_repo_memory=claude_repo_memory,
             shell=shell,
             keybindings=keybindings,
             symlink_blocklist=symlink_blocklist,
@@ -327,6 +330,13 @@ claude_path = "{self._toml_escape(self.claude_path)}"
 # Task folders are not git repos, so without this each task gets its own
 # memory that is orphaned when the task is deleted. Set to "" to disable.
 claude_memory_dir = "{self._toml_escape(self.claude_memory_dir)}"
+
+# Per-repo Claude Code memory for worktree sessions. Writes
+# .claude/settings.local.json into each worktree pointing its auto-memory
+# at the main repo's memory directory, so memory saved in a worktree
+# survives worktree deletion and is shared with future worktrees of the
+# same repo and with the main checkout. Set to false to disable.
+claude_repo_memory = {str(self.claude_repo_memory).lower()}
 
 # Preferred shell (leave empty to use $SHELL)
 shell = "{self._toml_escape(self.shell)}"

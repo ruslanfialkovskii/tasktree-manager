@@ -8,6 +8,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from .claude_hooks import ensure_worktree_claude_settings
 from .config import Config
 from .models import RepoIssue, Task, TaskSafetyReport, Worktree
 
@@ -181,6 +182,14 @@ class TaskManager:
 
         # Create symlinks for gitignored files
         self._create_gitignore_symlinks(repo_path, worktree_path)
+
+        # Point Claude auto-memory at the repo's own memory dir so it
+        # survives worktree deletion (sessions may start here manually,
+        # before any launch-time backfill runs)
+        if self.config.claude_repo_memory:
+            ensure_worktree_claude_settings(
+                worktree_path, repo_path, task.path / ".claude_status"
+            )
 
     def _parse_gitignore(self, gitignore_path: Path) -> list[str]:
         """Parse .gitignore and return glob patterns for files (not directories).
@@ -455,6 +464,21 @@ class TaskManager:
                     failed_repos.append(name)
 
         return success_repos, failed_repos
+
+    def ensure_worktree_settings(self, task: Task) -> None:
+        """Backfill per-worktree Claude settings for existing worktrees.
+
+        Covers worktrees created before repo memory support (or outside
+        tasktree). New worktrees get their settings at creation time.
+        """
+        if not self.config.claude_repo_memory:
+            return
+
+        status_file = task.path / ".claude_status"
+        for worktree in task.worktrees:
+            repo_path = self.config.repos_dir / worktree.name
+            if repo_path.exists() and worktree.path.exists():
+                ensure_worktree_claude_settings(worktree.path, repo_path, status_file)
 
     def ensure_claude_md_files(self, task: Task) -> None:
         """Create the task CLAUDE.md and backfill worktree ones from the repo.

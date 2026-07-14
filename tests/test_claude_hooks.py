@@ -3,7 +3,12 @@
 import json
 from pathlib import Path
 
-from tasktree_manager.services.claude_hooks import ensure_claude_hooks, has_claude_session
+from tasktree_manager.services.claude_hooks import (
+    ensure_claude_hooks,
+    ensure_worktree_claude_settings,
+    has_claude_session,
+    repo_memory_dir,
+)
 
 
 class TestEnsureClaudeHooks:
@@ -84,6 +89,102 @@ class TestEnsureClaudeHooks:
         settings = json.loads(settings_file.read_text())
         assert "hooks" in settings
         assert "autoMemoryDirectory" in settings
+
+
+class TestRepoMemoryDir:
+    """Tests for repo_memory_dir."""
+
+    def test_encodes_repo_path(self, tmp_path, monkeypatch):
+        """Test that the repo path is encoded like Claude project dirs."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        result = repo_memory_dir(Path("/repos/work.3"))
+        assert result == tmp_path / ".claude" / "projects" / "-repos-work-3" / "memory"
+
+
+class TestEnsureWorktreeClaudeSettings:
+    """Tests for ensure_worktree_claude_settings."""
+
+    @staticmethod
+    def _make_repo_and_worktree(tmp_path):
+        repo_path = tmp_path / "repos" / "work3"
+        (repo_path / ".git" / "info").mkdir(parents=True)
+        worktree_path = tmp_path / "tasks" / "TASK-1" / "work3"
+        worktree_path.mkdir(parents=True)
+        status_file = tmp_path / "tasks" / "TASK-1" / ".claude_status"
+        return repo_path, worktree_path, status_file
+
+    def test_points_memory_at_repo(self, tmp_path, monkeypatch):
+        """Test that autoMemoryDirectory targets the main repo's memory dir."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        repo_path, worktree_path, status_file = self._make_repo_and_worktree(tmp_path)
+
+        ensure_worktree_claude_settings(worktree_path, repo_path, status_file)
+
+        settings = json.loads((worktree_path / ".claude" / "settings.local.json").read_text())
+        assert settings["autoMemoryDirectory"] == str(repo_memory_dir(repo_path))
+
+    def test_writes_status_hooks(self, tmp_path, monkeypatch):
+        """Test that status hooks write to the task's status file."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        repo_path, worktree_path, status_file = self._make_repo_and_worktree(tmp_path)
+
+        ensure_worktree_claude_settings(worktree_path, repo_path, status_file)
+
+        settings = json.loads((worktree_path / ".claude" / "settings.local.json").read_text())
+        for event in ("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"):
+            assert event in settings["hooks"]
+        assert str(status_file) in json.dumps(settings["hooks"])
+
+    def test_preserves_existing_settings(self, tmp_path, monkeypatch):
+        """Test that unrelated existing settings keys survive a rewrite."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        repo_path, worktree_path, status_file = self._make_repo_and_worktree(tmp_path)
+        claude_dir = worktree_path / ".claude"
+        claude_dir.mkdir()
+        settings_file = claude_dir / "settings.local.json"
+        settings_file.write_text(json.dumps({"permissions": {"allow": ["Bash(ls *)"]}}))
+
+        ensure_worktree_claude_settings(worktree_path, repo_path, status_file)
+
+        settings = json.loads(settings_file.read_text())
+        assert settings["permissions"] == {"allow": ["Bash(ls *)"]}
+        assert "autoMemoryDirectory" in settings
+
+    def test_excludes_settings_from_git(self, tmp_path, monkeypatch):
+        """Test that the settings file is added to the repo's git exclude."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        repo_path, worktree_path, status_file = self._make_repo_and_worktree(tmp_path)
+
+        ensure_worktree_claude_settings(worktree_path, repo_path, status_file)
+
+        exclude = (repo_path / ".git" / "info" / "exclude").read_text()
+        assert ".claude/settings.local.json" in exclude
+
+    def test_exclude_entry_is_idempotent(self, tmp_path, monkeypatch):
+        """Test that repeated calls do not duplicate the exclude entry."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        repo_path, worktree_path, status_file = self._make_repo_and_worktree(tmp_path)
+
+        ensure_worktree_claude_settings(worktree_path, repo_path, status_file)
+        ensure_worktree_claude_settings(worktree_path, repo_path, status_file)
+
+        lines = (repo_path / ".git" / "info" / "exclude").read_text().splitlines()
+        assert lines.count(".claude/settings.local.json") == 1
+
+    def test_git_file_instead_of_dir(self, tmp_path, monkeypatch):
+        """Test that a .git file (linked worktree/submodule) is skipped safely."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        repo_path = tmp_path / "repos" / "work3"
+        repo_path.mkdir(parents=True)
+        (repo_path / ".git").write_text("gitdir: /elsewhere\n")
+        worktree_path = tmp_path / "tasks" / "TASK-1" / "work3"
+        worktree_path.mkdir(parents=True)
+
+        ensure_worktree_claude_settings(
+            worktree_path, repo_path, tmp_path / "tasks" / "TASK-1" / ".claude_status"
+        )
+
+        assert (worktree_path / ".claude" / "settings.local.json").exists()
 
 
 class TestHasClaudeSession:

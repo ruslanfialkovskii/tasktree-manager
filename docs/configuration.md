@@ -153,6 +153,18 @@ claude_path = "claude"
 # Default: "~/.claude/tasktree-memory"
 claude_memory_dir = "~/.claude/tasktree-memory"
 
+# Per-repo Claude Code memory for worktree sessions.
+# Sessions started inside a worktree would otherwise key their auto memory to
+# the worktree path — memory that dies with the worktree. When enabled,
+# tasktree-manager writes .claude/settings.local.json into each worktree
+# pointing "autoMemoryDirectory" at the main repo's own memory directory
+# (~/.claude/projects/<encoded-repo-path>/memory). What Claude learns in any
+# worktree of a repo survives worktree deletion and is shared with future
+# worktrees of that repo and with sessions in the main checkout. The settings
+# file is added to the repo's .git/info/exclude so worktrees stay clean.
+# Default: true
+claude_repo_memory = true
+
 # Preferred shell
 # Leave empty to use $SHELL environment variable
 # Default: "" (uses $SHELL, falls back to /bin/bash)

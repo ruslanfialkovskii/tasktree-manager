@@ -1379,6 +1379,7 @@ class TaskTreeApp(App):
         fresh_task = self.task_manager.get_task(self.current_task.name)
         if fresh_task:
             self.task_manager.ensure_claude_md_files(fresh_task)
+            self.task_manager.ensure_worktree_settings(fresh_task)
 
         ensure_claude_hooks(task_path, self.config.claude_memory_dir)
         if has_claude_session(task_path):
@@ -1400,6 +1401,10 @@ class TaskTreeApp(App):
         if not task_path.exists():
             self.notify("Task directory not found", severity="error")
             return
+
+        fresh_task = self.task_manager.get_task(self.current_task.name)
+        if fresh_task:
+            self.task_manager.ensure_worktree_settings(fresh_task)
 
         ensure_claude_hooks(task_path, self.config.claude_memory_dir)
         encoded_path = quote(str(task_path), safe="")

@@ -4,17 +4,34 @@ import json
 from pathlib import Path
 
 
+def _encode_project_path(folder: Path) -> str:
+    """Encode a path the way Claude CLI names ~/.claude/projects/ entries.
+
+    The encoding replaces "/" and "." with "-".
+    """
+    return str(folder).replace("/", "-").replace(".", "-")
+
+
 def has_claude_session(folder: Path) -> bool:
     """Return True if Claude Code has a recorded session for the given folder.
 
-    Claude CLI stores transcripts at ~/.claude/projects/<encoded-path>/*.jsonl
-    where the encoding replaces "/" and "." with "-".
+    Claude CLI stores transcripts at ~/.claude/projects/<encoded-path>/*.jsonl.
     """
-    encoded = str(folder).replace("/", "-").replace(".", "-")
-    project_dir = Path.home() / ".claude" / "projects" / encoded
+    project_dir = Path.home() / ".claude" / "projects" / _encode_project_path(folder)
     if not project_dir.is_dir():
         return False
     return any(project_dir.glob("*.jsonl"))
+
+
+def repo_memory_dir(repo_path: Path) -> Path:
+    """Return the main repo's own Claude auto-memory directory.
+
+    Sessions running in the main checkout use this directory by default,
+    so pointing worktree sessions here gives every worktree of a repo —
+    and the main checkout itself — one shared memory that outlives any
+    single worktree.
+    """
+    return Path.home() / ".claude" / "projects" / _encode_project_path(repo_path) / "memory"
 
 
 def _make_hook(status: str, status_file: str) -> dict:
@@ -27,15 +44,24 @@ def _make_hook(status: str, status_file: str) -> dict:
     }
 
 
-def _build_hooks_config(task_path: Path) -> dict:
+def _build_hooks_config(status_file: str) -> dict:
     """Build hooks config with absolute path to status file."""
-    status_file = str(task_path / ".claude_status")
     return {
         "SessionStart": [{"hooks": [_make_hook("running", status_file)]}],
         "UserPromptSubmit": [{"hooks": [_make_hook("running", status_file)]}],
         "Stop": [{"hooks": [_make_hook("waiting", status_file)]}],
         "SessionEnd": [{"hooks": [_make_hook("ended", status_file)]}],
     }
+
+
+def _load_settings(settings_file: Path) -> dict:
+    """Read existing settings JSON, tolerating a missing or corrupt file."""
+    if settings_file.exists():
+        try:
+            return json.loads(settings_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
 
 
 def ensure_claude_hooks(task_path: Path, memory_dir: str = "") -> None:
@@ -53,19 +79,61 @@ def ensure_claude_hooks(task_path: Path, memory_dir: str = "") -> None:
     claude_dir.mkdir(exist_ok=True)
 
     settings_file = claude_dir / "settings.local.json"
-
-    if settings_file.exists():
-        try:
-            existing = json.loads(settings_file.read_text())
-        except (json.JSONDecodeError, OSError):
-            existing = {}
-    else:
-        existing = {}
+    existing = _load_settings(settings_file)
 
     # Merge hooks into existing settings
-    existing["hooks"] = _build_hooks_config(task_path)
+    existing["hooks"] = _build_hooks_config(str(task_path / ".claude_status"))
 
     if memory_dir:
         existing["autoMemoryDirectory"] = str(Path(memory_dir).expanduser())
 
     settings_file.write_text(json.dumps(existing, indent=2) + "\n")
+
+
+def _exclude_settings_from_git(repo_path: Path) -> None:
+    """Hide .claude/settings.local.json from git status in the repo.
+
+    Appends the path to <repo>/.git/info/exclude, which worktrees share
+    with the main checkout, so the generated settings file never shows
+    up as an untracked change in any of them.
+    """
+    git_dir = repo_path / ".git"
+    if not git_dir.is_dir():
+        return
+
+    entry = ".claude/settings.local.json"
+    exclude_file = git_dir / "info" / "exclude"
+    try:
+        existing = exclude_file.read_text().splitlines() if exclude_file.exists() else []
+        if entry in existing:
+            return
+        exclude_file.parent.mkdir(parents=True, exist_ok=True)
+        with exclude_file.open("a") as f:
+            f.write(entry + "\n")
+    except OSError:
+        return
+
+
+def ensure_worktree_claude_settings(
+    worktree_path: Path, repo_path: Path, status_file: Path
+) -> None:
+    """Create .claude/settings.local.json inside a worktree.
+
+    Points autoMemoryDirectory at the main repo's own memory directory, so
+    memory saved while working in any worktree of a repo persists after the
+    worktree is deleted and is shared with future worktrees and with
+    sessions in the main checkout. Also installs the status-reporting hooks
+    (writing to the task's status file) so sessions started manually inside
+    a worktree light up the task indicator.
+    """
+    claude_dir = worktree_path / ".claude"
+    claude_dir.mkdir(exist_ok=True)
+
+    settings_file = claude_dir / "settings.local.json"
+    existing = _load_settings(settings_file)
+
+    existing["hooks"] = _build_hooks_config(str(status_file))
+    existing["autoMemoryDirectory"] = str(repo_memory_dir(repo_path))
+
+    settings_file.write_text(json.dumps(existing, indent=2) + "\n")
+    _exclude_settings_from_git(repo_path)
