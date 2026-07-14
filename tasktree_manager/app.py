@@ -1360,6 +1360,14 @@ class TaskTreeApp(App):
         else:
             self.query_one("#worktree-list", WorktreeList).focus()
 
+    def _prepare_claude_session(self, task_path: Path) -> None:
+        """Refresh CLAUDE.md files, worktree settings, and hooks before launching Claude."""
+        fresh_task = self.task_manager.get_task(self.current_task.name)
+        if fresh_task:
+            self.task_manager.ensure_claude_md_files(fresh_task)
+            self.task_manager.ensure_worktree_settings(fresh_task)
+        ensure_claude_hooks(task_path, self.config.claude_memory_dir)
+
     def action_open_claude_resume(self) -> None:
         """Open Claude Code in a new Ghostty tab.
 
@@ -1375,13 +1383,7 @@ class TaskTreeApp(App):
             self.notify("Task directory not found", severity="error")
             return
 
-        # Fetch fresh task data to ensure worktrees are up-to-date
-        fresh_task = self.task_manager.get_task(self.current_task.name)
-        if fresh_task:
-            self.task_manager.ensure_claude_md_files(fresh_task)
-            self.task_manager.ensure_worktree_settings(fresh_task)
-
-        ensure_claude_hooks(task_path, self.config.claude_memory_dir)
+        self._prepare_claude_session(task_path)
         if has_claude_session(task_path):
             self._open_ghostty_tab(task_path, command=f"{self.config.claude_path} -r")
             self.notify("Opened Claude Code in new tab (resume)")
@@ -1402,11 +1404,7 @@ class TaskTreeApp(App):
             self.notify("Task directory not found", severity="error")
             return
 
-        fresh_task = self.task_manager.get_task(self.current_task.name)
-        if fresh_task:
-            self.task_manager.ensure_worktree_settings(fresh_task)
-
-        ensure_claude_hooks(task_path, self.config.claude_memory_dir)
+        self._prepare_claude_session(task_path)
         encoded_path = quote(str(task_path), safe="")
         url = f"claude://code/new?folder={encoded_path}"
         try:
