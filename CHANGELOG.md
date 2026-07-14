@@ -15,6 +15,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.9.0] - 2026-07-14
+
+### Added
+- **app**: Move blocking git work off the UI thread
+
+### Changed
+- Format worktree settings call with ruff
+- **app**: Extract Claude session preparation helper
+
+### Fixed
+- Address review findings in async refresh and hook merging
+- Harden task/branch validation, hook merging, markup rendering
+
+
 ## [2.8.0] - 2026-07-14
 
 ### Added
