@@ -187,9 +187,7 @@ class TaskManager:
         # survives worktree deletion (sessions may start here manually,
         # before any launch-time backfill runs)
         if self.config.claude_repo_memory:
-            ensure_worktree_claude_settings(
-                worktree_path, repo_path, task.path / ".claude_status"
-            )
+            ensure_worktree_claude_settings(worktree_path, repo_path, task.path / ".claude_status")
 
     def _parse_gitignore(self, gitignore_path: Path) -> list[str]:
         """Parse .gitignore and return glob patterns for files (not directories).
