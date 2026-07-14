@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.8.0] - 2026-07-14
+
+### Added
+- **claude**: Per-repo Claude memory for worktree sessions
+
+### Changed
+- Release only when semantic-release bumps the version
+
+
 ## [2.7.2] - 2026-07-13
 
 ### Changed
