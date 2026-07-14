@@ -71,8 +71,12 @@ def _is_tasktree_hook_group(group: object) -> bool:
     hooks = group.get("hooks", [])
     if not isinstance(hooks, list):
         return False
+    # The command value is user-editable JSON, so never assume it is a string
     return any(
-        isinstance(hook, dict) and ".claude_status" in hook.get("command", "") for hook in hooks
+        isinstance(hook, dict)
+        and isinstance(hook.get("command"), str)
+        and ".claude_status" in hook["command"]
+        for hook in hooks
     )
 
 

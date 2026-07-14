@@ -253,6 +253,9 @@ class TaskManager:
                 cwd=repo_path,
                 capture_output=True,
                 text=True,
+                # A non-UTF-8 filename must degrade to a skipped entry, not
+                # raise UnicodeDecodeError and abort worktree creation
+                errors="replace",
                 timeout=30,
             )
         except (subprocess.SubprocessError, OSError):
@@ -295,8 +298,11 @@ class TaskManager:
             rel_path = Path(rel_name)
             if ".git" in rel_path.parts or ".claude" in rel_path.parts:
                 continue
-            # Skip files matching the blocklist
-            if self._matches_blocklist(match.name, blocklist):
+            # Skip files matching the blocklist, by filename or by
+            # repo-relative path (so patterns like "secrets/*" work too)
+            if self._matches_blocklist(match.name, blocklist) or self._matches_blocklist(
+                rel_name, blocklist
+            ):
                 continue
             link_path = worktree_path / rel_path
             # is_symlink() check catches broken symlinks, for which

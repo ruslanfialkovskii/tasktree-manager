@@ -433,8 +433,9 @@ blocklist = [
    root pattern like `*.log` matches in subdirectories
 2. Wholly-ignored directories (e.g. `node_modules/`) are skipped entirely —
    their contents are never walked or symlinked
-3. Files matching the blocklist (by filename) and anything under `.git/` or
-   `.claude/` are skipped
+3. Files matching the blocklist (by filename or repo-relative path, so
+   patterns like `secrets/*` work) and anything under `.git/` or `.claude/`
+   are skipped
 4. Remaining files are symlinked to the worktree
 
 ### Customizing the Blocklist
@@ -455,7 +456,9 @@ blocklist = [
 ]
 ```
 
-**Add to default blocklist (must include all patterns):**
+**Add to default blocklist (must include ALL default patterns — an explicit
+blocklist replaces the defaults entirely, including the key-material
+protection):**
 ```toml
 [symlinks]
 blocklist = [
@@ -463,22 +466,47 @@ blocklist = [
     "*.pyc",
     "*.pyo",
     "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
     ".coverage",
     "*.log",
+    "*.egg-info",
+    ".eggs",
+    "dist",
+    "build",
+    ".tox",
+    ".nox",
+    "*.so",
+    "*.dylib",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "*.keystore",
+    "id_rsa",
+    "id_ecdsa",
+    "id_ed25519",
     # Your additions
     "*.tmp",
     ".DS_Store",
 ]
 ```
 
+> **Upgrading note:** if your existing `config.toml` already contains a
+> `blocklist`, it keeps overriding the defaults — the key-material patterns
+> added in newer versions do NOT apply until you add them (or delete the
+> `blocklist` line to inherit the defaults).
+
 ### Common Use Cases
 
-**Symlink environment files, block caches:**
+**Symlink environment files, block caches and keys:**
 ```toml
 [symlinks]
-blocklist = ["*.pyc", "__pycache__", ".coverage", "*.log"]
+blocklist = ["*.pyc", "__pycache__", ".coverage", "*.log", "*.pem", "*.key", "id_rsa"]
 ```
-This allows `.env`, `.mise.toml` to be symlinked while blocking cache files.
+This allows `.env`, `.mise.toml` to be symlinked while blocking cache files
+and private keys.
 
 **Block everything (disable symlinks):**
 ```toml

@@ -122,6 +122,21 @@ class TestEnsureClaudeHooks:
         for event in ("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"):
             assert len(settings["hooks"][event]) == 1
 
+    def test_tolerates_non_string_hook_command(self, tmp_path):
+        """A user hook whose command is not a string must not crash merging."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_file = claude_dir / "settings.local.json"
+        weird_group = {"hooks": [{"type": "command", "command": None}]}
+        settings_file.write_text(json.dumps({"hooks": {"Stop": [weird_group]}}))
+
+        ensure_claude_hooks(tmp_path)
+
+        settings = json.loads(settings_file.read_text())
+        # The malformed group is treated as user-owned and preserved
+        assert weird_group in settings["hooks"]["Stop"]
+        assert ".claude_status" in json.dumps(settings["hooks"]["Stop"])
+
 
 class TestRepoMemoryDir:
     """Tests for repo_memory_dir."""

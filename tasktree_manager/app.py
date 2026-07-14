@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Footer, Static
+from textual.worker import get_current_worker
 
 from . import __version__
 from .commands import TaskTreeCommands
@@ -238,6 +240,8 @@ class TaskTreeApp(App):
         self._claude_statuses: dict[str, str] = {}
         # Snapshot of last loaded task state, used to skip no-op UI reloads
         self._last_tasks_fingerprint: tuple | None = None
+        # Serializes the Ghostty clipboard/keystroke sequence across workers
+        self._ghostty_lock = threading.Lock()
 
     def _build_bindings_from_config(self) -> list[Binding]:
         """Build app-level keybindings from config.
@@ -501,10 +505,35 @@ class TaskTreeApp(App):
             select_worktree: Worktree name to select instead of the current one
         """
         tasks = self.task_manager.list_tasks()
+        self._carry_over_statuses(tasks)
         self._apply_refreshed_tasks(
             tasks, force_ui=True, select_task=select_task, select_worktree=select_worktree
         )
-        self._run_periodic_refresh(select_task=select_task, select_worktree=select_worktree)
+        # The follow-up scan applies with preserve-current-selection semantics
+        # (no select override): re-forcing the selection here would yank the
+        # highlight back if the user navigates while the scan runs.
+        self._run_periodic_refresh()
+
+    def _carry_over_statuses(self, tasks: list[Task]) -> None:
+        """Seed a freshly listed task set with the last known git statuses.
+
+        The synchronous list pass renders before the background git scan
+        completes; carrying over the previous branch/dirty state avoids a
+        flash of unknown/clean rows and keeps the fingerprint accurate so the
+        follow-up scan can skip its UI reload when nothing actually changed.
+        """
+        try:
+            previous = self.query_one("#task-list", TaskList).tasks
+        except Exception:
+            return
+        known = {(task.name, wt.name): wt for task in previous for wt in task.worktrees}
+        for task in tasks:
+            for wt in task.worktrees:
+                prev = known.get((task.name, wt.name))
+                if prev is not None:
+                    wt.branch = prev.branch
+                    wt.is_dirty = prev.is_dirty
+                    wt.changed_files = prev.changed_files
 
     def _load_tasks_with_selection(self, task_name: str | None, worktree_name: str | None) -> None:
         """Load tasks and restore selection by explicit names.
@@ -512,6 +541,26 @@ class TaskTreeApp(App):
         This is used after suspend/resume to restore exact selection state.
         """
         self._load_tasks(select_task=task_name, select_worktree=worktree_name)
+
+    def _mutation_in_flight(self) -> bool:
+        """True while a task create/add/delete worker is still running."""
+        return any(
+            worker.group == "task_mutation" and not worker.is_finished for worker in self.workers
+        )
+
+    def _begin_mutation(self, *loading_widget_ids: str) -> bool:
+        """Guard a task mutation, refusing while another is still running.
+
+        Overlapping mutations would race git worktree add/remove/prune (and
+        rmtree) against each other in the same repos. Returns True when the
+        mutation may proceed, with loading indicators set on the given widgets.
+        """
+        if self._mutation_in_flight():
+            self.notify("Another task operation is still running", severity="warning")
+            return False
+        for widget_id in loading_widget_ids:
+            self.query_one(f"#{widget_id}").loading = True
+        return True
 
     def _poll_claude_statuses(self) -> None:
         """Check .claude_status files and update task indicators."""
@@ -536,6 +585,10 @@ class TaskTreeApp(App):
 
     def _periodic_git_refresh(self) -> None:
         """Trigger a background git status refresh."""
+        # Skip the tick while a mutation runs: refreshing mid-create/delete
+        # would clear the loading overlay and render half-mutated state
+        if self._mutation_in_flight():
+            return
         self._run_periodic_refresh()
 
     @staticmethod
@@ -550,26 +603,22 @@ class TaskTreeApp(App):
         )
 
     @work(thread=True, exclusive=True, group="auto_refresh")
-    def _run_periodic_refresh(
-        self,
-        force_ui: bool = False,
-        select_task: str | None = None,
-        select_worktree: str | None = None,
-    ) -> None:
+    def _run_periodic_refresh(self, force_ui: bool = False) -> None:
         """Refresh git status in a background thread, then update the UI.
 
         Args:
             force_ui: If True, reload the UI even when nothing changed
                 (used by manual refresh)
-            select_task: Task name to select instead of the current selection
-            select_worktree: Worktree name to select instead of the current one
         """
         tasks = self.task_manager.list_tasks()
         all_worktrees = [wt for task in tasks for wt in task.worktrees]
         GitOps.update_all_worktree_statuses(all_worktrees)
-        self.call_from_thread(
-            self._apply_refreshed_tasks, tasks, force_ui, select_task, select_worktree
-        )
+        # Cancellation of thread workers is cooperative: when a newer refresh
+        # superseded this one, applying our now-stale snapshot would overwrite
+        # fresher UI state, so bail out instead.
+        if get_current_worker().is_cancelled:
+            return
+        self.call_from_thread(self._apply_refreshed_tasks, tasks, force_ui)
 
     def _apply_refreshed_tasks(
         self,
@@ -820,9 +869,8 @@ class TaskTreeApp(App):
             return
 
         def handle_result(result):
-            if result:
+            if result and self._begin_mutation("task-list"):
                 name, repos, base_branch = result
-                self.query_one("#task-list", TaskList).loading = True
                 self._create_task_worker(name, repos, base_branch, verb="created")
 
         self.push_screen(CreateTaskModal(available_repos), handle_result)
@@ -878,9 +926,8 @@ class TaskTreeApp(App):
         source_repos = [wt.name for wt in self.current_task.worktrees]
 
         def handle_result(result):
-            if result:
+            if result and self._begin_mutation("task-list"):
                 name, repos, base_branch = result
-                self.query_one("#task-list", TaskList).loading = True
                 self._create_task_worker(name, repos, base_branch, verb="cloned")
 
         self.push_screen(
@@ -904,10 +951,8 @@ class TaskTreeApp(App):
             return
 
         def handle_result(result):
-            if result and self.current_task:
+            if result and self.current_task and self._begin_mutation("task-list", "worktree-list"):
                 repos, base_branch = result
-                self.query_one("#task-list", TaskList).loading = True
-                self.query_one("#worktree-list", WorktreeList).loading = True
                 self._add_repos_worker(self.current_task, repos, base_branch)
 
         self.push_screen(AddRepoModal(self.current_task.name, available_repos), handle_result)
@@ -983,10 +1028,8 @@ class TaskTreeApp(App):
 
     def _finish_task(self, task: Task, force: bool = False) -> None:
         """Kick off task deletion in a background thread."""
-        try:
-            self.query_one("#task-list", TaskList).loading = True
-        except Exception:
-            pass
+        if not self._begin_mutation("task-list"):
+            return
         self._finish_task_worker(task, force)
 
     @work(thread=True, group="task_mutation")
@@ -1086,8 +1129,7 @@ class TaskTreeApp(App):
         message = escape(f"Delete worktree '{worktree.name}' from task '{task.name}'?")
 
         def handle_confirm(confirmed):
-            if confirmed:
-                self.query_one("#worktree-list", WorktreeList).loading = True
+            if confirmed and self._begin_mutation("worktree-list"):
                 self._remove_worktree_worker(task, worktree)
 
         self.push_screen(ConfirmModal("Delete Worktree", message), handle_confirm)
@@ -1456,43 +1498,51 @@ class TaskTreeApp(App):
         fire delete_worktree). Cmd+T and Cmd+V are caught by Ghostty's NSMenu
         before reaching the focused child app, so they cannot leak as
         bindings. The scripted delays are why this runs off the UI thread.
+
+        The lock serializes concurrent invocations: two overlapping runs
+        would overwrite each other's clipboard mid-paste and execute a
+        command in the wrong tab.
         """
-        prev_clipboard = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
-        subprocess.run(["pbcopy"], input=shell_cmd, text=True)
-        # Keystrokes always go to the frontmost app, so send them only if
-        # Ghostty actually took focus - otherwise they would land in (and
-        # possibly execute in) whatever application is in front.
-        script = """
-        tell application "Ghostty" to activate
-        delay 0.1
-        tell application "System Events"
-            if frontmost of process "Ghostty" then
-                keystroke "t" using command down
-                delay 0.3
-                keystroke "v" using command down
-                delay 0.05
-                key code 36
-            else
-                return "not-frontmost"
-            end if
-        end tell
-        """
-        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
-        if "not-frontmost" in result.stdout:
-            # Leave the command in the clipboard so the user can paste it
-            self.call_from_thread(
-                self.notify,
-                "Ghostty did not take focus - command left in clipboard, paste to run",
-                severity="warning",
-            )
-            return
-        # Give the paste time to complete, then restore the user's previous
-        # clipboard - but only if it still holds our command (the user may
-        # have copied something else in the meantime).
-        time.sleep(0.6)
-        current = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
-        if current == shell_cmd:
-            subprocess.run(["pbcopy"], input=prev_clipboard, text=True)
+        with self._ghostty_lock:
+            prev_clipboard = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
+            subprocess.run(["pbcopy"], input=shell_cmd, text=True)
+            # Keystrokes always go to the frontmost app, so send them only if
+            # Ghostty actually took focus - otherwise they would land in (and
+            # possibly execute in) whatever application is in front.
+            script = """
+            tell application "Ghostty" to activate
+            delay 0.1
+            tell application "System Events"
+                if frontmost of process "Ghostty" then
+                    keystroke "t" using command down
+                    delay 0.3
+                    keystroke "v" using command down
+                    delay 0.05
+                    key code 36
+                else
+                    return "not-frontmost"
+                end if
+            end tell
+            """
+            result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+            if result.returncode != 0 or "not-frontmost" in result.stdout:
+                # osascript failed (commonly: missing Automation/Accessibility
+                # permission) or Ghostty never came frontmost - keystrokes were
+                # not delivered. Leave the command in the clipboard so the user
+                # can paste it themselves.
+                self.call_from_thread(
+                    self.notify,
+                    "Could not drive Ghostty - command left in clipboard, paste to run",
+                    severity="warning",
+                )
+                return
+            # Give the paste time to complete, then restore the user's previous
+            # clipboard - but only if it still holds our command (the user may
+            # have copied something else in the meantime).
+            time.sleep(0.6)
+            current = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
+            if current == shell_cmd:
+                subprocess.run(["pbcopy"], input=prev_clipboard, text=True)
 
     def action_push_all(self) -> None:
         """Push all worktrees in the current task."""

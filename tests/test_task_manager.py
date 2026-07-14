@@ -657,6 +657,34 @@ class TestGitignoreSymlinks:
         assert (worktree_path / ".env").is_symlink()
         assert not (worktree_path / ".claude" / "settings.local.json").is_symlink()
 
+    def test_blocklist_matches_relative_paths(self, temp_dirs, sample_repo):
+        """Blocklist patterns match repo-relative paths, not just filenames."""
+        from tasktree_manager.services.config import Config
+        from tasktree_manager.services.task_manager import TaskManager
+
+        repos_dir, tasks_dir = temp_dirs
+        repo_path, branch = sample_repo
+
+        config = Config(
+            repos_dir=repos_dir,
+            tasks_dir=tasks_dir,
+            config_dir=repos_dir.parent / ".config" / "tasktree-manager",
+            symlink_blocklist=["secrets/*"],  # path-shaped pattern
+        )
+        manager = TaskManager(config)
+
+        (repo_path / ".gitignore").write_text("*.env\n")
+        secrets_dir = repo_path / "secrets"
+        secrets_dir.mkdir()
+        (secrets_dir / "prod.env").write_text("blocked\n")
+        (repo_path / "dev.env").write_text("allowed\n")
+
+        task = manager.create_task("PATH-BLOCK", ["sample-repo"], branch)
+        worktree_path = task.worktrees[0].path
+
+        assert (worktree_path / "dev.env").is_symlink()
+        assert not (worktree_path / "secrets" / "prod.env").exists()
+
     def test_symlinks_skip_key_material(self, task_manager, sample_repo):
         """Private keys and certificates are blocklisted by default."""
         repo_path, branch = sample_repo
