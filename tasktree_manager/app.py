@@ -2,9 +2,10 @@
 
 import json
 import subprocess
-import threading
+import time
 from pathlib import Path
 
+from rich.markup import escape
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -360,7 +361,9 @@ class TaskTreeApp(App):
         """Format a panel title: dim [n] number, bold name, dim context suffix."""
         title = f"[dim]\\[{number}][/dim] [b]{name}[/b]"
         if context:
-            title += f"[dim] · {context}[/dim]"
+            # Context is often a task/worktree name from the filesystem;
+            # escape so brackets in a name cannot inject markup
+            title += f"[dim] · {escape(context)}[/dim]"
         return title
 
     def _set_counter(self, counter_id: str, text: str) -> None:
@@ -483,64 +486,32 @@ class TaskTreeApp(App):
 
         self.push_screen(SetupModal(), handle_setup)
 
-    def _load_tasks(self, preserve_selection: bool = False) -> None:
-        """Load tasks and update git status.
+    def _load_tasks(
+        self, select_task: str | None = None, select_worktree: str | None = None
+    ) -> None:
+        """Load tasks into the UI, then refresh git status in the background.
+
+        Listing tasks is a fast directory walk, so it runs synchronously for
+        an instantly responsive UI. Git status is one subprocess per worktree
+        and can be slow, so it fills in asynchronously via the auto_refresh
+        worker (dirty indicators and branches appear as the scan completes).
 
         Args:
-            preserve_selection: If True, preserve the current task and worktree selection
+            select_task: Task name to select instead of the current selection
+            select_worktree: Worktree name to select instead of the current one
         """
-        task_list = self.query_one("#task-list", TaskList)
-        task_list.loading = True
-
-        # Remember current selection if preserving
-        current_task_name = (
-            self.current_task.name if preserve_selection and self.current_task else None
+        tasks = self.task_manager.list_tasks()
+        self._apply_refreshed_tasks(
+            tasks, force_ui=True, select_task=select_task, select_worktree=select_worktree
         )
-        # Store worktree name for event handler to use
-        if preserve_selection and self.current_worktree:
-            self._preserved_worktree_name = self.current_worktree.name
-
-        try:
-            tasks = self.task_manager.list_tasks()
-
-            # Collect all worktrees and update in parallel
-            all_worktrees = [wt for task in tasks for wt in task.worktrees]
-            GitOps.update_all_worktree_statuses(all_worktrees)
-            self._last_tasks_fingerprint = self._tasks_fingerprint(tasks)
-
-            self._update_header_stats(tasks)
-            task_list.load_tasks(tasks, preserve_selection=current_task_name)
-        finally:
-            task_list.loading = False
+        self._run_periodic_refresh(select_task=select_task, select_worktree=select_worktree)
 
     def _load_tasks_with_selection(self, task_name: str | None, worktree_name: str | None) -> None:
         """Load tasks and restore selection by explicit names.
 
         This is used after suspend/resume to restore exact selection state.
-
-        Args:
-            task_name: Name of task to select
-            worktree_name: Name of worktree to select
         """
-        task_list = self.query_one("#task-list", TaskList)
-        task_list.loading = True
-
-        # Store worktree name for event handler to use
-        if worktree_name:
-            self._preserved_worktree_name = worktree_name
-
-        try:
-            tasks = self.task_manager.list_tasks()
-
-            # Collect all worktrees and update in parallel
-            all_worktrees = [wt for task in tasks for wt in task.worktrees]
-            GitOps.update_all_worktree_statuses(all_worktrees)
-            self._last_tasks_fingerprint = self._tasks_fingerprint(tasks)
-
-            self._update_header_stats(tasks)
-            task_list.load_tasks(tasks, preserve_selection=task_name)
-        finally:
-            task_list.loading = False
+        self._load_tasks(select_task=task_name, select_worktree=worktree_name)
 
     def _poll_claude_statuses(self) -> None:
         """Check .claude_status files and update task indicators."""
@@ -579,32 +550,42 @@ class TaskTreeApp(App):
         )
 
     @work(thread=True, exclusive=True, group="auto_refresh")
-    def _run_periodic_refresh(self, force_ui: bool = False) -> None:
+    def _run_periodic_refresh(
+        self,
+        force_ui: bool = False,
+        select_task: str | None = None,
+        select_worktree: str | None = None,
+    ) -> None:
         """Refresh git status in a background thread, then update the UI.
 
         Args:
             force_ui: If True, reload the UI even when nothing changed
                 (used by manual refresh)
+            select_task: Task name to select instead of the current selection
+            select_worktree: Worktree name to select instead of the current one
         """
         tasks = self.task_manager.list_tasks()
         all_worktrees = [wt for task in tasks for wt in task.worktrees]
         GitOps.update_all_worktree_statuses(all_worktrees)
-        self.call_from_thread(self._apply_refreshed_tasks, tasks, force_ui)
+        self.call_from_thread(
+            self._apply_refreshed_tasks, tasks, force_ui, select_task, select_worktree
+        )
 
-    def _apply_refreshed_tasks(self, tasks: list[Task], force_ui: bool = False) -> None:
-        """Apply a background refresh to the UI (runs on the main thread).
+    def _apply_refreshed_tasks(
+        self,
+        tasks: list[Task],
+        force_ui: bool = False,
+        select_task: str | None = None,
+        select_worktree: str | None = None,
+    ) -> None:
+        """Apply a (re)loaded task list to the UI (runs on the main thread).
 
         The selection is read here, at apply time, so navigation that happened
-        while the background scan was running is not reverted. When nothing
-        changed since the last load, the UI reload is skipped entirely to
-        avoid selection/status-panel flicker.
+        while a background scan was running is not reverted; select_task /
+        select_worktree override it (used after suspend/resume and creation).
+        When nothing changed since the last load, the UI reload is skipped
+        entirely to avoid selection/status-panel flicker.
         """
-        fingerprint = self._tasks_fingerprint(tasks)
-        if not force_ui and fingerprint == self._last_tasks_fingerprint:
-            return
-        self._last_tasks_fingerprint = fingerprint
-        self._update_header_stats(tasks)
-
         try:
             task_list = self.query_one("#task-list", TaskList)
             worktree_list = self.query_one("#worktree-list", WorktreeList)
@@ -613,9 +594,22 @@ class TaskTreeApp(App):
             # Widgets not mounted (e.g. setup wizard is showing)
             return
 
+        task_list.loading = False
+        worktree_list.loading = False
+
+        fingerprint = self._tasks_fingerprint(tasks)
+        if not force_ui and fingerprint == self._last_tasks_fingerprint:
+            return
+        self._last_tasks_fingerprint = fingerprint
+        self._update_header_stats(tasks)
+
         try:
-            current_task_name = self.current_task.name if self.current_task else None
-            current_worktree_name = self.current_worktree.name if self.current_worktree else None
+            current_task_name = select_task or (
+                self.current_task.name if self.current_task else None
+            )
+            current_worktree_name = select_worktree or (
+                self.current_worktree.name if self.current_worktree else None
+            )
 
             if current_worktree_name:
                 self._preserved_worktree_name = current_worktree_name
@@ -644,27 +638,6 @@ class TaskTreeApp(App):
             # A worker error would exit the app; refresh glitches are not fatal
             self.log.error(f"Failed to apply refreshed tasks: {e}")
 
-    def _refresh_current_task(self, preserve_selection: bool = False) -> None:
-        """Refresh the current task's worktrees and status.
-
-        Args:
-            preserve_selection: If True, preserve the current worktree selection
-        """
-        if self.current_task:
-            # Remember current selection if preserving
-            current_worktree_name = (
-                self.current_worktree.name if preserve_selection and self.current_worktree else None
-            )
-
-            task = self.task_manager.get_task(self.current_task.name)
-            if task:
-                GitOps.update_all_worktree_statuses(task.worktrees)
-                self.current_task = task
-                worktree_list = self.query_one("#worktree-list", WorktreeList)
-                worktree_list.load_worktrees(
-                    task.worktrees, preserve_selection=current_worktree_name
-                )
-
     def _run_external_command(
         self, cmd: list[str], cwd, name: str, install_hint: str | None = None
     ) -> bool:
@@ -690,7 +663,7 @@ class TaskTreeApp(App):
             self.notify(f"Permission denied running {name}", severity="error")
             return False
         except Exception as e:
-            self.notify(f"Failed to run {name}: {e}", severity="error")
+            self.notify(escape(f"Failed to run {name}: {e}"), severity="error")
             return False
 
     def on_descendant_focus(self, event) -> None:
@@ -849,36 +822,47 @@ class TaskTreeApp(App):
         def handle_result(result):
             if result:
                 name, repos, base_branch = result
-                task_list = self.query_one("#task-list", TaskList)
-                task_list.loading = True
-                try:
-                    self.task_manager.create_task(name, repos, base_branch)
-                    self._load_tasks()
-                    self.notify(f"Created task: {name}")
-                    self._log_activity(
-                        f"Task '{name}' created with {len(repos)} repo(s)",
-                        MessageLevel.SUCCESS,
-                        name,
-                    )
-                except FileNotFoundError as e:
-                    self.notify(f"Repository not found: {e}", severity="error")
-                    self._log_activity(f"Failed to create task: {e}", MessageLevel.ERROR, name)
-                except PermissionError:
-                    self.notify("Permission denied: check directory permissions", severity="error")
-                    self._log_activity(
-                        "Failed to create task: permission denied", MessageLevel.ERROR, name
-                    )
-                except ValueError as e:
-                    # ValueError from task_manager has good messages
-                    self.notify(str(e), severity="error")
-                    self._log_activity(f"Failed to create task: {e}", MessageLevel.ERROR, name)
-                except Exception as e:
-                    self.notify(f"Failed to create task: {type(e).__name__}: {e}", severity="error")
-                    self._log_activity(f"Failed to create task: {e}", MessageLevel.ERROR, name)
-                finally:
-                    task_list.loading = False
+                self.query_one("#task-list", TaskList).loading = True
+                self._create_task_worker(name, repos, base_branch, verb="created")
 
         self.push_screen(CreateTaskModal(available_repos), handle_result)
+
+    @work(thread=True, group="task_mutation")
+    def _create_task_worker(self, name: str, repos: list[str], base_branch: str, verb: str) -> None:
+        """Create a task in a background thread.
+
+        Creation fetches the base branch from origin for every repo, so it
+        can block on the network for a long time - never run it on the UI
+        thread.
+        """
+        error: str | None = None
+        try:
+            self.task_manager.create_task(name, repos, base_branch)
+        except FileNotFoundError as e:
+            error = f"Repository not found: {e}"
+        except PermissionError:
+            error = "Permission denied: check directory permissions"
+        except ValueError as e:
+            # ValueError from task_manager has good messages
+            error = str(e)
+        except Exception as e:
+            error = f"{type(e).__name__}: {e}"
+        self.call_from_thread(self._apply_create_task_result, name, len(repos), verb, error)
+
+    def _apply_create_task_result(
+        self, name: str, repo_count: int, verb: str, error: str | None
+    ) -> None:
+        """Report the create/clone outcome and reload (runs on the main thread)."""
+        if error:
+            self.notify(escape(f"Failed to create task: {error}"), severity="error")
+            self._log_activity(f"Failed to create task: {error}", MessageLevel.ERROR, name)
+            self._load_tasks()
+        else:
+            self.notify(escape(f"Created task: {name}"))
+            self._log_activity(
+                f"Task '{name}' {verb} with {repo_count} repo(s)", MessageLevel.SUCCESS, name
+            )
+            self._load_tasks(select_task=name)
 
     def action_clone_task(self) -> None:
         """Create a new task pre-populated with the current task's repos."""
@@ -896,33 +880,8 @@ class TaskTreeApp(App):
         def handle_result(result):
             if result:
                 name, repos, base_branch = result
-                task_list = self.query_one("#task-list", TaskList)
-                task_list.loading = True
-                try:
-                    self.task_manager.create_task(name, repos, base_branch)
-                    self._load_tasks()
-                    self.notify(f"Created task: {name}")
-                    self._log_activity(
-                        f"Task '{name}' cloned with {len(repos)} repo(s)",
-                        MessageLevel.SUCCESS,
-                        name,
-                    )
-                except FileNotFoundError as e:
-                    self.notify(f"Repository not found: {e}", severity="error")
-                    self._log_activity(f"Failed to clone task: {e}", MessageLevel.ERROR, name)
-                except PermissionError:
-                    self.notify("Permission denied: check directory permissions", severity="error")
-                    self._log_activity(
-                        "Failed to clone task: permission denied", MessageLevel.ERROR, name
-                    )
-                except ValueError as e:
-                    self.notify(str(e), severity="error")
-                    self._log_activity(f"Failed to clone task: {e}", MessageLevel.ERROR, name)
-                except Exception as e:
-                    self.notify(f"Failed to clone task: {type(e).__name__}: {e}", severity="error")
-                    self._log_activity(f"Failed to clone task: {e}", MessageLevel.ERROR, name)
-                finally:
-                    task_list.loading = False
+                self.query_one("#task-list", TaskList).loading = True
+                self._create_task_worker(name, repos, base_branch, verb="cloned")
 
         self.push_screen(
             CreateTaskModal(
@@ -947,39 +906,40 @@ class TaskTreeApp(App):
         def handle_result(result):
             if result and self.current_task:
                 repos, base_branch = result
-                task_list = self.query_one("#task-list", TaskList)
-                worktree_list = self.query_one("#worktree-list", WorktreeList)
-                task_list.loading = True
-                worktree_list.loading = True
-                task_name = self.current_task.name
-                added = []
-                failed = []
-                for repo in repos:
-                    try:
-                        self.task_manager.add_repo_to_task(self.current_task, repo, base_branch)
-                        added.append(repo)
-                    except Exception as e:
-                        failed.append((repo, e))
-
-                self._load_tasks(preserve_selection=True)
-                self._refresh_current_task(preserve_selection=True)
-
-                if added:
-                    self.notify(f"Added {len(added)} repo(s) to task")
-                    self._log_activity(
-                        f"Added {len(added)} repo(s) to task '{task_name}'",
-                        MessageLevel.SUCCESS,
-                        task_name,
-                    )
-                for repo, err in failed:
-                    self.notify(f"Failed to add {repo}: {err}", severity="error")
-                    self._log_activity(
-                        f"Failed to add {repo}: {err}", MessageLevel.ERROR, task_name
-                    )
-                task_list.loading = False
-                worktree_list.loading = False
+                self.query_one("#task-list", TaskList).loading = True
+                self.query_one("#worktree-list", WorktreeList).loading = True
+                self._add_repos_worker(self.current_task, repos, base_branch)
 
         self.push_screen(AddRepoModal(self.current_task.name, available_repos), handle_result)
+
+    @work(thread=True, group="task_mutation")
+    def _add_repos_worker(self, task: Task, repos: list[str], base_branch: str) -> None:
+        """Add repos to a task in a background thread (fetches per repo)."""
+        added: list[str] = []
+        failed: list[tuple[str, str]] = []
+        for repo in repos:
+            try:
+                self.task_manager.add_repo_to_task(task, repo, base_branch)
+                added.append(repo)
+            except Exception as e:
+                failed.append((repo, str(e)))
+        self.call_from_thread(self._apply_add_repos_result, task.name, added, failed)
+
+    def _apply_add_repos_result(
+        self, task_name: str, added: list[str], failed: list[tuple[str, str]]
+    ) -> None:
+        """Report add-repo outcomes and reload (runs on the main thread)."""
+        if added:
+            self.notify(f"Added {len(added)} repo(s) to task")
+            self._log_activity(
+                f"Added {len(added)} repo(s) to task '{task_name}'",
+                MessageLevel.SUCCESS,
+                task_name,
+            )
+        for repo, err in failed:
+            self.notify(escape(f"Failed to add {repo}: {err}"), severity="error")
+            self._log_activity(f"Failed to add {repo}: {err}", MessageLevel.ERROR, task_name)
+        self._load_tasks()
 
     def action_delete_task(self) -> None:
         """Delete/finish the current task with safety checks."""
@@ -989,7 +949,7 @@ class TaskTreeApp(App):
 
         # Safety checks hit the network (git fetch per worktree), so run them
         # in a background thread and show the dialog when they complete
-        self.notify(f"Checking '{self.current_task.name}' before delete...")
+        self.notify(escape(f"Checking '{self.current_task.name}' before delete..."))
         self._check_task_safety_worker(self.current_task)
 
     @work(thread=True, exclusive=True, group="safety_check")
@@ -1001,7 +961,9 @@ class TaskTreeApp(App):
     def _show_delete_task_dialog(self, task: Task, safety_report: TaskSafetyReport) -> None:
         """Show the appropriate delete dialog for the safety report."""
         if safety_report.is_safe():
-            self._confirm_and_finish_task(task, f"Delete task '{task.name}' and all its worktrees?")
+            self._confirm_and_finish_task(
+                task, escape(f"Delete task '{task.name}' and all its worktrees?")
+            )
         else:
             self.push_screen(
                 SafeDeleteModal(task.name, safety_report),
@@ -1020,25 +982,46 @@ class TaskTreeApp(App):
         self.push_screen(ConfirmModal(title, message), handle_confirm)
 
     def _finish_task(self, task: Task, force: bool = False) -> None:
-        """Delete the task and report the outcome."""
+        """Kick off task deletion in a background thread."""
+        try:
+            self.query_one("#task-list", TaskList).loading = True
+        except Exception:
+            pass
+        self._finish_task_worker(task, force)
+
+    @work(thread=True, group="task_mutation")
+    def _finish_task_worker(self, task: Task, force: bool) -> None:
+        """Delete the task in a background thread.
+
+        Removing worktrees runs git per repo and rmtree over trees that can
+        be huge (node_modules etc.) - never block the UI thread on it.
+        """
+        error: str | None = None
         try:
             self.task_manager.finish_task(task)
-            self._load_tasks()
-            self.notify(f"Deleted task: {task.name}")
+        except Exception as e:
+            error = f"{type(e).__name__}: {e}"
+        self.call_from_thread(self._apply_finish_task_result, task.name, force, error)
+
+    def _apply_finish_task_result(self, task_name: str, force: bool, error: str | None) -> None:
+        """Report the delete outcome and reload (runs on the main thread)."""
+        if error:
+            self.notify(escape(f"Failed to delete task: {error}"), severity="error")
+            self._log_activity(f"Failed to delete task: {error}", MessageLevel.ERROR, task_name)
+        else:
+            self.notify(escape(f"Deleted task: {task_name}"))
             suffix = " (force)" if force else ""
             self._log_activity(
-                f"Task '{task.name}' deleted{suffix}", MessageLevel.SUCCESS, task.name
+                f"Task '{task_name}' deleted{suffix}", MessageLevel.SUCCESS, task_name
             )
-        except Exception as e:
-            self.notify(f"Failed to delete task: {e}", severity="error")
-            self._log_activity(f"Failed to delete task: {e}", MessageLevel.ERROR, task.name)
+        self._load_tasks()
 
     def _handle_safe_delete_action(
         self, task: Task, safety_report: TaskSafetyReport, action: str | None
     ) -> None:
         """Handle the user's choice from the safe-delete modal."""
         if action == "push":
-            self.notify(f"Pushing all branches for {task.name}...")
+            self.notify(escape(f"Pushing all branches for {task.name}..."))
             self._push_branches_for_delete_worker(task)
         elif action == "lazygit":
             # Open lazygit in the first problematic worktree, then re-run checks
@@ -1047,7 +1030,7 @@ class TaskTreeApp(App):
         elif action == "force":
             self._confirm_and_finish_task(
                 task,
-                f"Really delete task '{task.name}'?\n\nYou may lose unpushed work!",
+                escape(f"Really delete task '{task.name}'?") + "\n\nYou may lose unpushed work!",
                 title="Force Delete",
                 force=True,
             )
@@ -1082,7 +1065,7 @@ class TaskTreeApp(App):
     def _continue_delete_after_push(self, task: Task, report: TaskSafetyReport) -> None:
         """Ask to delete if the task became safe, otherwise show the issues again."""
         if report.is_safe():
-            self._confirm_and_finish_task(task, f"Delete task '{task.name}'?")
+            self._confirm_and_finish_task(task, escape(f"Delete task '{task.name}'?"))
         else:
             self.push_screen(
                 SafeDeleteModal(task.name, report),
@@ -1100,47 +1083,56 @@ class TaskTreeApp(App):
 
         task = self.current_task
         worktree = self.current_worktree
-        message = f"Delete worktree '{worktree.name}' from task '{task.name}'?"
+        message = escape(f"Delete worktree '{worktree.name}' from task '{task.name}'?")
 
         def handle_confirm(confirmed):
             if confirmed:
-                try:
-                    self.task_manager.remove_worktree_from_task(task, worktree)
-                    self._load_tasks(preserve_selection=True)
-                    self._refresh_current_task()
-                    self.notify(f"Deleted worktree: {worktree.name}")
-                    self._log_activity(
-                        f"Worktree '{worktree.name}' deleted from '{task.name}'",
-                        MessageLevel.SUCCESS,
-                        task.name,
-                    )
-                except Exception as e:
-                    self.notify(f"Failed to delete worktree: {e}", severity="error")
-                    self._log_activity(
-                        f"Failed to delete worktree '{worktree.name}': {e}",
-                        MessageLevel.ERROR,
-                        task.name,
-                    )
+                self.query_one("#worktree-list", WorktreeList).loading = True
+                self._remove_worktree_worker(task, worktree)
 
         self.push_screen(ConfirmModal("Delete Worktree", message), handle_confirm)
 
-    def _open_lazygit_for_task(
-        self, task: Task, safety_report: TaskSafetyReport | None = None
+    @work(thread=True, group="task_mutation")
+    def _remove_worktree_worker(self, task: Task, worktree: Worktree) -> None:
+        """Remove a single worktree in a background thread (git + rmtree)."""
+        error: str | None = None
+        try:
+            self.task_manager.remove_worktree_from_task(task, worktree)
+        except Exception as e:
+            error = f"{type(e).__name__}: {e}"
+        self.call_from_thread(self._apply_remove_worktree_result, task.name, worktree.name, error)
+
+    def _apply_remove_worktree_result(
+        self, task_name: str, worktree_name: str, error: str | None
     ) -> None:
+        """Report the worktree removal outcome and reload (main thread)."""
+        if error:
+            self.notify(escape(f"Failed to delete worktree: {error}"), severity="error")
+            self._log_activity(
+                f"Failed to delete worktree '{worktree_name}': {error}",
+                MessageLevel.ERROR,
+                task_name,
+            )
+        else:
+            self.notify(escape(f"Deleted worktree: {worktree_name}"))
+            self._log_activity(
+                f"Worktree '{worktree_name}' deleted from '{task_name}'",
+                MessageLevel.SUCCESS,
+                task_name,
+            )
+        self._load_tasks()
+
+    def _open_lazygit_for_task(self, task: Task, safety_report: TaskSafetyReport) -> None:
         """Open lazygit in the first worktree with issues.
 
         Args:
             task: The task whose worktrees to check
-            safety_report: Pre-computed safety report; when omitted, a fresh
-                (blocking) check is run
+            safety_report: Pre-computed safety report (computing one here
+                would block the UI thread on network git)
         """
         # Save selection state BEFORE suspend (as local variables)
         saved_task_name = self.current_task.name if self.current_task else None
         saved_worktree_name = self.current_worktree.name if self.current_worktree else None
-
-        if safety_report is None:
-            # Get safety report to find first problematic worktree
-            safety_report = self.task_manager.check_task_safety(task)
 
         # Find first worktree with any issues
         first_issue_worktree = None
@@ -1346,7 +1338,7 @@ class TaskTreeApp(App):
         saved_worktree_name = self.current_worktree.name if self.current_worktree else None
 
         editor = self.config.get_editor()
-        self.notify(f"Opening {editor}...")
+        self.notify(escape(f"Opening {editor}..."))
 
         # Suspend app and run editor with "." to open directory
         with self.suspend():
@@ -1413,7 +1405,7 @@ class TaskTreeApp(App):
         except FileNotFoundError:
             self.notify("'open' command not found (macOS only)", severity="error")
         except Exception as e:
-            self.notify(f"Failed to open Claude desktop: {e}", severity="error")
+            self.notify(escape(f"Failed to open Claude desktop: {e}"), severity="error")
 
     def action_open_folder(self) -> None:
         """Open current folder in a new terminal tab."""
@@ -1451,31 +1443,56 @@ class TaskTreeApp(App):
             shell_cmd = f"cd '{safe_path}' && clear && {command}"
         else:
             shell_cmd = f"cd '{safe_path}' && clear"
-        # Deliver the command via clipboard paste rather than typed keystrokes.
-        # tasktree-manager itself runs inside Ghostty, so typed keystrokes can
-        # arrive before focus transitions to the new tab and end up triggering
-        # Textual bindings (e.g. the 'D' in '/Documents/' would fire delete_worktree).
-        # Cmd+T and Cmd+V are caught by Ghostty's NSMenu before reaching the
-        # focused child app, so they cannot leak as bindings.
+        self._open_ghostty_tab_worker(shell_cmd)
+
+    @work(thread=True, group="ghostty_tab")
+    def _open_ghostty_tab_worker(self, shell_cmd: str) -> None:
+        """Drive Ghostty via clipboard paste in a background thread.
+
+        The command is delivered via clipboard paste rather than typed
+        keystrokes: tasktree-manager itself runs inside Ghostty, so typed
+        keystrokes can arrive before focus transitions to the new tab and end
+        up triggering Textual bindings (e.g. the 'D' in '/Documents/' would
+        fire delete_worktree). Cmd+T and Cmd+V are caught by Ghostty's NSMenu
+        before reaching the focused child app, so they cannot leak as
+        bindings. The scripted delays are why this runs off the UI thread.
+        """
         prev_clipboard = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
         subprocess.run(["pbcopy"], input=shell_cmd, text=True)
+        # Keystrokes always go to the frontmost app, so send them only if
+        # Ghostty actually took focus - otherwise they would land in (and
+        # possibly execute in) whatever application is in front.
         script = """
         tell application "Ghostty" to activate
         delay 0.1
         tell application "System Events"
-            keystroke "t" using command down
-            delay 0.3
-            keystroke "v" using command down
-            delay 0.05
-            key code 36
+            if frontmost of process "Ghostty" then
+                keystroke "t" using command down
+                delay 0.3
+                keystroke "v" using command down
+                delay 0.05
+                key code 36
+            else
+                return "not-frontmost"
+            end if
         end tell
         """
-        subprocess.run(["osascript", "-e", script], capture_output=True)
-        # Restore the user's prior clipboard contents after a short delay so
-        # the paste has time to complete first.
-        threading.Timer(
-            0.6, lambda: subprocess.run(["pbcopy"], input=prev_clipboard, text=True)
-        ).start()
+        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+        if "not-frontmost" in result.stdout:
+            # Leave the command in the clipboard so the user can paste it
+            self.call_from_thread(
+                self.notify,
+                "Ghostty did not take focus - command left in clipboard, paste to run",
+                severity="warning",
+            )
+            return
+        # Give the paste time to complete, then restore the user's previous
+        # clipboard - but only if it still holds our command (the user may
+        # have copied something else in the meantime).
+        time.sleep(0.6)
+        current = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
+        if current == shell_cmd:
+            subprocess.run(["pbcopy"], input=prev_clipboard, text=True)
 
     def action_push_all(self) -> None:
         """Push all worktrees in the current task."""
@@ -1485,7 +1502,7 @@ class TaskTreeApp(App):
 
         worktree_list = self.query_one("#worktree-list", WorktreeList)
         worktree_list.loading = True
-        self.notify(f"Pushing all worktrees in {self.current_task.name}...")
+        self.notify(escape(f"Pushing all worktrees in {self.current_task.name}..."))
         self._push_all_worker(self.current_task)
 
     @work(thread=True, exclusive=True, group="push_pull")
@@ -1505,7 +1522,7 @@ class TaskTreeApp(App):
 
         worktree_list = self.query_one("#worktree-list", WorktreeList)
         worktree_list.loading = True
-        self.notify(f"Pulling all worktrees in {self.current_task.name}...")
+        self.notify(escape(f"Pulling all worktrees in {self.current_task.name}..."))
         self._pull_all_worker(self.current_task)
 
     @work(thread=True, exclusive=True, group="push_pull")
