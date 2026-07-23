@@ -75,8 +75,7 @@ def _unknown_repos_error(config: Config, repos: list[str]) -> str | None:
     unknown = [r for r in repos if r not in available]
     if unknown:
         return (
-            f"unknown repo(s): {', '.join(unknown)}; "
-            f"available: {', '.join(available) or '(none)'}"
+            f"unknown repo(s): {', '.join(unknown)}; available: {', '.join(available) or '(none)'}"
         )
     return None
 
