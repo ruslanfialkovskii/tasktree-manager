@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.10.0] - 2026-07-23
+
+### Added
+- **cli**: Add headless CLI for task management
+
+
 ## [2.9.0] - 2026-07-14
 
 ### Added
