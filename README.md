@@ -18,6 +18,7 @@
 - ⌨️ **Keyboard-First** - Navigate and control everything without touching the mouse
 - 🚀 **Fast & Responsive** - Parallel git operations with loading indicators
 - 🔧 **Flexible Configuration** - TOML config file, custom keybindings, environment variables
+- 🤖 **Headless CLI** - Create, list, and delete tasks from scripts and AI agents without opening the TUI
 
 ## 📊 Status Indicators
 
@@ -62,6 +63,22 @@ On first run, you'll configure:
 5. **Delete task** - Press `d` when finished
 
 For detailed workflows and examples, see the [User Guide](docs/user-guide.md).
+
+### Headless CLI
+
+Running `tasktree-manager` with arguments skips the TUI — useful for scripts and AI-agent
+workflows (e.g. a skill that creates a Jira ticket and then the matching task):
+
+```bash
+tasktree-manager create DIC-1901-argocd-tls --repos backend,frontend  # --base overrides the default base branch
+tasktree-manager list --json     # tasks with repos and dirty state (plain text without --json)
+tasktree-manager repos           # available repos in REPOS_DIR
+tasktree-manager add-repo DIC-1901-argocd-tls infra
+tasktree-manager delete DIC-1901-argocd-tls   # refuses on unfinished work; --force overrides
+```
+
+Exit code is 0 on success, 1 on failure with the reason on stderr. `delete` runs the same
+safety check as the TUI (uncommitted, unpushed, or unmerged work blocks deletion).
 
 ## 📖 Documentation
 

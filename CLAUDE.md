@@ -40,6 +40,13 @@ pytest tests/test_app.py::TestTaskTreeApp::test_app_starts -v
 - `task_manager.py`: CRUD operations for tasks and worktrees (creates git worktrees via subprocess)
 - `git_ops.py`: Git status queries, push/pull operations (all via subprocess)
 
+### Headless CLI (`tasktree_manager/cli.py`)
+
+`tasktree-manager` with any argument routes to the CLI instead of the TUI (dispatch in
+`app.py:main`). Subcommands `create`/`list`/`delete`/`add-repo`/`repos` are thin wrappers over
+the services layer for scripts and AI agents (the `/wtask` skill drives them). `delete` enforces
+the same `check_task_safety` gate as the TUI unless `--force`.
+
 ### Theming
 
 Uses Textual's theming system with design tokens (`$panel`, `$surface`, `$border`, `$border-blurred`, `$block-cursor-*`, `$footer-key-*`, etc.) so all styling adapts to any theme. `tasktree_manager/themes.py` registers six themes from the design system: the default `tasktree` (lazygit-classic ANSI palette) plus tuned `tokyo-night`, `catppuccin-mocha`, `gruvbox`, `dracula`, and `nord` (these override Textual's built-ins of the same name so the design's panel layering and selection colors apply). Panels sit darker than the screen ground; title bars carry a `[n]` number, dim context, and a right-aligned counter. Switch themes via the Command Palette (`Ctrl+P`); other Textual built-ins also work. The design source of truth is the "TaskTree-Manager design system" Claude Design project (tokens, component specs, full-app mockup).

@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -1681,7 +1682,11 @@ class TaskTreeApp(App):
 
 
 def main():
-    """Entry point for the tasktree-manager application."""
+    """Entry point: TUI with no arguments, headless CLI otherwise."""
+    if len(sys.argv) > 1:
+        from .cli import run_cli
+
+        raise SystemExit(run_cli(sys.argv[1:]))
     app = TaskTreeApp()
     app.run()
 
