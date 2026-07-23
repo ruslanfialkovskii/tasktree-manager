@@ -14,6 +14,19 @@ def cli(config, *argv):
 
 
 @pytest.fixture
+def cli_config(config, sample_repos):
+    """Config whose default base branch matches the sample repos' actual branch.
+
+    CI runners have no init.defaultBranch configured, so fixture repos may be
+    on master while the config default is main; tests that rely on the default
+    base branch must line the two up.
+    """
+    _, branch = sample_repos
+    config.default_base_branch = branch
+    return config
+
+
+@pytest.fixture
 def repo_with_origin(config, tmp_path):
     """A repo in REPOS_DIR whose branch is pushed to a bare origin remote.
 
@@ -50,15 +63,14 @@ def repo_with_origin(config, tmp_path):
 
 
 class TestCreate:
-    def test_create_task(self, config, sample_repos, capsys):
-        repos, branch = sample_repos
-        code = cli(config, "create", "DIC-1901-argocd-tls", "--repos", "repo-alpha,repo-beta")
+    def test_create_task(self, cli_config, capsys):
+        code = cli(cli_config, "create", "DIC-1901-argocd-tls", "--repos", "repo-alpha,repo-beta")
         assert code == 0
         out = capsys.readouterr().out
         assert "Created task DIC-1901-argocd-tls" in out
         assert "2 repo(s)" in out
 
-        task_path = config.tasks_dir / "DIC-1901-argocd-tls"
+        task_path = cli_config.tasks_dir / "DIC-1901-argocd-tls"
         assert (task_path / "repo-alpha" / ".git").exists()
         assert (task_path / "repo-beta" / ".git").exists()
         # Branch name matches task name
@@ -85,10 +97,10 @@ class TestCreate:
         assert "repo-alpha" in err  # lists available repos
         assert not (config.tasks_dir / "task-x").exists()
 
-    def test_create_duplicate(self, config, sample_repos, capsys):
-        assert cli(config, "create", "task-x", "--repos", "repo-alpha") == 0
+    def test_create_duplicate(self, cli_config, capsys):
+        assert cli(cli_config, "create", "task-x", "--repos", "repo-alpha") == 0
         capsys.readouterr()
-        code = cli(config, "create", "task-x", "--repos", "repo-beta")
+        code = cli(cli_config, "create", "task-x", "--repos", "repo-beta")
         assert code == 1
         assert "task already exists" in capsys.readouterr().err
 
@@ -108,35 +120,35 @@ class TestList:
         assert cli(config, "list") == 0
         assert "No tasks" in capsys.readouterr().out
 
-    def test_list_plain(self, config, sample_repos, capsys):
-        cli(config, "create", "task-x", "--repos", "repo-alpha,repo-beta")
+    def test_list_plain(self, cli_config, capsys):
+        cli(cli_config, "create", "task-x", "--repos", "repo-alpha,repo-beta")
         capsys.readouterr()
-        assert cli(config, "list") == 0
+        assert cli(cli_config, "list") == 0
         out = capsys.readouterr().out
         assert "task-x" in out
         assert "clean" in out
         assert "repo-alpha, repo-beta" in out
 
-    def test_list_json(self, config, sample_repos, capsys):
-        cli(config, "create", "task-x", "--repos", "repo-alpha")
+    def test_list_json(self, cli_config, capsys):
+        cli(cli_config, "create", "task-x", "--repos", "repo-alpha")
         capsys.readouterr()
-        assert cli(config, "list", "--json") == 0
+        assert cli(cli_config, "list", "--json") == 0
         payload = json.loads(capsys.readouterr().out)
         assert len(payload) == 1
         assert payload[0]["name"] == "task-x"
         assert payload[0]["repos"] == ["repo-alpha"]
         assert payload[0]["dirty"] is False
-        assert payload[0]["path"] == str(config.tasks_dir / "task-x")
+        assert payload[0]["path"] == str(cli_config.tasks_dir / "task-x")
 
     def test_list_json_empty(self, config, capsys):
         assert cli(config, "list", "--json") == 0
         assert json.loads(capsys.readouterr().out) == []
 
-    def test_list_dirty(self, config, sample_repos, capsys):
-        cli(config, "create", "task-x", "--repos", "repo-alpha")
-        (config.tasks_dir / "task-x" / "repo-alpha" / "dirty.txt").write_text("x\n")
+    def test_list_dirty(self, cli_config, capsys):
+        cli(cli_config, "create", "task-x", "--repos", "repo-alpha")
+        (cli_config.tasks_dir / "task-x" / "repo-alpha" / "dirty.txt").write_text("x\n")
         capsys.readouterr()
-        assert cli(config, "list", "--json") == 0
+        assert cli(cli_config, "list", "--json") == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload[0]["dirty"] is True
 
@@ -149,58 +161,58 @@ class TestDelete:
         assert "Deleted task task-x" in capsys.readouterr().out
         assert not (config.tasks_dir / "task-x").exists()
 
-    def test_delete_unmerged_refuses(self, config, sample_repos, capsys):
+    def test_delete_unmerged_refuses(self, cli_config, capsys):
         # Repos without a remote can never verify a merge -> treated as unmerged
-        cli(config, "create", "task-x", "--repos", "repo-alpha")
+        cli(cli_config, "create", "task-x", "--repos", "repo-alpha")
         capsys.readouterr()
-        assert cli(config, "delete", "task-x") == 1
+        assert cli(cli_config, "delete", "task-x") == 1
         assert "unfinished work" in capsys.readouterr().err
-        assert (config.tasks_dir / "task-x").exists()
+        assert (cli_config.tasks_dir / "task-x").exists()
 
     def test_delete_missing(self, config, capsys):
         assert cli(config, "delete", "nope") == 1
         assert "no such task" in capsys.readouterr().err
 
-    def test_delete_dirty_refuses(self, config, sample_repos, capsys):
-        cli(config, "create", "task-x", "--repos", "repo-alpha")
-        (config.tasks_dir / "task-x" / "repo-alpha" / "dirty.txt").write_text("x\n")
+    def test_delete_dirty_refuses(self, cli_config, capsys):
+        cli(cli_config, "create", "task-x", "--repos", "repo-alpha")
+        (cli_config.tasks_dir / "task-x" / "repo-alpha" / "dirty.txt").write_text("x\n")
         capsys.readouterr()
-        assert cli(config, "delete", "task-x") == 1
+        assert cli(cli_config, "delete", "task-x") == 1
         err = capsys.readouterr().err
         assert "unfinished work" in err
         assert "--force" in err
-        assert (config.tasks_dir / "task-x").exists()
+        assert (cli_config.tasks_dir / "task-x").exists()
 
-    def test_delete_dirty_force(self, config, sample_repos, capsys):
-        cli(config, "create", "task-x", "--repos", "repo-alpha")
-        (config.tasks_dir / "task-x" / "repo-alpha" / "dirty.txt").write_text("x\n")
+    def test_delete_dirty_force(self, cli_config, capsys):
+        cli(cli_config, "create", "task-x", "--repos", "repo-alpha")
+        (cli_config.tasks_dir / "task-x" / "repo-alpha" / "dirty.txt").write_text("x\n")
         capsys.readouterr()
-        assert cli(config, "delete", "task-x", "--force") == 0
-        assert not (config.tasks_dir / "task-x").exists()
+        assert cli(cli_config, "delete", "task-x", "--force") == 0
+        assert not (cli_config.tasks_dir / "task-x").exists()
 
 
 class TestAddRepo:
-    def test_add_repo(self, config, sample_repos, capsys):
-        cli(config, "create", "task-x", "--repos", "repo-alpha")
+    def test_add_repo(self, cli_config, capsys):
+        cli(cli_config, "create", "task-x", "--repos", "repo-alpha")
         capsys.readouterr()
-        assert cli(config, "add-repo", "task-x", "repo-beta") == 0
+        assert cli(cli_config, "add-repo", "task-x", "repo-beta") == 0
         assert "Added repo-beta to task task-x" in capsys.readouterr().out
-        assert (config.tasks_dir / "task-x" / "repo-beta" / ".git").exists()
+        assert (cli_config.tasks_dir / "task-x" / "repo-beta" / ".git").exists()
 
-    def test_add_repo_already_present(self, config, sample_repos, capsys):
-        cli(config, "create", "task-x", "--repos", "repo-alpha")
+    def test_add_repo_already_present(self, cli_config, capsys):
+        cli(cli_config, "create", "task-x", "--repos", "repo-alpha")
         capsys.readouterr()
-        assert cli(config, "add-repo", "task-x", "repo-alpha") == 0
+        assert cli(cli_config, "add-repo", "task-x", "repo-alpha") == 0
         assert "already in task" in capsys.readouterr().out
 
     def test_add_repo_missing_task(self, config, sample_repos, capsys):
         assert cli(config, "add-repo", "nope", "repo-alpha") == 1
         assert "no such task" in capsys.readouterr().err
 
-    def test_add_repo_unknown_repo(self, config, sample_repos, capsys):
-        cli(config, "create", "task-x", "--repos", "repo-alpha")
+    def test_add_repo_unknown_repo(self, cli_config, capsys):
+        cli(cli_config, "create", "task-x", "--repos", "repo-alpha")
         capsys.readouterr()
-        assert cli(config, "add-repo", "task-x", "no-such-repo") == 1
+        assert cli(cli_config, "add-repo", "task-x", "no-such-repo") == 1
         assert "unknown repo(s)" in capsys.readouterr().err
 
 
