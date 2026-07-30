@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.11.0] - 2026-07-30
+
+### Added
+- Add agent dashboard, forge-aware safety, finish/status CLI
+
+### Changed
+- **cli**: Collapse multi-line f-string per ruff format
+
+
 ## [2.10.0] - 2026-07-23
 
 ### Added
