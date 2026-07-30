@@ -5,6 +5,7 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from rich.markup import escape
@@ -17,8 +18,10 @@ from textual.worker import get_current_worker
 
 from . import __version__
 from .commands import TaskTreeCommands
+from .services.agent_sessions import list_agent_sessions, map_sessions_to_worktrees
 from .services.claude_hooks import ensure_claude_hooks, has_claude_session
 from .services.config import Config
+from .services.forge import Forge, ForgeStatus, get_forge_status
 from .services.git_ops import GitOps
 from .services.models import GitStatus, Task, TaskSafetyReport, Worktree
 from .services.task_manager import TaskManager
@@ -28,6 +31,7 @@ from .widgets.create_modal import (
     AddRepoModal,
     ConfirmModal,
     CreateTaskModal,
+    DispatchAgentModal,
     HelpModal,
     PushResultModal,
     SafeDeleteModal,
@@ -223,6 +227,7 @@ class TaskTreeApp(App):
 
         # Apply the configured [git] timeout to network git operations
         GitOps.network_timeout = self.config.git_timeout
+        Forge.configure(self.config)
 
         # Build bindings from config
         self._custom_bindings = self._build_bindings_from_config()
@@ -239,10 +244,20 @@ class TaskTreeApp(App):
         self._preserved_worktree_name: str | None = None
         # Claude session statuses: task_name -> status string
         self._claude_statuses: dict[str, str] = {}
+        # Agent session states from `claude agents --json`: worktree path -> state
+        self._agent_sessions: dict[str, str] = {}
+        # Forge MR/CI statuses: worktree path -> ForgeStatus
+        self._forge_statuses: dict[str, ForgeStatus] = {}
+        # Agent poll auto-disable after consecutive failures
+        self._agent_poll_failures: int = 0
+        self._agent_poll_disabled: bool = False
         # Snapshot of last loaded task state, used to skip no-op UI reloads
         self._last_tasks_fingerprint: tuple | None = None
         # Serializes the Ghostty clipboard/keystroke sequence across workers
         self._ghostty_lock = threading.Lock()
+        # App-lifetime pool for forge lookups (a fresh executor per poll
+        # would rebuild threads every tick)
+        self._forge_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="forge")
 
     def _build_bindings_from_config(self) -> list[Binding]:
         """Build app-level keybindings from config.
@@ -265,6 +280,7 @@ class TaskTreeApp(App):
             Binding(kb.get("open_editor", "e"), "open_editor", "Editor", show=False),
             Binding(kb.get("open_folder", "o"), "open_folder", "Open", show=False),
             Binding(kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude", show=False),
+            Binding(kb.get("dispatch_agent", "b"), "dispatch_agent", "Agent", show=False),
             Binding(kb.get("push_all", "p"), "push_all", "Push", show=False),
             Binding(kb.get("cycle_theme", "t"), "cycle_theme", "Theme"),
             Binding(kb.get("refresh", "r"), "refresh", "Refresh"),
@@ -316,6 +332,7 @@ class TaskTreeApp(App):
             (kb.get("open_editor", "e"), "open_editor", "Editor"),
             (kb.get("open_folder", "o"), "open_folder", "Open"),
             (kb.get("open_shell", "enter"), "open_shell", "Shell"),
+            (kb.get("dispatch_agent", "b"), "dispatch_agent", "Agent"),
             (kb.get("push_all", "p"), "push_all", "Push"),
             (kb.get("delete_worktree", "D"), "delete_worktree", "Del WT"),
         ]
@@ -443,6 +460,17 @@ class TaskTreeApp(App):
         if self.config.refresh_interval > 0:
             self.set_interval(self.config.refresh_interval, self._periodic_git_refresh)
 
+        # Poll `claude agents --json` for per-worktree session badges; fire
+        # once right away so badges appear without waiting a full interval
+        if self.config.agent_poll_interval > 0:
+            self.set_interval(self.config.agent_poll_interval, self._poll_agent_sessions_tick)
+            self._poll_agent_sessions_tick()
+
+        # Poll forge (glab/gh) MR/CI state for the current task's worktrees;
+        # task highlighting also triggers this, so no immediate fire needed
+        if self.config.forge_poll_interval > 0 and self.config.forge_enabled:
+            self.set_interval(self.config.forge_poll_interval, self._poll_forge_tick)
+
     def watch_theme(self, theme: str) -> None:
         """Save theme to config and show it in the header when changed."""
         if hasattr(self, "config") and self.config.theme != theme:
@@ -543,11 +571,13 @@ class TaskTreeApp(App):
         """
         self._load_tasks(select_task=task_name, select_worktree=worktree_name)
 
+    def _worker_running(self, group: str) -> bool:
+        """True while any worker in the given group is still running."""
+        return any(worker.group == group and not worker.is_finished for worker in self.workers)
+
     def _mutation_in_flight(self) -> bool:
         """True while a task create/add/delete worker is still running."""
-        return any(
-            worker.group == "task_mutation" and not worker.is_finished for worker in self.workers
-        )
+        return self._worker_running("task_mutation")
 
     def _begin_mutation(self, *loading_widget_ids: str) -> bool:
         """Guard a task mutation, refusing while another is still running.
@@ -583,6 +613,120 @@ class TaskTreeApp(App):
         if statuses != self._claude_statuses:
             self._claude_statuses = statuses
             task_list.refresh_claude_indicators(statuses)
+
+    def _poll_agent_sessions_tick(self) -> None:
+        """Dispatch an agent-session poll worker (never subprocess on UI thread)."""
+        if self.config.agent_poll_interval <= 0:
+            return  # 0 = disabled, including dispatch-triggered calls
+        if self._agent_poll_disabled or self._worker_running("agent_poll"):
+            return
+        try:
+            task_list = self.query_one("#task-list", TaskList)
+        except Exception:
+            return
+        paths = [str(wt.path) for task in task_list.tasks for wt in task.worktrees]
+        if paths:
+            self._run_agent_poll(paths)
+
+    @work(thread=True, exclusive=True, group="agent_poll")
+    def _run_agent_poll(self, worktree_paths: list[str]) -> None:
+        """Fetch `claude agents --json` off-thread and map onto worktrees."""
+        sessions = list_agent_sessions(self.config.claude_path)
+        if get_current_worker().is_cancelled:
+            return
+        if sessions is None:
+            self.call_from_thread(self._note_agent_poll_failure)
+            return
+        states = map_sessions_to_worktrees(sessions, worktree_paths)
+        self.call_from_thread(self._apply_agent_sessions, states)
+
+    def _apply_agent_sessions(self, states: dict[str, str]) -> None:
+        self._agent_poll_failures = 0
+        if states == self._agent_sessions:
+            return
+        self._agent_sessions = states
+        self._push_badges_to_worktree_list()
+
+    def _note_agent_poll_failure(self) -> None:
+        """Auto-disable the agent poll after repeated failures (old CLI, no CLI)."""
+        self._agent_poll_failures += 1
+        if self._agent_poll_failures >= 3 and not self._agent_poll_disabled:
+            self._agent_poll_disabled = True
+            self._log_activity(
+                "Claude agent polling disabled ('claude agents' unavailable)",
+                MessageLevel.INFO,
+            )
+
+    def _poll_forge_tick(self) -> None:
+        """Dispatch a forge MR/CI poll for the current task's worktrees.
+
+        No skip-if-running guard: task highlighting fires this, and dropping
+        the tick would leave the newly highlighted task without badges until
+        the next interval; exclusive=True replaces the stale worker instead.
+        """
+        if not self.config.forge_enabled or self.config.forge_poll_interval <= 0:
+            return  # 0 = disabled, including highlight-triggered calls
+        task = self.current_task
+        if not task:
+            return
+        pairs = [
+            (str(wt.path), wt.branch or task.name) for wt in task.worktrees if wt.path.exists()
+        ]
+        if pairs:
+            self._run_forge_poll(pairs)
+
+    @work(thread=True, exclusive=True, group="forge_poll")
+    def _run_forge_poll(self, pairs: list[tuple[str, str]]) -> None:
+        """Query forge status per worktree in parallel (TTL-cached in forge).
+
+        Uses the app-lifetime executor and checks cancellation between
+        futures, so a superseded/cancelled poll stops consuming results
+        instead of joining every glab/gh call first. Already-running calls
+        cannot be interrupted (subprocesses), but their results feed the TTL
+        cache, so nothing is wasted.
+        """
+        worker = get_current_worker()
+        futures = {
+            self._forge_executor.submit(get_forge_status, Path(path), branch): path
+            for path, branch in pairs
+        }
+        results: dict[str, ForgeStatus | None] = {}
+        for future in as_completed(futures):
+            if worker.is_cancelled:
+                for pending in futures:
+                    pending.cancel()
+                return
+            path = futures[future]
+            try:
+                results[path] = future.result()
+            except Exception:
+                results[path] = None
+        self.call_from_thread(self._apply_forge_statuses, results)
+
+    def _apply_forge_statuses(self, statuses: dict[str, ForgeStatus | None]) -> None:
+        # Merge rather than replace so cached entries for other tasks
+        # survive — but a None result evicts: the MR may be gone or auth
+        # expired, and keeping the old entry would render stale badges
+        # for the rest of the session
+        merged = dict(self._forge_statuses)
+        for path, status in statuses.items():
+            if status is None:
+                merged.pop(path, None)
+            else:
+                merged[path] = status
+        if merged == self._forge_statuses:
+            return
+        self._forge_statuses = merged
+        self._push_badges_to_worktree_list()
+
+    def _push_badges_to_worktree_list(self) -> None:
+        """Re-render worktree badge cells in place (no full list reload)."""
+        try:
+            worktree_list = self.query_one("#worktree-list", WorktreeList)
+        except Exception:
+            # Widgets not mounted (e.g. setup wizard is showing)
+            return
+        worktree_list.refresh_status_badges(self._agent_sessions, self._forge_statuses)
 
     def _periodic_git_refresh(self) -> None:
         """Trigger a background git status refresh."""
@@ -653,6 +797,13 @@ class TaskTreeApp(App):
         self._last_tasks_fingerprint = fingerprint
         self._update_header_stats(tasks)
 
+        # Prune forge entries for worktrees that no longer exist — a deleted
+        # task recreated at the same path must not inherit the old MR badge
+        valid_paths = {str(wt.path) for task in tasks for wt in task.worktrees}
+        self._forge_statuses = {
+            path: status for path, status in self._forge_statuses.items() if path in valid_paths
+        }
+
         try:
             current_task_name = select_task or (
                 self.current_task.name if self.current_task else None
@@ -684,6 +835,7 @@ class TaskTreeApp(App):
                             t.worktrees, preserve_selection=current_worktree_name
                         )
                         break
+            self._push_badges_to_worktree_list()
         except Exception as e:
             # A worker error would exit the app; refresh glitches are not fatal
             self.log.error(f"Failed to apply refreshed tasks: {e}")
@@ -762,6 +914,9 @@ class TaskTreeApp(App):
             preserved = self._preserved_worktree_name
             self._preserved_worktree_name = None  # Clear after use
             worktree_list.load_worktrees(event.task.worktrees, preserve_selection=preserved)
+            self._push_badges_to_worktree_list()
+            # Fetch fresh forge state for the newly highlighted task
+            self._poll_forge_tick()
 
             # Show task summary if task list is focused
             if task_list.has_focus:
@@ -851,6 +1006,10 @@ class TaskTreeApp(App):
     def action_quit(self) -> None:
         """Quit the application."""
         self.exit()
+
+    def on_unmount(self) -> None:
+        """Release the forge executor so queued lookups don't delay exit."""
+        self._forge_executor.shutdown(wait=False, cancel_futures=True)
 
     def action_help(self) -> None:
         """Show help modal with current keybindings."""
@@ -1007,9 +1166,16 @@ class TaskTreeApp(App):
     def _show_delete_task_dialog(self, task: Task, safety_report: TaskSafetyReport) -> None:
         """Show the appropriate delete dialog for the safety report."""
         if safety_report.is_safe():
-            self._confirm_and_finish_task(
-                task, escape(f"Delete task '{task.name}' and all its worktrees?")
-            )
+            # When the verdict rests on a remote MR lookup (squash/rebase
+            # merge), say so — the user deserves a chance to sanity-check it
+            message = f"Delete task '{task.name}' and all its worktrees?"
+            if safety_report.merged_via_forge:
+                notes = "\n".join(
+                    f"  * {issue.repo_name}: {issue.details}"
+                    for issue in safety_report.merged_via_forge
+                )
+                message = f"Merged remotely (squash/rebase):\n{notes}\n\n{message}"
+            self._confirm_and_finish_task(task, escape(message))
         else:
             self.push_screen(
                 SafeDeleteModal(task.name, safety_report),
@@ -1039,15 +1205,33 @@ class TaskTreeApp(App):
 
         Removing worktrees runs git per repo and rmtree over trees that can
         be huge (node_modules etc.) - never block the UI thread on it.
+        The task's remaining diff (committed-but-unmerged + uncommitted) is
+        archived first — finish_task rmtrees the task directory.
         """
         error: str | None = None
+        archive_path: Path | None = None
         try:
+            try:
+                archive_path = self.task_manager.archive_task(task)
+            except Exception as e:
+                # A failed archive must not block deletion, but it must be
+                # loud — the archive is the safety net for the work the
+                # delete below is about to destroy
+                detail = f"Archive failed for '{task.name}': {type(e).__name__}: {e}"
+                self.call_from_thread(self.notify, escape(detail), severity="warning", timeout=10)
+                self.call_from_thread(self._log_activity, detail, MessageLevel.ERROR, task.name)
             self.task_manager.finish_task(task)
         except Exception as e:
             error = f"{type(e).__name__}: {e}"
-        self.call_from_thread(self._apply_finish_task_result, task.name, force, error)
+        self.call_from_thread(self._apply_finish_task_result, task.name, force, error, archive_path)
 
-    def _apply_finish_task_result(self, task_name: str, force: bool, error: str | None) -> None:
+    def _apply_finish_task_result(
+        self,
+        task_name: str,
+        force: bool,
+        error: str | None,
+        archive_path: Path | None = None,
+    ) -> None:
         """Report the delete outcome and reload (runs on the main thread)."""
         if error:
             self.notify(escape(f"Failed to delete task: {error}"), severity="error")
@@ -1058,6 +1242,8 @@ class TaskTreeApp(App):
             self._log_activity(
                 f"Task '{task_name}' deleted{suffix}", MessageLevel.SUCCESS, task_name
             )
+            if archive_path is not None:
+                self._log_activity(f"Archived diff to {archive_path}", MessageLevel.INFO, task_name)
         self._load_tasks()
 
     def _handle_safe_delete_action(
@@ -1425,6 +1611,91 @@ class TaskTreeApp(App):
         else:
             self._open_ghostty_tab(task_path, command=self.config.claude_path)
             self.notify("Opened new Claude Code session in new tab")
+
+    def action_dispatch_agent(self) -> None:
+        """Dispatch a background Claude agent in the selected worktree."""
+        if not self.current_task or not self.current_worktree:
+            self.notify("No worktree selected", severity="warning")
+            return
+        worktree = self.current_worktree
+        task = self.current_task
+        if not worktree.path.exists():
+            self.notify("Worktree directory not found", severity="error")
+            return
+
+        self._prepare_claude_session(task.path)
+        session_name = f"{task.name}/{worktree.name}"
+
+        def handle_prompt(prompt: str | None) -> None:
+            if not prompt:
+                return
+            self.notify(escape(f"Dispatching agent in '{worktree.name}'…"))
+            self._dispatch_agent_worker(session_name, worktree.name, str(worktree.path), prompt)
+
+        self.push_screen(DispatchAgentModal(session_name), handle_prompt)
+
+    @work(thread=True, group="agent_dispatch")
+    def _dispatch_agent_worker(
+        self, session_name: str, wt_name: str, wt_path: str, prompt: str
+    ) -> None:
+        """Run `claude --bg` in the worktree.
+
+        Deliberately not exclusive: dispatching agents to different worktrees
+        in parallel is legitimate. `--bg` detaches and returns promptly; the
+        30s timeout only guards against a hung CLI.
+        """
+        try:
+            # "--" terminates option parsing: a prompt starting with "-"
+            # must reach claude as the prompt, not be eaten as CLI flags
+            result = subprocess.run(
+                [self.config.claude_path, "--bg", "-n", session_name, "--", prompt],
+                cwd=wt_path,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except FileNotFoundError:
+            self.call_from_thread(
+                self._apply_dispatch_result,
+                wt_name,
+                wt_path,
+                False,
+                "claude CLI not found (set [tools] claude_path)",
+            )
+            return
+        except subprocess.TimeoutExpired:
+            self.call_from_thread(
+                self._apply_dispatch_result, wt_name, wt_path, False, "claude --bg timed out"
+            )
+            return
+        except (subprocess.SubprocessError, OSError) as e:
+            self.call_from_thread(self._apply_dispatch_result, wt_name, wt_path, False, str(e))
+            return
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "unknown error").strip()[:200]
+            self.call_from_thread(self._apply_dispatch_result, wt_name, wt_path, False, detail)
+            return
+        self.call_from_thread(self._apply_dispatch_result, wt_name, wt_path, True, "")
+
+    def _apply_dispatch_result(self, wt_name: str, wt_path: str, ok: bool, detail: str) -> None:
+        """Report the dispatch outcome and set an optimistic session badge."""
+        if ok:
+            self.notify(escape(f"Dispatched Claude agent in '{wt_name}'"))
+            self._log_activity(f"Dispatched Claude agent in '{wt_name}'", MessageLevel.SUCCESS)
+            # Optimistic badge until the next interval poll reports real
+            # state. No immediate poll: `claude agents` often lags the new
+            # session and would wipe the badge right back. Skipped entirely
+            # when polling is disabled — an uncorrectable badge would stick
+            # forever.
+            if self.config.agent_poll_interval > 0:
+                self._agent_sessions[wt_path] = "working"
+                self._push_badges_to_worktree_list()
+        else:
+            self.notify(escape(f"Agent dispatch failed: {detail}"), severity="error")
+            self._log_activity(
+                f"Agent dispatch failed in '{wt_name}': {detail}", MessageLevel.ERROR
+            )
 
     def action_open_claude_gui_code(self) -> None:
         """Open Claude desktop app on the Code page in the current task folder."""

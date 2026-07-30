@@ -132,6 +132,62 @@ class TestConfig:
         assert config.lazygit_path == "lazygit"
         assert config.hunk_path == "hunk"
         assert config.shell == ""
+        assert config.archive_dir == ""
+        assert config.agent_poll_interval == 10
+        assert config.forge_poll_interval == 60
+        assert config.glab_path == "glab"
+        assert config.gh_path == "gh"
+        assert config.forge_enabled is True
+        assert config.forge_gitlab_hosts == []
+
+    def test_get_archive_dir_default(self, temp_dirs):
+        """Default archive dir lives under tasks_dir as a dot-directory."""
+        repos_dir, tasks_dir = temp_dirs
+        config = Config(repos_dir=repos_dir, tasks_dir=tasks_dir)
+        assert config.get_archive_dir() == tasks_dir / ".archive"
+
+    def test_get_archive_dir_custom(self, temp_dirs):
+        """Custom archive dir is expanded and used as-is."""
+        repos_dir, tasks_dir = temp_dirs
+        config = Config(repos_dir=repos_dir, tasks_dir=tasks_dir, archive_dir="~/task-archive")
+        assert config.get_archive_dir() == Path("~/task-archive").expanduser()
+
+    def test_get_archive_dir_relative_anchors_to_tasks_dir(self, temp_dirs):
+        """A relative archive_dir must never resolve against $PWD — `finish`
+        can run from inside a worktree that is deleted moments later."""
+        repos_dir, tasks_dir = temp_dirs
+        config = Config(repos_dir=repos_dir, tasks_dir=tasks_dir, archive_dir="archives")
+        assert config.get_archive_dir() == tasks_dir / "archives"
+
+    def test_load_filters_bad_forge_values(self, temp_dirs):
+        """Non-string gitlab_hosts entries and non-string archive_dir are
+        dropped at load time instead of crashing at use time."""
+        repos_dir, tasks_dir = temp_dirs
+        config_dir = repos_dir.parent / ".config" / "tasktree-manager"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.toml").write_text(
+            f'''
+repos_dir = "{repos_dir}"
+tasks_dir = "{tasks_dir}"
+archive_dir = 5
+
+[forge]
+gitlab_hosts = ["git.corp.com", 8443]
+'''
+        )
+        import os
+
+        old_xdg = os.environ.get("XDG_CONFIG_HOME")
+        os.environ["XDG_CONFIG_HOME"] = str(config_dir.parent)
+        try:
+            config = Config.load()
+            assert config.forge_gitlab_hosts == ["git.corp.com"]
+            assert config.archive_dir == ""
+        finally:
+            if old_xdg is not None:
+                os.environ["XDG_CONFIG_HOME"] = old_xdg
+            else:
+                os.environ.pop("XDG_CONFIG_HOME", None)
 
     def test_load_theme_from_environment(self, temp_dirs, monkeypatch):
         """Test loading theme from environment variable."""
@@ -236,8 +292,12 @@ shell = "/bin/zsh"
             repos_dir=repos_dir,
             tasks_dir=tasks_dir,
             config_dir=config_dir,
+            archive_dir="/tmp/archive",
             theme="tokyo-night",
             show_hidden_files=True,
+            refresh_interval=30,
+            agent_poll_interval=15,
+            forge_poll_interval=90,
             default_base_branch="develop",
             auto_push=True,
             git_timeout=45,
@@ -245,6 +305,10 @@ shell = "/bin/zsh"
             lazygit_path="/opt/bin/lazygit",
             hunk_path="/opt/bin/hunk",
             shell="/bin/zsh",
+            glab_path="/opt/bin/glab",
+            gh_path="/opt/bin/gh",
+            forge_enabled=False,
+            forge_gitlab_hosts=["git.example.com", "gitlab.internal"],
         )
         original.save()
 
@@ -266,6 +330,13 @@ shell = "/bin/zsh"
             assert loaded.lazygit_path == "/opt/bin/lazygit"
             assert loaded.hunk_path == "/opt/bin/hunk"
             assert loaded.shell == "/bin/zsh"
+            assert loaded.archive_dir == "/tmp/archive"
+            assert loaded.agent_poll_interval == 15
+            assert loaded.forge_poll_interval == 90
+            assert loaded.glab_path == "/opt/bin/glab"
+            assert loaded.gh_path == "/opt/bin/gh"
+            assert loaded.forge_enabled is False
+            assert loaded.forge_gitlab_hosts == ["git.example.com", "gitlab.internal"]
         finally:
             if old_xdg is not None:
                 os.environ["XDG_CONFIG_HOME"] = old_xdg

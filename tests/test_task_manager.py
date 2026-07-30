@@ -370,6 +370,195 @@ class TestSafetyChecks:
         # Should not crash, just skip the worktree
         assert isinstance(report, TaskSafetyReport)
 
+    def test_check_task_safety_pushed_and_merged(self, task_manager, repo_with_origin):
+        """A freshly created task at the pushed base is safe once pushed."""
+        base = repo_with_origin
+        task = task_manager.create_task("MERGED-TASK", ["repo-remote"], base)
+        # The new branch points at base's commit and needs pushing first
+        task_manager.push_all_branches(task)
+
+        report = task_manager.check_task_safety(task)
+        assert report.is_safe()
+        assert not report.unmerged
+
+
+class TestStatusErrorSafety:
+    """A failed git status must block deletion, never pass as clean."""
+
+    def test_status_error_blocks_and_skips_forge(self, task_manager, sample_repo, monkeypatch):
+        from tasktree_manager.services import forge
+        from tasktree_manager.services.git_ops import GitOps, GitStatus
+
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("ERR-TASK", ["sample-repo"], branch)
+
+        monkeypatch.setattr(
+            GitOps, "get_status", staticmethod(lambda wt: GitStatus(error="Git status timed out"))
+        )
+
+        def forge_must_not_run(path, br):
+            raise AssertionError("forge must not be consulted when git status failed")
+
+        monkeypatch.setattr(forge, "get_forge_status", forge_must_not_run)
+
+        report = task_manager.check_task_safety(task)
+        assert not report.is_safe()
+        assert report.has_errors()
+        assert len(report.errors) == 1
+        assert "git status failed" in report.errors[0].details
+        # No phantom clean/merged verdicts alongside the error
+        assert not report.unmerged and not report.dirty and not report.merged_via_forge
+
+
+class TestTaskBaseRecording:
+    """The base branch is recorded at create time and drives archives."""
+
+    def test_task_base_recorded_and_used_by_archive(self, task_manager, repo_with_origin, config):
+        from tasktree_manager.services.git_ops import GitOps
+
+        base = repo_with_origin
+        task = task_manager.create_task("BASE-TASK", ["repo-remote"], base)
+        wt = task.worktrees[0]
+
+        assert GitOps.get_task_base(wt, "BASE-TASK") == base
+
+        (wt.path / "x.txt").write_text("x\n")
+        archive_path = task_manager.archive_task(task)
+        assert archive_path is not None
+        assert f"base: {base}" in archive_path.read_text()
+
+    def test_get_task_base_missing(self, worktree_from_repo):
+        from tasktree_manager.services.git_ops import GitOps
+
+        assert GitOps.get_task_base(worktree_from_repo, "no-such-branch") is None
+
+
+class TestForgeAwareSafety:
+    """Squash/rebase merges detected via the forge (glab/gh) MR state."""
+
+    def test_squash_merge_reported_safe(self, task_manager, squash_merged_task, monkeypatch):
+        from tasktree_manager.services import forge
+        from tasktree_manager.services.forge import ForgeStatus
+
+        task, base = squash_merged_task
+        monkeypatch.setattr(
+            forge,
+            "get_forge_status",
+            lambda path, branch: ForgeStatus(
+                provider="gitlab",
+                mr_state="merged",
+                mr_url="https://gitlab.example.com/g/p/-/merge_requests/42",
+                mr_ref="!42",
+            ),
+        )
+
+        report = task_manager.check_task_safety(task)
+        assert report.is_safe()
+        assert not report.unmerged
+        assert len(report.merged_via_forge) == 1
+        issue = report.merged_via_forge[0]
+        assert issue.issue_type == "merged"
+        assert "!42" in issue.details
+        assert issue.mr_url == "https://gitlab.example.com/g/p/-/merge_requests/42"
+        assert issue.branch == "TASK-squash"
+
+    def test_squash_merge_without_forge_stays_unmerged(self, task_manager, squash_merged_task):
+        """Regression: local-path origin means no forge info — unmerged stands."""
+        task, base = squash_merged_task
+
+        report = task_manager.check_task_safety(task)
+        assert not report.is_safe()
+        assert len(report.unmerged) == 1
+        assert f"not merged to {base}" in report.unmerged[0].details
+        assert not report.merged_via_forge
+
+    def test_open_mr_enriches_unmerged_details(self, task_manager, squash_merged_task, monkeypatch):
+        from tasktree_manager.services import forge
+        from tasktree_manager.services.forge import ForgeStatus
+
+        task, base = squash_merged_task
+        monkeypatch.setattr(
+            forge,
+            "get_forge_status",
+            lambda path, branch: ForgeStatus(
+                provider="gitlab",
+                mr_state="open",
+                mr_url="https://gitlab.example.com/g/p/-/merge_requests/7",
+                mr_ref="!7",
+                ci_state="running",
+            ),
+        )
+
+        report = task_manager.check_task_safety(task)
+        assert not report.is_safe()
+        assert len(report.unmerged) == 1
+        issue = report.unmerged[0]
+        assert "(!7 open, CI running)" in issue.details
+        assert issue.mr_state == "open"
+        assert issue.mr_url is not None
+
+
+class TestArchiveTask:
+    """Tests for archive_task (finished-task diff archives)."""
+
+    def test_archive_committed_and_uncommitted(self, config, task_manager, repo_with_origin):
+        base = repo_with_origin
+        task = task_manager.create_task("ARCH-TASK", ["repo-remote"], base)
+        wt = task.worktrees[0]
+
+        (wt.path / "committed.txt").write_text("committed change\n")
+        subprocess.run(["git", "add", "."], cwd=wt.path, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "work"], cwd=wt.path, capture_output=True, check=True
+        )
+        (wt.path / "uncommitted.txt").write_text("uncommitted change\n")
+
+        archive_path = task_manager.archive_task(task, notes=["mr: !42 merged"])
+        assert archive_path is not None
+        assert archive_path.parent == config.get_archive_dir()
+        assert archive_path.name.startswith("ARCH-TASK-")
+        assert archive_path.suffix == ".patch"
+
+        content = archive_path.read_text()
+        assert "# tasktree-manager archive: ARCH-TASK" in content
+        assert "# repo: repo-remote" in content
+        assert "# mr: !42 merged" in content
+        assert "committed change" in content
+        assert "uncommitted change" in content
+        # Repo-labelled diff prefixes for multi-repo concatenation
+        assert "a/repo-remote/" in content
+
+    def test_archive_clean_task_returns_none(self, config, task_manager, repo_with_origin):
+        base = repo_with_origin
+        task = task_manager.create_task("CLEAN-ARCH", ["repo-remote"], base)
+
+        assert task_manager.archive_task(task) is None
+        # No empty archive files left behind
+        archive_dir = config.get_archive_dir()
+        assert not archive_dir.exists() or not list(archive_dir.iterdir())
+
+    def test_archive_slash_task_name_sanitized(self, config, task_manager, repo_with_origin):
+        base = repo_with_origin
+        task = task_manager.create_task("feat/slashed", ["repo-remote"], base)
+        wt = task.worktrees[0]
+        (wt.path / "x.txt").write_text("x\n")
+
+        archive_path = task_manager.archive_task(task)
+        assert archive_path is not None
+        assert "/" not in archive_path.name.replace(archive_path.suffix, "")
+        assert archive_path.name.startswith("feat-slashed-")
+
+    def test_list_tasks_ignores_archive_dir(self, config, task_manager, repo_with_origin):
+        base = repo_with_origin
+        task = task_manager.create_task("VISIBLE-TASK", ["repo-remote"], base)
+        wt = task.worktrees[0]
+        (wt.path / "x.txt").write_text("x\n")
+        task_manager.archive_task(task)
+
+        names = [t.name for t in task_manager.list_tasks()]
+        assert "VISIBLE-TASK" in names
+        assert all(not name.startswith(".") for name in names)
+
 
 class TestPushAllBranches:
     """Tests for push_all_branches method."""

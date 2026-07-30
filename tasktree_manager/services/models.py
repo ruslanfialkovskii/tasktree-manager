@@ -99,8 +99,11 @@ class RepoIssue:
 
     repo_name: str
     worktree_path: Path
-    issue_type: str  # "unpushed", "unmerged", "dirty"
+    issue_type: str  # "unpushed", "unmerged", "dirty", "merged", "error"
     details: str  # "3 commits ahead", "not merged to main", "2 files changed"
+    branch: str = ""
+    mr_url: str | None = None
+    mr_state: str | None = None  # "open" | "merged" | "closed" | "none"
 
 
 @dataclass
@@ -110,10 +113,21 @@ class TaskSafetyReport:
     unpushed: list[RepoIssue] = field(default_factory=list)
     unmerged: list[RepoIssue] = field(default_factory=list)
     dirty: list[RepoIssue] = field(default_factory=list)
+    # Worktrees whose `git status` itself failed (lock, timeout): the state
+    # is unknown, so these always block is_safe() — deleting on unknown
+    # state is exactly what safety checks exist to prevent.
+    errors: list[RepoIssue] = field(default_factory=list)
+    # Branches whose ancestor check failed but whose MR/PR is merged
+    # (squash/rebase merges). Informational — never blocks is_safe().
+    merged_via_forge: list[RepoIssue] = field(default_factory=list)
 
     def is_safe(self) -> bool:
         """True if no issues found."""
-        return not (self.unpushed or self.unmerged or self.dirty)
+        return not (self.unpushed or self.unmerged or self.dirty or self.errors)
+
+    def has_errors(self) -> bool:
+        """True if any worktree's git status could not be read."""
+        return bool(self.errors)
 
     def has_unpushed(self) -> bool:
         """True if there are unpushed commits."""

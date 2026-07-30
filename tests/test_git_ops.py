@@ -270,11 +270,10 @@ class TestBranchOperations:
         assert len(default) > 0
 
     def test_check_merged_true(self, repo_with_remote):
-        """Test check_merged returns True for merged branch."""
+        """HEAD at the pushed base branch is an ancestor of origin/<base>."""
         local, remote = repo_with_remote
         worktree = Worktree(name="test", path=local)
 
-        # Get the default branch name
         result = subprocess.run(
             ["git", "branch", "--show-current"],
             cwd=local,
@@ -283,18 +282,36 @@ class TestBranchOperations:
         )
         current_branch = result.stdout.strip()
 
-        # Check if HEAD is merged into itself (should be true)
-        # Note: This might not work as expected without a proper remote setup
-        is_merged = GitOps.check_merged(worktree, current_branch)
-        # Just verify it returns a boolean
-        assert isinstance(is_merged, bool)
+        assert GitOps.check_merged(worktree, current_branch) is True
 
-    def test_check_merged_false(self, repo_with_remote):
-        """Test check_merged returns False for unmerged branch."""
+    def test_check_merged_true_without_fetch(self, repo_with_remote):
+        """fetch=False still detects a merge from the existing origin ref."""
         local, remote = repo_with_remote
         worktree = Worktree(name="test", path=local)
 
-        # Create a new branch with unpushed commits
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=local,
+            capture_output=True,
+            text=True,
+        )
+        current_branch = result.stdout.strip()
+
+        assert GitOps.check_merged(worktree, current_branch, fetch=False) is True
+
+    def test_check_merged_false(self, repo_with_remote):
+        """A branch with an extra commit is not merged into the base."""
+        local, remote = repo_with_remote
+        worktree = Worktree(name="test", path=local)
+
+        result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=local,
+            capture_output=True,
+            text=True,
+        )
+        base_branch = result.stdout.strip()
+
         subprocess.run(
             ["git", "checkout", "-b", "feature-branch"],
             cwd=local,
@@ -309,9 +326,111 @@ class TestBranchOperations:
             capture_output=True,
         )
 
-        is_merged = GitOps.check_merged(worktree, "main")
-        # Just verify it returns a boolean
-        assert isinstance(is_merged, bool)
+        assert GitOps.check_merged(worktree, base_branch) is False
+
+    def test_get_default_branch_slashed(self, tmp_path):
+        """Slashed default branches (release/1.0) survive origin/HEAD parsing."""
+        remote = tmp_path / "slashed-remote.git"
+        remote.mkdir()
+        subprocess.run(["git", "init", "--bare"], cwd=remote, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "symbolic-ref", "HEAD", "refs/heads/release/1.0"],
+            cwd=remote,
+            capture_output=True,
+            check=True,
+        )
+
+        local = tmp_path / "slashed-local"
+        local.mkdir()
+        subprocess.run(["git", "init", "-b", "release/1.0"], cwd=local, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            cwd=local,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"],
+            cwd=local,
+            capture_output=True,
+            check=True,
+        )
+        (local / "README.md").write_text("# slashed\n")
+        subprocess.run(["git", "add", "."], cwd=local, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "Initial"], cwd=local, capture_output=True, check=True
+        )
+        subprocess.run(
+            ["git", "remote", "add", "origin", str(remote)],
+            cwd=local,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "push", "-u", "origin", "release/1.0"],
+            cwd=local,
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "remote", "set-head", "origin", "--auto"],
+            cwd=local,
+            capture_output=True,
+            check=True,
+        )
+
+        worktree = Worktree(name="test", path=local)
+        assert GitOps.get_default_branch(worktree) == "release/1.0"
+
+
+class TestBranchDiff:
+    """Tests for get_branch_diff (committed-but-unmerged work)."""
+
+    def _commit_on_feature(self, local):
+        subprocess.run(
+            ["git", "checkout", "-b", "feature-diff"], cwd=local, capture_output=True, check=True
+        )
+        (local / "feature.txt").write_text("branch work\n")
+        subprocess.run(["git", "add", "."], cwd=local, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "branch work"], cwd=local, capture_output=True, check=True
+        )
+
+    def test_branch_diff_contains_committed_work(self, repo_with_remote):
+        local, remote = repo_with_remote
+        base = subprocess.run(
+            ["git", "branch", "--show-current"], cwd=local, capture_output=True, text=True
+        ).stdout.strip()
+        self._commit_on_feature(local)
+
+        worktree = Worktree(name="test", path=local)
+        diff = GitOps.get_branch_diff(worktree, base)
+        assert "branch work" in diff
+        assert "feature.txt" in diff
+
+    def test_branch_diff_label_prefixes(self, repo_with_remote):
+        local, remote = repo_with_remote
+        base = subprocess.run(
+            ["git", "branch", "--show-current"], cwd=local, capture_output=True, text=True
+        ).stdout.strip()
+        self._commit_on_feature(local)
+
+        worktree = Worktree(name="my-repo", path=local)
+        diff = GitOps.get_branch_diff(worktree, base, label="my-repo")
+        assert "a/my-repo/" in diff
+
+    def test_branch_diff_missing_base_ref(self, sample_repo):
+        repo_path, branch = sample_repo
+        worktree = Worktree(name="test", path=repo_path)
+        assert GitOps.get_branch_diff(worktree, "no-such-branch") == ""
+
+    def test_branch_diff_at_base_is_empty(self, repo_with_remote):
+        local, remote = repo_with_remote
+        base = subprocess.run(
+            ["git", "branch", "--show-current"], cwd=local, capture_output=True, text=True
+        ).stdout.strip()
+        worktree = Worktree(name="test", path=local)
+        assert GitOps.get_branch_diff(worktree, base) == ""
 
 
 class TestDiff:

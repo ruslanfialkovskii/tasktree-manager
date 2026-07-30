@@ -165,7 +165,9 @@ class GitOps:
 
         Returns "" on any failure. The exit code is intentionally ignored:
         ``git diff --no-index`` returns non-zero whenever files differ, and a
-        failed command leaves stdout empty anyway.
+        failed command leaves stdout empty anyway. errors="replace" keeps
+        non-UTF-8 diff content (e.g. latin-1 sources) from raising
+        UnicodeDecodeError mid-archive.
         """
         try:
             result = subprocess.run(
@@ -173,6 +175,7 @@ class GitOps:
                 cwd=worktree.path,
                 capture_output=True,
                 text=True,
+                errors="replace",
                 timeout=GitOps.LOCAL_TIMEOUT,
             )
         except (subprocess.SubprocessError, OSError):
@@ -219,6 +222,41 @@ class GitOps:
         return "".join(parts)
 
     @staticmethod
+    def get_task_base(worktree: Worktree, branch: str) -> str | None:
+        """Read the base branch recorded at worktree creation, if any.
+
+        tasktree-manager stores it as ``branch.<name>.tasktreeBase`` in the
+        repo's shared branch config; tasks created before this existed (or
+        worktrees made by hand) return None.
+        """
+        out = GitOps._git_stdout(worktree, ["config", "--get", f"branch.{branch}.tasktreeBase"])
+        return out.strip() or None
+
+    @staticmethod
+    def get_branch_diff(worktree: Worktree, base_branch: str, label: str | None = None) -> str:
+        """Return the diff of committed-but-unmerged work: base...HEAD.
+
+        Uses the three-dot form (changes since the merge base), preferring
+        ``origin/<base>`` and falling back to the local base branch. No fetch
+        is performed — archives need completeness of *our* work, not remote
+        freshness. Returns "" when no base ref resolves or nothing differs.
+        """
+        if not worktree.path.exists():
+            return ""
+
+        base_ref = None
+        for candidate in (f"refs/remotes/origin/{base_branch}", f"refs/heads/{base_branch}"):
+            probe = GitOps._git_stdout(worktree, ["rev-parse", "--verify", "--quiet", candidate])
+            if probe.strip():
+                base_ref = candidate
+                break
+        if base_ref is None:
+            return ""
+
+        prefixes = [f"--src-prefix=a/{label}/", f"--dst-prefix=b/{label}/"] if label else []
+        return GitOps._git_stdout(worktree, ["diff", f"{base_ref}...HEAD", "--no-color", *prefixes])
+
+    @staticmethod
     def build_task_diff(task: Task) -> str:
         """Build a combined diff across all of a task's worktrees.
 
@@ -246,9 +284,13 @@ class GitOps:
                 timeout=GitOps.LOCAL_TIMEOUT,
             )
             if result.returncode == 0:
-                # Output is like "refs/remotes/origin/main"
+                # Output is like "refs/remotes/origin/main"; strip the prefix
+                # rather than splitting on "/" so slashed branch names
+                # (release/1.0) survive intact
                 ref = result.stdout.strip()
-                return ref.split("/")[-1]
+                branch = ref.removeprefix("refs/remotes/origin/")
+                if branch:
+                    return branch
         except (subprocess.TimeoutExpired, subprocess.SubprocessError):
             pass
 
@@ -270,24 +312,27 @@ class GitOps:
         return "main"
 
     @staticmethod
-    def check_merged(worktree: Worktree, base_branch: str) -> bool:
+    def check_merged(worktree: Worktree, base_branch: str, fetch: bool = True) -> bool:
         """Check if the current branch is merged into base_branch.
 
         Args:
             worktree: The worktree to check
             base_branch: The base branch to check against (e.g., "main", "master")
+            fetch: Fetch origin first. Pass False for fast offline checks that
+                can tolerate a slightly stale origin/<base> ref.
 
         Returns:
             True if current branch is merged into base_branch, False otherwise.
         """
         try:
-            # Fetch latest remote refs so we detect merges done via GitLab/GitHub UI
-            subprocess.run(
-                ["git", "fetch", "origin", base_branch],
-                cwd=worktree.path,
-                capture_output=True,
-                timeout=GitOps.network_timeout,
-            )
+            if fetch:
+                # Fetch latest remote refs so we detect merges done via GitLab/GitHub UI
+                subprocess.run(
+                    ["git", "fetch", "origin", base_branch],
+                    cwd=worktree.path,
+                    capture_output=True,
+                    timeout=GitOps.network_timeout,
+                )
             # Use git merge-base --is-ancestor to check if HEAD is reachable from base
             # This checks if the current branch has been merged
             result = subprocess.run(

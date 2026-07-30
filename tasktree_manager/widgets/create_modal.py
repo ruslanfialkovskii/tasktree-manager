@@ -417,6 +417,11 @@ class SafeDeleteModal(ThemedModalScreen[str | None]):
             # the filesystem and may contain markup-significant brackets)
             warnings_content = ""
 
+            if getattr(self.safety_report, "errors", None):
+                warnings_content += "\n[bold red]Status unreadable (state unknown):[/]\n"
+                for issue in self.safety_report.errors:
+                    warnings_content += escape(f"  * {issue.repo_name} ({issue.details})") + "\n"
+
             if self.safety_report.has_unpushed():
                 warnings_content += "\n[bold red]Unpushed commits:[/]\n"
                 for issue in self.safety_report.unpushed:
@@ -430,6 +435,11 @@ class SafeDeleteModal(ThemedModalScreen[str | None]):
             if self.safety_report.has_dirty():
                 warnings_content += "\n[bold red]Uncommitted changes:[/]\n"
                 for issue in self.safety_report.dirty:
+                    warnings_content += escape(f"  * {issue.repo_name} ({issue.details})") + "\n"
+
+            if getattr(self.safety_report, "merged_via_forge", None):
+                warnings_content += "\n[bold green]Merged remotely (squash/rebase):[/]\n"
+                for issue in self.safety_report.merged_via_forge:
                     warnings_content += escape(f"  * {issue.repo_name} ({issue.details})") + "\n"
 
             yield Static(warnings_content.strip(), classes="scrollable-content")
@@ -450,6 +460,45 @@ class SafeDeleteModal(ThemedModalScreen[str | None]):
             self.dismiss("lazygit")
         elif event.button.id == "force-btn":
             self.dismiss("force")
+
+
+class DispatchAgentModal(ThemedModalScreen[str | None]):
+    """Prompt for dispatching a background Claude agent into a worktree.
+
+    Dismisses with the prompt text, or None when cancelled/empty.
+    """
+
+    CANCEL_RESULT: ClassVar[None] = None
+
+    def __init__(self, worktree_label: str, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.worktree_label = worktree_label
+
+    def compose(self) -> ComposeResult:
+        with Container():
+            yield Label("Dispatch Claude Agent", classes="modal-title")
+            yield Static(escape(f"Target: {self.worktree_label}"), classes="modal-message")
+            yield Input(placeholder="Prompt for the background session…", id="agent-prompt")
+            with Horizontal(classes="button-row"):
+                yield Button("Dispatch", variant="primary", id="dispatch-btn")
+                yield Button("Cancel", variant="default", id="cancel-btn")
+
+    def on_mount(self) -> None:
+        super().on_mount()
+        self.query_one("#agent-prompt", Input).focus()
+
+    def _submit(self) -> None:
+        prompt = self.query_one("#agent-prompt", Input).value.strip()
+        self.dismiss(prompt or None)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._submit()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "dispatch-btn":
+            self._submit()
+        elif event.button.id == "cancel-btn":
+            self.dismiss(None)
 
 
 class PushResultModal(ThemedModalScreen[None]):
@@ -644,8 +693,12 @@ class HelpModal(ThemedModalScreen[None]):
             )
             + "\n"
         )
+        tools_section += (
+            self._format_binding("open_claude_gui_code", "C", "Open Claude desktop on Code page")
+            + "\n"
+        )
         tools_section += self._format_binding(
-            "open_claude_gui_code", "C", "Open Claude desktop on Code page"
+            "dispatch_agent", "b", "Dispatch background Claude agent in worktree"
         )
         sections.append(tools_section)
 

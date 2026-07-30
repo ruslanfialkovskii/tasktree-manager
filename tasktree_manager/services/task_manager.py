@@ -6,8 +6,10 @@ import re
 import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 
+from . import forge
 from .claude_hooks import ensure_worktree_claude_settings
 from .config import Config
 from .models import RepoIssue, Task, TaskSafetyReport, Worktree
@@ -221,6 +223,16 @@ class TaskManager:
             error_msg = result.stderr.strip() or result.stdout.strip()
             raise ValueError(f"Failed to create worktree for {repo_name}: {error_msg}")
 
+        # Record which base the task branched from (branch config is shared
+        # repo-wide) so archive_task can diff against the real base instead
+        # of guessing the repo's default branch
+        subprocess.run(
+            ["git", "config", f"branch.{task.name}.tasktreeBase", base_branch],
+            cwd=worktree_path,
+            capture_output=True,
+            timeout=10,
+        )
+
         # Create symlinks for gitignored files
         self._create_gitignore_symlinks(repo_path, worktree_path)
 
@@ -324,6 +336,57 @@ class TaskManager:
         # Remove task directory
         if task.path.exists():
             shutil.rmtree(task.path)
+
+    def archive_task(self, task: Task, notes: list[str] | None = None) -> Path | None:
+        """Write the task's combined diff to the archive directory.
+
+        Captures committed-but-unmerged work (base...HEAD) plus uncommitted
+        changes per worktree, labelled with repo names, preceded by a
+        '#'-prefixed metadata header (git apply skips leading non-diff lines).
+        Must run before finish_task, which rmtrees the task directory; the
+        archive lives outside it (config.get_archive_dir()).
+
+        Returns the archive path, or None when there is nothing to archive.
+        """
+        from .git_ops import GitOps
+
+        sections: list[str] = []
+        header = [
+            f"# tasktree-manager archive: {task.name}",
+            f"# created: {datetime.now().astimezone().isoformat(timespec='seconds')}",
+        ]
+        for worktree in task.worktrees:
+            if not worktree.path.exists():
+                continue
+            branch = worktree.branch or task.name
+            # Prefer the base recorded at creation — diffing a --base
+            # release/1.0 task against the repo default would bloat the
+            # archive or, with no default ref resolvable, silently drop
+            # the committed work right before the branch is deleted
+            base_branch = GitOps.get_task_base(worktree, branch) or GitOps.get_default_branch(
+                worktree
+            )
+            branch_diff = GitOps.get_branch_diff(worktree, base_branch, label=worktree.name)
+            uncommitted_diff = GitOps.get_worktree_diff(worktree, label=worktree.name)
+            header.append(f"# repo: {worktree.name} branch: {branch} base: {base_branch}")
+            sections.append(branch_diff)
+            sections.append(uncommitted_diff)
+        for note in notes or []:
+            header.append(f"# {note}")
+
+        content = "".join(s for s in sections if s)
+        if not content:
+            return None
+
+        archive_dir = self.config.get_archive_dir()
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        safe_name = task.name.replace("/", "-")
+        archive_path = archive_dir / f"{safe_name}-{timestamp}.patch"
+        # Explicit encoding: under LANG=C the locale default is ASCII and a
+        # single non-ASCII diff byte would abort the archive
+        archive_path.write_text("\n".join(header) + "\n\n" + content, encoding="utf-8")
+        return archive_path
 
     def _remove_worktree(self, worktree: Worktree, branch_name: str) -> None:
         """Remove a worktree from its main repo.
@@ -435,6 +498,20 @@ class TaskManager:
             # Get fresh git status
             status = GitOps.get_status(worktree)
 
+            # A failed status means the worktree's state is unknown — the
+            # default GitStatus looks clean, and the forge could even clear
+            # the branch as merged. Block instead of guessing.
+            if status.error:
+                issues.append(
+                    RepoIssue(
+                        repo_name=worktree.name,
+                        worktree_path=worktree.path,
+                        issue_type="error",
+                        details=f"git status failed: {status.error}",
+                    )
+                )
+                return issues
+
             # Check for uncommitted changes
             if status.is_dirty:
                 issues.append(
@@ -458,14 +535,43 @@ class TaskManager:
 
             default_branch = GitOps.get_default_branch(worktree)
             if not GitOps.check_merged(worktree, default_branch):
-                issues.append(
-                    RepoIssue(
-                        repo_name=worktree.name,
-                        worktree_path=worktree.path,
-                        issue_type="unmerged",
-                        details=f"not merged to {default_branch}",
+                # Squash/rebase merges are invisible to the ancestor check;
+                # ask the forge (glab/gh) before flagging the branch unmerged
+                branch = status.branch or task.name
+                forge_status = forge.get_forge_status(worktree.path, branch)
+                if forge_status is not None and forge_status.mr_state == "merged":
+                    ref = forge_status.mr_ref or "MR"
+                    issues.append(
+                        RepoIssue(
+                            repo_name=worktree.name,
+                            worktree_path=worktree.path,
+                            issue_type="merged",
+                            details=f"merged remotely via {ref}",
+                            branch=branch,
+                            mr_url=forge_status.mr_url,
+                            mr_state="merged",
+                        )
                     )
-                )
+                else:
+                    details = f"not merged to {default_branch}"
+                    mr_url = mr_state = None
+                    if forge_status is not None and forge_status.mr_state == "open":
+                        ref = forge_status.mr_ref or "MR"
+                        ci = f", CI {forge_status.ci_state}" if forge_status.ci_state else ""
+                        details += f" ({ref} open{ci})"
+                        mr_url = forge_status.mr_url
+                        mr_state = forge_status.mr_state
+                    issues.append(
+                        RepoIssue(
+                            repo_name=worktree.name,
+                            worktree_path=worktree.path,
+                            issue_type="unmerged",
+                            details=details,
+                            branch=branch,
+                            mr_url=mr_url,
+                            mr_state=mr_state,
+                        )
+                    )
 
             return issues
 
@@ -479,6 +585,10 @@ class TaskManager:
                         report.unpushed.append(issue)
                     elif issue.issue_type == "unmerged":
                         report.unmerged.append(issue)
+                    elif issue.issue_type == "error":
+                        report.errors.append(issue)
+                    elif issue.issue_type == "merged":
+                        report.merged_via_forge.append(issue)
 
         return report
 

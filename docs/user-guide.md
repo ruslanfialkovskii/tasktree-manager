@@ -364,6 +364,7 @@ Useful when you're spinning up several similar tasks that share the same set of 
 |---------|-------------------------|------------------------------------------------------------|
 | `c`     | Open Claude CLI         | Resume the task's Claude Code session if one exists, otherwise start a new one |
 | `C`     | Open Claude desktop     | Open the Claude desktop app on the Code page at the task folder |
+| `b`     | Dispatch agent          | Run a background Claude agent (`claude --bg`) in the selected worktree |
 
 **How it works:**
 - `c` opens Claude Code CLI in a new Ghostty terminal tab at the task directory.
@@ -373,6 +374,35 @@ Useful when you're spinning up several similar tasks that share the same set of 
 - Session status (`⟳` running, `!` waiting, `✓` ended) appears next to the task name
 - Both variants point the session's Claude Code auto-memory at a shared pool (`claude_memory_dir`, default `~/.claude/tasktree-memory`). Task folders are not git repos, so without this each task would get its own memory directory that is orphaned when the task is deleted; with the shared pool, what Claude learns in one task carries over to future tasks.
 - Each worktree additionally gets its own `.claude/settings.local.json` pointing auto-memory at the **main repo's** memory directory (`claude_repo_memory`, enabled by default). Sessions started manually inside a worktree (`cd` + `claude`) would otherwise key their memory to the worktree path and lose it when the worktree is deleted; with this, what Claude learns about a repo persists across worktrees and is shared with sessions in the main checkout. The file is git-excluded so worktrees stay clean, and these sessions also report status back to the task indicator.
+
+**Agent dashboard:**
+
+Claude Code's native agent view is scoped to a single repository — it has no concept of a
+task spanning several repos. tasktree-manager fills that gap:
+
+- The worktree list polls `claude agents --json` (every `agent_poll_interval` seconds,
+  default 10) and shows a per-worktree session badge: `⟳` working, `!` needs input,
+  `▣` ready/idle. Any Claude session whose working directory is inside a worktree counts,
+  whether started from the TUI, the dashboard, or a plain terminal.
+- `b` prompts for an instruction and dispatches a background agent
+  (`claude --bg -n <task>/<repo>`) into the selected worktree. Dispatch results land in
+  the messages panel (`m`), and the session appears in `claude agents` under the
+  `<task>/<repo>` name. Dispatch to several worktrees in parallel is fine.
+- If the `claude` CLI is missing or too old for `agents --json`, polling disables itself
+  after three failed attempts (one note in the messages panel) — the rest of the app is
+  unaffected.
+
+**Forge badges (MR/CI):**
+
+With the GitLab (`glab`) or GitHub (`gh`) CLI installed and authenticated, the worktree
+list also shows each branch's MR state (`○` open, `●` merged, `×` closed) and CI state
+(`◐` running, `✔` passed, `✘` failed; GitHub only — GitLab's MR list API carries no
+pipeline data). The provider is auto-detected from each repo's origin URL; self-hosted
+GitLab works when the hostname contains "gitlab" or is listed under `[forge]
+gitlab_hosts`. The same lookup makes safety checks recognize squash/rebase-merged
+branches: a branch whose MR is merged no longer blocks task deletion even though
+`git merge-base` cannot see the merge. Set `[forge] enabled = false` to turn all of
+this off.
 
 ### General
 
@@ -623,13 +653,23 @@ d (delete task)
 - tasktree-manager checks for uncommitted changes
 - Checks for unpushed commits
 - Offers to push before deletion
+- With `glab`/`gh` installed, branches whose MR/PR was squash- or rebase-merged count as
+  merged (plain `git merge-base` cannot see those merges)
 - Force delete available (with confirmation)
 
 **What happens on delete:**
+- ✅ The task's remaining diff (committed-but-unmerged + uncommitted work) is archived to
+  `archive_dir` (default `<tasks_dir>/.archive/<task>-<timestamp>.patch`) before anything
+  is removed — the messages panel (`m`) shows the archive path
 - ✅ Worktrees removed from `TASKS_DIR`
 - ✅ Branches remain on remote (if pushed)
 - ✅ Original repos in `REPOS_DIR` untouched
 - ❌ Local branches remain in original repos (cleanup manually if needed)
+
+**From scripts:** `tasktree-manager finish <task>` runs the same guided flow headlessly
+(safety sweep → optional `--push` → archive → delete), and `tasktree-manager status
+[--json|--oneline] [--forge]` reports per-worktree state — see the README's Headless CLI
+section.
 
 ### Manual Cleanup
 
