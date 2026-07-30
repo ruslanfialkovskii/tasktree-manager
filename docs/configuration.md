@@ -79,6 +79,11 @@ repos_dir = "/Users/username/repos"
 # Created automatically if it doesn't exist
 tasks_dir = "/Users/username/tasks"
 
+# Directory for finished-task diff archives
+# Relative paths resolve under tasks_dir (never the current directory)
+# Default: "" (uses <tasks_dir>/.archive)
+archive_dir = ""
+
 # ============================================================================
 # UI Settings
 # ============================================================================
@@ -98,6 +103,16 @@ show_hidden_files = false
 # Periodically refreshes git status in the background
 # Default: 30
 refresh_interval = 30
+
+# Claude agent session poll interval in seconds (0 = disabled)
+# Polls `claude agents --json` for per-worktree session state badges
+# Default: 10
+agent_poll_interval = 10
+
+# MR/CI forge status poll interval in seconds (0 = disabled)
+# Polls glab/gh for MR and pipeline state badges in the worktree list
+# Default: 60
+forge_poll_interval = 60
 
 # ============================================================================
 # Git Settings
@@ -170,6 +185,32 @@ claude_repo_memory = true
 # Default: "" (uses $SHELL, falls back to /bin/bash)
 shell = ""
 
+# Path to glab executable (GitLab CLI, used for MR/CI status)
+# Default: "glab" (searches PATH)
+glab_path = "glab"
+
+# Path to gh executable (GitHub CLI, used for PR/CI status)
+# Default: "gh" (searches PATH)
+gh_path = "gh"
+
+# ============================================================================
+# Forge (MR/PR state via glab/gh)
+# ============================================================================
+[forge]
+
+# Query MR/PR and CI state from GitLab/GitHub CLIs.
+# Used for worktree badges, squash-merge-aware safety checks, and
+# `status --forge`. Set to false to disable all forge lookups
+# (e.g. air-gapped environments).
+# Default: true
+enabled = true
+
+# Extra self-hosted GitLab hostnames. Hosts containing "gitlab" and
+# github.com are auto-detected from each repo's origin URL; list hosts
+# here only when the hostname doesn't contain "gitlab".
+# Default: []
+gitlab_hosts = []
+
 # ============================================================================
 # Keybindings
 # ============================================================================
@@ -187,6 +228,7 @@ help = "?"              # Show help modal
 new_task = "n"          # Create new task
 add_repo = "a"          # Add repository to current task
 delete_task = "d"       # Delete/finish task
+delete_worktree = "D"   # Remove single worktree from task (shift+d)
 
 # Git operations
 open_lazygit = "g"      # Open lazygit in selected worktree
@@ -201,6 +243,7 @@ refresh = "r"           # Refresh git status
 # Claude Code integration
 open_claude_resume = "c"    # Open Claude CLI (resume if a session exists, else new)
 open_claude_gui_code = "C"  # Open Claude desktop on Code page in task folder (shift+c)
+dispatch_agent = "b"        # Dispatch background Claude agent in selected worktree
 
 # Messages panel
 toggle_messages = "m"       # Show/hide the activity messages panel
@@ -245,6 +288,7 @@ blocklist = [
 |------------|------|-----------|---------------------|------------------------------------------------|
 | `repos_dir` | path | `~/repos` | `REPOS_DIR`         | Directory containing your git repositories     |
 | `tasks_dir` | path | `~/tasks` | `TASKS_DIR`         | Directory where task worktrees will be created |
+| `archive_dir` | path | `""` (`<tasks_dir>/.archive`) | - | Directory for finished-task diff archives |
 
 ### Details
 
@@ -280,6 +324,8 @@ tasks_dir = "/Volumes/FastSSD/worktrees"
 | `theme`            | string  | `tasktree`      | `TASKTREE_THEME`     | Color theme for the interface            |
 | `show_hidden_files` | boolean | `false`         | -                     | Show hidden files in listings            |
 | `refresh_interval`  | integer | `30`            | -                     | Auto-refresh interval in seconds (0 = disabled) |
+| `agent_poll_interval` | integer | `10`          | -                     | Claude agent session poll in seconds (0 = disabled) |
+| `forge_poll_interval` | integer | `60`          | -                     | MR/CI forge status poll in seconds (0 = disabled) |
 
 ### `theme`
 
@@ -354,6 +400,23 @@ refresh_interval = 15  # Refresh every 15 seconds
 | `lazygit_path` | string | `"lazygit"` | -                   | Path to lazygit executable           |
 | `hunk_path`   | string | `"hunk"`    | -                   | Path to hunk diff-viewer executable  |
 | `shell`       | string | `""`        | `SHELL`             | Shell to use when opening terminals  |
+| `glab_path`   | string | `"glab"`    | -                   | Path to GitLab CLI (MR/CI status)    |
+| `gh_path`     | string | `"gh"`      | -                   | Path to GitHub CLI (PR/CI status)    |
+
+## Forge Settings
+
+MR/PR and CI state is looked up through the GitLab (`glab`) and GitHub (`gh`)
+CLIs. The provider is auto-detected per repository from its `origin` URL:
+`github.com` uses `gh`; hosts containing "gitlab" (or listed in
+`gitlab_hosts`) use `glab`; anything else (including local-path remotes) is
+skipped. Lookups power the worktree MR/CI badges, squash-merge-aware safety
+checks, and `tasktree-manager status --forge`. Missing CLIs or network
+failures degrade silently — features fall back to plain git behavior.
+
+| Option         | Type       | Default | Description                                        |
+|----------------|------------|---------|----------------------------------------------------|
+| `enabled`      | boolean    | `true`  | Master switch for all forge lookups                |
+| `gitlab_hosts` | array[str] | `[]`    | Extra self-hosted GitLab hostnames to auto-detect  |
 
 ### Details
 

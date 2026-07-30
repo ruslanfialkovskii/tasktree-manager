@@ -37,11 +37,22 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "cycle_theme": "t",
     "toggle_grouping": "S",
     "cycle_sort": "s",
+    "delete_worktree": "D",
+    "dispatch_agent": "b",
     "focus_next": "tab",
     "focus_previous": "shift+tab",
     "cursor_down": "j",
     "cursor_up": "k",
 }
+
+
+def _toml_int(section: dict, key: str, default: int) -> int:
+    """Read an int config value, falling back to the default on bad types."""
+    try:
+        return int(section.get(key, default))
+    except (TypeError, ValueError):
+        return default
+
 
 # Default patterns excluded when symlinking gitignored files into worktrees.
 # Caches/build artifacts are excluded as noise; key material is excluded so
@@ -89,11 +100,15 @@ class Config:
     repos_dir: Path = field(default_factory=lambda: Path.home() / "repos")
     tasks_dir: Path = field(default_factory=lambda: Path.home() / "tasks")
     config_dir: Path = field(default_factory=lambda: Path.home() / ".config" / "tasktree-manager")
+    # Archive directory for finished-task diffs ("" = <tasks_dir>/.archive)
+    archive_dir: str = ""
 
     # UI settings
     theme: str = "tasktree"
     show_hidden_files: bool = False
     refresh_interval: int = 30  # Auto-refresh interval in seconds (0 = disabled)
+    agent_poll_interval: int = 10  # Claude agent session poll in seconds (0 = disabled)
+    forge_poll_interval: int = 60  # MR/CI status poll in seconds (0 = disabled)
 
     # Git settings
     default_base_branch: str = "main"
@@ -108,6 +123,12 @@ class Config:
     claude_memory_dir: str = "~/.claude/tasktree-memory"
     claude_repo_memory: bool = True
     shell: str = ""
+    glab_path: str = "glab"
+    gh_path: str = "gh"
+
+    # Forge (MR/PR state via glab/gh)
+    forge_enabled: bool = True
+    forge_gitlab_hosts: list[str] = field(default_factory=list)
 
     # Keybindings (action -> key mapping)
     keybindings: dict[str, str] = field(default_factory=lambda: DEFAULT_KEYBINDINGS.copy())
@@ -137,24 +158,23 @@ class Config:
         # Build config with file values or defaults
         repos_dir = Path(config_data.get("repos_dir", Path.home() / "repos")).expanduser()
         tasks_dir = Path(config_data.get("tasks_dir", Path.home() / "tasks")).expanduser()
+        archive_dir = config_data.get("archive_dir", "")
+        if not isinstance(archive_dir, str):
+            archive_dir = ""
 
         # UI settings
         ui_config = config_data.get("ui", {})
         theme = ui_config.get("theme", "tasktree")
         show_hidden_files = ui_config.get("show_hidden_files", False)
-        try:
-            refresh_interval = int(ui_config.get("refresh_interval", 30))
-        except (TypeError, ValueError):
-            refresh_interval = 30
+        refresh_interval = _toml_int(ui_config, "refresh_interval", 30)
+        agent_poll_interval = _toml_int(ui_config, "agent_poll_interval", 10)
+        forge_poll_interval = _toml_int(ui_config, "forge_poll_interval", 60)
 
         # Git settings
         git_config = config_data.get("git", {})
         default_base_branch = git_config.get("default_base_branch", "main")
         auto_push = git_config.get("auto_push", False)
-        try:
-            git_timeout = int(git_config.get("timeout", 30))
-        except (TypeError, ValueError):
-            git_timeout = 30
+        git_timeout = _toml_int(git_config, "timeout", 30)
 
         # External tools
         tools_config = config_data.get("tools", {})
@@ -165,6 +185,19 @@ class Config:
         claude_memory_dir = tools_config.get("claude_memory_dir", "~/.claude/tasktree-memory")
         claude_repo_memory = bool(tools_config.get("claude_repo_memory", True))
         shell = tools_config.get("shell", "")
+        glab_path = tools_config.get("glab_path", "glab")
+        gh_path = tools_config.get("gh_path", "gh")
+
+        # Forge settings
+        forge_config = config_data.get("forge", {})
+        forge_enabled = bool(forge_config.get("enabled", True))
+        forge_gitlab_hosts = forge_config.get("gitlab_hosts", [])
+        if isinstance(forge_gitlab_hosts, list):
+            # Drop non-string elements: they would crash provider detection
+            # (h.lower()) and Config.save (_toml_escape) at use time
+            forge_gitlab_hosts = [h for h in forge_gitlab_hosts if isinstance(h, str)]
+        else:
+            forge_gitlab_hosts = []
 
         # Keybindings - start with defaults and override with config
         keybindings = DEFAULT_KEYBINDINGS.copy()
@@ -195,9 +228,12 @@ class Config:
             repos_dir=repos_dir,
             tasks_dir=tasks_dir,
             config_dir=config_dir,
+            archive_dir=archive_dir,
             theme=theme,
             show_hidden_files=show_hidden_files,
             refresh_interval=refresh_interval,
+            agent_poll_interval=agent_poll_interval,
+            forge_poll_interval=forge_poll_interval,
             default_base_branch=default_base_branch,
             auto_push=auto_push,
             git_timeout=git_timeout,
@@ -208,6 +244,10 @@ class Config:
             claude_memory_dir=claude_memory_dir,
             claude_repo_memory=claude_repo_memory,
             shell=shell,
+            glab_path=glab_path,
+            gh_path=gh_path,
+            forge_enabled=forge_enabled,
+            forge_gitlab_hosts=forge_gitlab_hosts,
             keybindings=keybindings,
             symlink_blocklist=symlink_blocklist,
         )
@@ -291,6 +331,9 @@ repos_dir = "{self._toml_escape(str(self.repos_dir))}"
 # Directory for task worktrees
 tasks_dir = "{self._toml_escape(str(self.tasks_dir))}"
 
+# Directory for finished-task diff archives ("" = <tasks_dir>/.archive)
+archive_dir = "{self._toml_escape(self.archive_dir)}"
+
 # ============================================================================
 # UI Settings
 # ============================================================================
@@ -305,6 +348,12 @@ show_hidden_files = {str(self.show_hidden_files).lower()}
 
 # Auto-refresh interval in seconds (0 = disabled)
 refresh_interval = {self.refresh_interval}
+
+# Claude agent session poll interval in seconds (0 = disabled)
+agent_poll_interval = {self.agent_poll_interval}
+
+# MR/CI forge status poll interval in seconds (0 = disabled)
+forge_poll_interval = {self.forge_poll_interval}
 
 # ============================================================================
 # Git Settings
@@ -352,6 +401,25 @@ claude_repo_memory = {str(self.claude_repo_memory).lower()}
 # Preferred shell (leave empty to use $SHELL)
 shell = "{self._toml_escape(self.shell)}"
 
+# Path to glab executable (GitLab CLI, used for MR/CI status)
+glab_path = "{self._toml_escape(self.glab_path)}"
+
+# Path to gh executable (GitHub CLI, used for PR/CI status)
+gh_path = "{self._toml_escape(self.gh_path)}"
+
+# ============================================================================
+# Forge (MR/PR state via glab/gh)
+# ============================================================================
+[forge]
+
+# Query MR/PR state from GitLab/GitHub CLIs (glab/gh). Set to false to
+# disable all forge lookups (e.g. air-gapped environments).
+enabled = {str(self.forge_enabled).lower()}
+
+# Extra self-hosted GitLab hostnames (hosts containing "gitlab" and
+# github.com are auto-detected from each repo's origin URL).
+gitlab_hosts = {self._toml_list(self.forge_gitlab_hosts)}
+
 # ============================================================================
 # Keybindings
 # ============================================================================
@@ -378,6 +446,8 @@ refresh = "{self._toml_escape(self.keybindings.get("refresh", "r"))}"
 toggle_messages = "{self._toml_escape(self.keybindings.get("toggle_messages", "m"))}"
 toggle_grouping = "{self._toml_escape(self.keybindings.get("toggle_grouping", "S"))}"
 cycle_sort = "{self._toml_escape(self.keybindings.get("cycle_sort", "s"))}"
+delete_worktree = "{self._toml_escape(self.keybindings.get("delete_worktree", "D"))}"
+dispatch_agent = "{self._toml_escape(self.keybindings.get("dispatch_agent", "b"))}"
 focus_next = "{self._toml_escape(self.keybindings.get("focus_next", "tab"))}"
 focus_previous = "{self._toml_escape(self.keybindings.get("focus_previous", "shift+tab"))}"
 cursor_down = "{self._toml_escape(self.keybindings.get("cursor_down", "j"))}"
@@ -403,6 +473,20 @@ blocklist = {self._toml_list(self.symlink_blocklist)}
         """Ensure required directories exist."""
         self.tasks_dir.mkdir(parents=True, exist_ok=True)
         self.config_dir.mkdir(parents=True, exist_ok=True)
+
+    def get_archive_dir(self) -> Path:
+        """Get the archive directory for finished-task diffs.
+
+        A relative path is anchored under tasks_dir, never $PWD — `finish`
+        may run from inside a worktree, and a CWD-relative archive would be
+        written into the very tree that is deleted seconds later.
+        """
+        if self.archive_dir:
+            path = Path(self.archive_dir).expanduser()
+            if not path.is_absolute():
+                path = self.tasks_dir / path
+            return path
+        return self.tasks_dir / ".archive"
 
     def get_available_repos(self) -> list[str]:
         """Get list of available repositories in REPOS_DIR."""

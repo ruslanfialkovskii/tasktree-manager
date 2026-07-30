@@ -24,6 +24,11 @@ APP_COMMANDS: list[tuple[str, str, str]] = [
     ("open_shell", "Open Shell", "Open a shell in the selected worktree"),
     ("open_claude_resume", "Open Claude", "Open Claude Code for the task (resume if possible)"),
     (
+        "dispatch_agent",
+        "Dispatch Claude Agent",
+        "Run a background Claude session in the selected worktree",
+    ),
+    (
         "open_claude_gui_code",
         "Open Claude Desktop",
         "Open the Claude desktop app on the Code page",

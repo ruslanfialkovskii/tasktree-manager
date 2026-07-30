@@ -18,7 +18,10 @@
 - ⌨️ **Keyboard-First** - Navigate and control everything without touching the mouse
 - 🚀 **Fast & Responsive** - Parallel git operations with loading indicators
 - 🔧 **Flexible Configuration** - TOML config file, custom keybindings, environment variables
-- 🤖 **Headless CLI** - Create, list, and delete tasks from scripts and AI agents without opening the TUI
+- 🤖 **Headless CLI** - Create, list, inspect, finish, and delete tasks from scripts and AI agents without opening the TUI
+- 🛰️ **Agent Dashboard** - Live Claude Code session state per worktree (from `claude agents`), plus one-key background-agent dispatch — the multi-repo agent view Claude Code lacks natively
+- 🔀 **Forge-Aware Safety** - MR/PR and CI state via `glab`/`gh`; squash- and rebase-merged branches count as merged instead of blocking deletion forever
+- 📦 **Finish Flow with Archives** - Ending a task saves its combined diff (committed-but-unmerged + uncommitted) to an archive before deleting
 
 ## 📊 Status Indicators
 
@@ -26,12 +29,15 @@
 |-----------|---------|
 | `●` red | Uncommitted changes |
 | `◆` blue | Has CLAUDE.md file |
-| `⟳` magenta | Claude Code session running |
+| `⟳` magenta | Claude Code session running / agent working |
 | `!` yellow | Claude Code session waiting for input |
+| `▣` green | Agent session ready (idle) |
 | `✓` green | Clean worktree / Claude session ended |
 | `✗ N` red | N files changed |
 | `↑N` green | N commits ahead of remote |
 | `↓N` yellow | N commits behind remote |
+| `○` green / `●` magenta / `×` red | MR open / merged / closed |
+| `◐` yellow / `✔` green / `✘` red | CI running / passed / failed |
 
 ## 🚀 Quick Start
 
@@ -74,11 +80,16 @@ tasktree-manager create DIC-1901-argocd-tls --repos backend,frontend  # --base o
 tasktree-manager list --json     # tasks with repos and dirty state (plain text without --json)
 tasktree-manager repos           # available repos in REPOS_DIR
 tasktree-manager add-repo DIC-1901-argocd-tls infra
-tasktree-manager delete DIC-1901-argocd-tls   # refuses on unfinished work; --force overrides
+tasktree-manager status                       # current task inferred from $PWD; also --json / --oneline / --forge
+tasktree-manager finish DIC-1901-argocd-tls   # safety sweep -> archive diff -> delete; --push / --no-archive / --force
+tasktree-manager delete DIC-1901-argocd-tls   # low-level delete; refuses on unfinished work; --force overrides
 ```
 
-Exit code is 0 on success, 1 on failure with the reason on stderr. `delete` runs the same
-safety check as the TUI (uncommitted, unpushed, or unmerged work blocks deletion).
+Exit code is 0 on success, 1 on failure with the reason on stderr. `delete` and `finish` run
+the same safety check as the TUI (uncommitted, unpushed, or unmerged work blocks deletion);
+with `glab`/`gh` installed, squash/rebase-merged branches are recognized as merged.
+`status --oneline` emits a compact `TASK repoA✓ repoB●2↑1` summary that slots straight into
+a Claude Code statusline or shell prompt.
 
 ## 📖 Documentation
 
@@ -98,6 +109,7 @@ safety check as the TUI (uncommitted, unpushed, or unmerged work blocks deletion
 | `p` | Push all | `o` | Open folder |
 | `P` | Pull all | `Enter` | Open shell |
 | `c` | Claude (resume) | `C` | Claude (new) |
+| `b` | Dispatch agent | `D` | Delete worktree |
 | `r` | Refresh | `s` | Sort tasks |
 | `S` | Group worktrees | `m` | Messages |
 | `t` | Cycle theme | `Tab` | Next panel |
@@ -177,11 +189,13 @@ For comprehensive troubleshooting, see the [Troubleshooting Guide](docs/troubles
 
 ## 🗺️ Roadmap
 
-Current: **v0.2.0** - Configuration system, themes, comprehensive documentation
+Recently shipped: agent dashboard (per-worktree Claude session badges + background dispatch),
+forge-aware merged detection (glab/gh, squash/rebase merges), MR/CI status badges,
+guided `finish` flow with diff archiving, `status` subcommand for scripts and statuslines.
 
 Upcoming:
-- **v0.3.0** - Search/filter, task templates, archiving
-- **v0.4.0** - JIRA integration, git hooks, automation
+- **v0.3.0** - Search/filter, task templates
+- **v0.4.0** - JIRA status column, git hooks, automation
 - **v1.0.0** - Stable release
 
 See [ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md) for details.

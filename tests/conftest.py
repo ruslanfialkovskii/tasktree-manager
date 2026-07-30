@@ -6,9 +6,22 @@ from pathlib import Path
 import pytest
 
 from tasktree_manager.app import TaskTreeApp
+from tasktree_manager.services import forge
 from tasktree_manager.services.config import Config
 from tasktree_manager.services.git_ops import GitStatus
 from tasktree_manager.services.task_manager import TaskManager, Worktree
+
+
+@pytest.fixture(autouse=True)
+def _reset_forge():
+    """Reset forge module state — its TTL cache and class attrs leak across tests."""
+    forge.clear_cache()
+    forge.Forge.glab_path = "glab"
+    forge.Forge.gh_path = "gh"
+    forge.Forge.enabled = True
+    forge.Forge.gitlab_hosts = []
+    yield
+    forge.clear_cache()
 
 
 def get_default_branch(repo_path: Path) -> str:
@@ -110,6 +123,10 @@ def sample_repos(temp_dirs):
 def app(config):
     """Create app with test config."""
     config.ensure_dirs()
+    # Keep TUI tests hermetic: never poll the real `claude` CLI from on_mount.
+    # Badge/dispatch tests drive the poll/apply methods directly instead.
+    config.agent_poll_interval = 0
+    config.forge_poll_interval = 0
     app = TaskTreeApp()
     app.config = config
     app.task_manager = TaskManager(config)
@@ -173,6 +190,145 @@ def repo_with_remote(tmp_path):
     )
 
     return local, remote
+
+
+@pytest.fixture
+def repo_with_origin(config, tmp_path):
+    """A repo in REPOS_DIR whose branch is pushed to a bare origin remote.
+
+    check_merged() compares HEAD against origin/<base>, so only a repo
+    with a remote can ever count as "merged" (and thus safe to delete).
+    Returns the default branch name.
+    """
+    remote = tmp_path / "origin" / "repo-remote.git"
+    remote.mkdir(parents=True)
+    subprocess.run(["git", "init", "--bare"], cwd=remote, capture_output=True, check=True)
+
+    repo = config.repos_dir / "repo-remote"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"], cwd=repo, capture_output=True, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"], cwd=repo, capture_output=True, check=True
+    )
+    subprocess.run(
+        ["git", "remote", "add", "origin", str(remote)], cwd=repo, capture_output=True, check=True
+    )
+    (repo / "README.md").write_text("# repo-remote\n")
+    subprocess.run(["git", "add", "."], cwd=repo, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "Initial"], cwd=repo, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "push", "-u", "origin", "HEAD"], cwd=repo, capture_output=True, check=True
+    )
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"], cwd=repo, capture_output=True, text=True
+    ).stdout.strip()
+    return branch
+
+
+@pytest.fixture
+def squash_merged_task(config, task_manager, repo_with_origin):
+    """A task whose branch was "squash-merged": its commit is pushed, but the
+    remote base advanced with a different commit carrying the same change, so
+    `git merge-base --is-ancestor` genuinely fails.
+
+    Returns (task, base_branch).
+    """
+    base = repo_with_origin
+    task = task_manager.create_task("TASK-squash", ["repo-remote"], base)
+    wt = task.worktrees[0]
+
+    (wt.path / "feature.txt").write_text("feature\n")
+    subprocess.run(["git", "add", "."], cwd=wt.path, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "feat"], cwd=wt.path, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "push", "-u", "origin", "HEAD"], cwd=wt.path, capture_output=True, check=True
+    )
+
+    # Simulate the squash merge from a scratch clone: same content lands on
+    # base as a brand-new commit that is no descendant of the branch commit
+    remote_url = subprocess.run(
+        ["git", "remote", "get-url", "origin"], cwd=wt.path, capture_output=True, text=True
+    ).stdout.strip()
+    scratch = config.repos_dir.parent / "squash-scratch"
+    subprocess.run(
+        ["git", "clone", "--branch", base, remote_url, str(scratch)],
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=scratch,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"], cwd=scratch, capture_output=True, check=True
+    )
+    (scratch / "feature.txt").write_text("feature\n")
+    subprocess.run(["git", "add", "."], cwd=scratch, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "feat (squash !42)"], cwd=scratch, capture_output=True, check=True
+    )
+    subprocess.run(["git", "push", "origin", base], cwd=scratch, capture_output=True, check=True)
+
+    return task, base
+
+
+@pytest.fixture
+def repo_with_forge_url(config):
+    """A repo in REPOS_DIR with a fake GitLab https origin (never fetched).
+
+    Provider detection is purely URL-based, so no network is touched as long
+    as nothing runs a real glab against it.
+    """
+    repo_path = config.repos_dir / "forge-repo"
+    branch = create_git_repo(repo_path)
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://gitlab.example.com/group/project.git"],
+        cwd=repo_path,
+        capture_output=True,
+        check=True,
+    )
+    return repo_path, branch
+
+
+@pytest.fixture
+def fake_claude_cli(tmp_path):
+    """An executable `claude` stub — the suite's process-boundary seam for
+    Claude CLI behavior (no unittest.mock; same philosophy as real git repos).
+
+    - `claude agents --json` cats <stub_dir>/agents.json, or exits 1 when the
+      file is absent (tests rewrite that file to simulate state transitions).
+    - `claude --bg ...` appends "$PWD|<args>" to <stub_dir>/dispatch.log.
+
+    Returns the stub directory; the binary is <stub_dir>/claude.
+    """
+    stub_dir = tmp_path / "claude-stub"
+    stub_dir.mkdir()
+    script = stub_dir / "claude"
+    script.write_text(
+        f"""#!/bin/sh
+if [ "$1" = "agents" ]; then
+  if [ -f "{stub_dir}/agents.json" ]; then
+    cat "{stub_dir}/agents.json"
+    exit 0
+  fi
+  exit 1
+fi
+case "$1" in
+  --bg|--background)
+    printf '%s|%s\\n' "$PWD" "$*" >> "{stub_dir}/dispatch.log"
+    exit 0
+    ;;
+esac
+exit 0
+"""
+    )
+    script.chmod(0o755)
+    return stub_dir
 
 
 @pytest.fixture
