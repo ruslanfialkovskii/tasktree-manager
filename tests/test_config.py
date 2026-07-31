@@ -131,7 +131,6 @@ class TestConfig:
         assert config.editor == ""
         assert config.lazygit_path == "lazygit"
         assert config.hunk_path == "hunk"
-        assert config.shell == ""
         assert config.archive_dir == ""
         assert config.agent_poll_interval == 10
         assert config.forge_poll_interval == 60
@@ -233,7 +232,6 @@ timeout = 60
 editor = "nvim"
 lazygit_path = "/usr/local/bin/lazygit"
 hunk_path = "/usr/local/bin/hunk"
-shell = "/bin/zsh"
 '''
         config_file.write_text(config_content)
 
@@ -254,23 +252,11 @@ shell = "/bin/zsh"
             assert config.editor == "nvim"
             assert config.lazygit_path == "/usr/local/bin/lazygit"
             assert config.hunk_path == "/usr/local/bin/hunk"
-            assert config.shell == "/bin/zsh"
         finally:
             if old_xdg is not None:
                 os.environ["XDG_CONFIG_HOME"] = old_xdg
             else:
                 os.environ.pop("XDG_CONFIG_HOME", None)
-
-    def test_get_shell_from_config(self):
-        """Test get_shell returns config value when set."""
-        config = Config(shell="/bin/zsh")
-        assert config.get_shell() == "/bin/zsh"
-
-    def test_get_shell_fallback_to_env(self, monkeypatch):
-        """Test get_shell falls back to environment."""
-        monkeypatch.setenv("SHELL", "/bin/fish")
-        config = Config(shell="")
-        assert config.get_shell() == "/bin/fish"
 
     def test_get_editor_from_config(self):
         """Test get_editor returns config value when set."""
@@ -304,7 +290,6 @@ shell = "/bin/zsh"
             editor="vim",
             lazygit_path="/opt/bin/lazygit",
             hunk_path="/opt/bin/hunk",
-            shell="/bin/zsh",
             glab_path="/opt/bin/glab",
             gh_path="/opt/bin/gh",
             forge_enabled=False,
@@ -329,7 +314,6 @@ shell = "/bin/zsh"
             assert loaded.editor == "vim"
             assert loaded.lazygit_path == "/opt/bin/lazygit"
             assert loaded.hunk_path == "/opt/bin/hunk"
-            assert loaded.shell == "/bin/zsh"
             assert loaded.archive_dir == "/tmp/archive"
             assert loaded.agent_poll_interval == 15
             assert loaded.forge_poll_interval == 90

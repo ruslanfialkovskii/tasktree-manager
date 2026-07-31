@@ -76,9 +76,8 @@ class WorktreeList(OptionList):
         self._max_branch_len: int = 0
         # Footer-visible (key, app action, description) bindings shown while
         # this panel has focus; the keys also exist app-level (hidden) so
-        # they keep working regardless of focus. Replacing "enter" here also
-        # fixes shell opening: OptionList's own select binding used to
-        # swallow the key before the app's open_shell binding could see it.
+        # they keep working regardless of focus. Keys are popped first so a
+        # context binding can override an OptionList default for that key.
         for key, action, description in context_bindings or []:
             self._bindings.key_to_bindings.pop(key, None)
             self._bindings.bind(key, f"app.{action}", description, show=True)

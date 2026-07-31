@@ -208,7 +208,6 @@ class TaskTreeApp(App):
         Binding("m", "toggle_messages", "Messages", show=False),
         Binding("?", "help", "Help"),
         Binding("q", "quit", "Quit"),
-        Binding("enter", "open_shell", "Shell", show=False),
         Binding("C", "open_claude_gui_code", "Claude GUI", show=False),
         Binding("P", "pull_all", "Pull All", show=False),
         Binding("S", "toggle_grouping", "Group", show=False),
@@ -287,7 +286,6 @@ class TaskTreeApp(App):
             Binding(kb.get("toggle_messages", "m"), "toggle_messages", "Messages", show=False),
             Binding(kb.get("help", "?"), "help", "Help"),
             Binding(kb.get("quit", "q"), "quit", "Quit"),
-            Binding(kb.get("open_shell", "enter"), "open_shell", "Shell", show=False),
             Binding(
                 kb.get("open_claude_gui_code", "C"),
                 "open_claude_gui_code",
@@ -331,7 +329,6 @@ class TaskTreeApp(App):
             (kb.get("show_diff", "h"), "show_diff", "Diff"),
             (kb.get("open_editor", "e"), "open_editor", "Editor"),
             (kb.get("open_folder", "o"), "open_folder", "Open"),
-            (kb.get("open_shell", "enter"), "open_shell", "Shell"),
             (kb.get("dispatch_agent", "b"), "dispatch_agent", "Agent"),
             (kb.get("push_all", "p"), "push_all", "Push"),
             (kb.get("delete_worktree", "D"), "delete_worktree", "Del WT"),
@@ -1515,37 +1512,13 @@ class TaskTreeApp(App):
         # Restore focus to task list
         self.query_one("#task-list", TaskList).focus()
 
-    def action_open_shell(self) -> None:
-        """Open a shell in the current worktree."""
-        if not self.current_worktree:
-            self.notify("No worktree selected", severity="warning")
-            return
-
-        worktree_path = self.current_worktree.path
-        if not worktree_path.exists():
-            self.notify("Worktree directory not found", severity="error")
-            return
-
-        # Save selection state BEFORE suspend (as local variables)
-        saved_task_name = self.current_task.name if self.current_task else None
-        saved_worktree_name = self.current_worktree.name
-
-        # Get shell from config
-        shell = self.config.get_shell()
-
-        self.notify("Opening shell...")
-
-        # Suspend app and open shell
-        with self.suspend():
-            self._run_external_command([shell], cwd=worktree_path, name="shell")
-
-        # Refresh status after shell exits, restoring saved selection
-        self._load_tasks_with_selection(saved_task_name, saved_worktree_name)
-        # Restore focus to worktree list
-        self.query_one("#worktree-list", WorktreeList).focus()
-
     def action_open_editor(self) -> None:
-        """Open editor in the current folder (task or worktree based on focus)."""
+        """Open editor in a new terminal tab at the current folder.
+
+        Same mechanism as open_folder: the TUI keeps running instead of
+        suspending, so the editor session and the dashboard live side by
+        side (matches the `o`/`c` new-tab behavior).
+        """
         focused = self.focused
 
         # Determine folder based on focus (like open_folder does)
@@ -1562,24 +1535,9 @@ class TaskTreeApp(App):
             self.notify("Folder not found", severity="error")
             return
 
-        # Save selection state BEFORE suspend
-        saved_task_name = self.current_task.name if self.current_task else None
-        saved_worktree_name = self.current_worktree.name if self.current_worktree else None
-
         editor = self.config.get_editor()
-        self.notify(escape(f"Opening {editor}..."))
-
-        # Suspend app and run editor with "." to open directory
-        with self.suspend():
-            self._run_external_command([editor, "."], cwd=folder_path, name="editor")
-
-        # Refresh status after editor exits, restoring saved selection
-        self._load_tasks_with_selection(saved_task_name, saved_worktree_name)
-        # Restore focus to the panel that was focused
-        if isinstance(focused, TaskList):
-            self.query_one("#task-list", TaskList).focus()
-        else:
-            self.query_one("#worktree-list", WorktreeList).focus()
+        self._open_ghostty_tab(folder_path, command=f"{editor} .")
+        self.notify(escape(f"Opened {editor} in new tab"))
 
     def _prepare_claude_session(self, task_path: Path) -> None:
         """Refresh CLAUDE.md files, worktree settings, and hooks before launching Claude."""

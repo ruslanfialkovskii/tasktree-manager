@@ -684,9 +684,8 @@ class HelpModal(ThemedModalScreen[None]):
             + "\n"
         )
         tools_section += (
-            self._format_binding("open_shell", "enter", "Open shell in worktree") + "\n"
+            self._format_binding("open_editor", "e", "Open editor in new terminal tab") + "\n"
         )
-        tools_section += self._format_binding("open_editor", "e", "Open editor in folder") + "\n"
         tools_section += (
             self._format_binding(
                 "open_claude_resume", "c", "Open Claude CLI (resume if session exists, else new)"

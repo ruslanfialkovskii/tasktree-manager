@@ -19,9 +19,12 @@ APP_COMMANDS: list[tuple[str, str, str]] = [
         "Show Diff",
         "Open hunk: all repos from the task panel, the selected repo from the worktree panel",
     ),
-    ("open_editor", "Open Editor", "Open your editor in the focused task/worktree folder"),
+    (
+        "open_editor",
+        "Open Editor",
+        "Open your editor in a new terminal tab at the focused task/worktree folder",
+    ),
     ("open_folder", "Open Folder", "Open the focused folder in a new terminal tab"),
-    ("open_shell", "Open Shell", "Open a shell in the selected worktree"),
     ("open_claude_resume", "Open Claude", "Open Claude Code for the task (resume if possible)"),
     (
         "dispatch_agent",
