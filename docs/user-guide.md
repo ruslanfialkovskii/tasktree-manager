@@ -140,10 +140,10 @@ A **worktree** is a git working directory for a specific repository within a tas
    - Exit hunk (press `q`)
 
 4. **Or open a shell:**
-   - Press `Enter` to open a shell in the worktree
+   - Press `o` to open the worktree in a new terminal tab
    - Make changes with your editor/IDE
    - Run build/test commands
-   - Exit shell (type `exit`)
+   - Close the tab (or switch back) when done
 
 5. **Push changes:**
    - Press `p` to push all worktrees in the task
@@ -337,8 +337,7 @@ Useful when you're spinning up several similar tasks that share the same set of 
 |---------|--------------------|------------------------------------------------------|
 | `g`     | Open lazygit       | Open lazygit in the selected worktree                |
 | `h`     | Show diff          | Open hunk: all repos from the task panel, the selected repo from the worktree panel |
-| `e`     | Open editor        | Open editor in task/worktree folder (runs `$EDITOR .`) |
-| `Enter` | Open shell         | Open a shell in the selected worktree                |
+| `e`     | Open editor        | Open editor in a new terminal tab at the task/worktree folder (runs `$EDITOR .`; the TUI keeps running) |
 | `p`     | Push all           | Push all worktrees in the current task (parallel)    |
 | `P`     | Pull all           | Pull all worktrees in the current task (parallel)    |
 | `r`     | Refresh status     | Refresh git status for all tasks and worktrees       |
@@ -434,9 +433,9 @@ Create
 # Work in backend
 Tab (to worktree list)
 j (to highlight backend)
-Enter (open shell)
+o (open new terminal tab)
 
-# In shell: make changes
+# In the tab: make changes
 cd src
 vim auth.py
 # ... make changes ...
@@ -516,7 +515,7 @@ Select: backend
 Create
 
 Tab
-Enter (open shell)
+o (open new terminal tab)
 git fetch origin feat-789:feat-789
 git checkout feat-789
 exit
@@ -553,7 +552,7 @@ q (quit tasktree-manager)
 tasktree-manager
 j (select FEAT-999)
 Tab
-Enter (shell in first worktree)
+o (new tab in first worktree)
 
 # Merge main into feature branch
 git fetch origin main:main
@@ -631,7 +630,7 @@ d (delete task)
 **Working in worktree:**
 - Press `e` to open editor directly in worktree
 - Press `g` for lazygit (recommended for git operations)
-- Press `Enter` for shell (for building, testing, or other commands)
+- Press `o` for a shell in a new terminal tab (building, testing, other commands)
 
 **Git operations:**
 - **Staging/committing**: Use lazygit (`g`)
@@ -764,9 +763,9 @@ editor = "nvim"  # or "vim", "code", "emacs", etc.
 
 Or set the `$EDITOR` environment variable.
 
-**Alternative: Open shell first:**
-1. Press `Enter` (open shell)
-2. In shell:
+**Alternative: Open a terminal tab first:**
+1. Press `o` (new terminal tab in the worktree)
+2. In the tab:
    ```bash
    vim .               # Vim
    nvim .              # Neovim
@@ -807,7 +806,7 @@ tasktree-manager creates normal git branches, so CI/CD works seamlessly:
 Integrate with GitHub CLI for PR creation:
 
 ```bash
-# In worktree shell (press Enter in tasktree-manager)
+# In a worktree tab (press o in tasktree-manager)
 gh pr create --title "Add authentication" --body "Implements FEAT-123"
 
 # Or after pushing all worktrees

@@ -732,8 +732,8 @@ HEAD detached at abc1234
 
 **Solution:**
 ```bash
-# Open shell in worktree
-Press Enter
+# Open worktree in a new terminal tab
+Press o
 
 # Create/checkout branch
 git checkout -b FEAT-123
@@ -1008,7 +1008,7 @@ Create
 
 # Your work is in the remote branch
 # Pull it down in the new worktree
-Press Enter (shell)
+Press o (new terminal tab)
 git pull origin FEAT-123
 ```
 

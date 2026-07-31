@@ -63,7 +63,7 @@ On first run, you'll configure:
 ### Basic Workflow
 
 1. **Create a task** - Press `n`, enter task name, select repositories
-2. **Work on code** - Press `e` for editor, `g` for lazygit, or `Enter` for shell
+2. **Work on code** - Press `e` for editor, `g` for lazygit, or `o` for a shell in a new terminal tab
 3. **Review changes** - Press `h` to view the diff in [hunk](https://github.com/modem-dev/hunk) (all repos from the task panel, one repo from the worktree panel)
 4. **Push changes** - Press `p` to push all worktrees
 5. **Delete task** - Press `d` when finished
@@ -107,7 +107,7 @@ a Claude Code statusline or shell prompt.
 | `a` | Add repo | `h` | Show diff (hunk) |
 | `d` | Delete task | `e` | Open editor |
 | `p` | Push all | `o` | Open folder |
-| `P` | Pull all | `Enter` | Open shell |
+| `P` | Pull all | `y` | Clone task |
 | `c` | Claude (resume) | `C` | Claude (new) |
 | `b` | Dispatch agent | `D` | Delete worktree |
 | `r` | Refresh | `s` | Sort tasks |

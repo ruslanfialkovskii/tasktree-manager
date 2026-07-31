@@ -391,21 +391,6 @@ class TestOpenExternalCommands:
             # App should still be running
             assert app.is_running
 
-    async def test_open_shell_no_worktree_warning(self, app, sample_repo, task_manager):
-        """Test that shell with no worktree selected shows warning."""
-        async with app.run_test() as pilot:
-            await pilot.pause()
-
-            # Clear current worktree
-            app.current_worktree = None
-
-            # Press enter for shell
-            await pilot.press("enter")
-            await pilot.pause()
-
-            # App should still be running
-            assert app.is_running
-
 
 class TestShowDiffAction:
     """Tests for the hunk diff action (h)."""
@@ -651,7 +636,6 @@ class TestContextSensitiveFooter:
             assert "app.delete_task" in shown
             # Worktree-context actions are hidden in this context
             assert "app.open_lazygit" not in shown
-            assert "app.open_shell" not in shown
             # Globals always visible
             assert "cycle_theme" in shown
             assert "refresh" in shown
@@ -675,7 +659,6 @@ class TestContextSensitiveFooter:
             assert app.focused.id == "worktree-list"
             shown = self._shown_actions(app)
             assert "app.open_lazygit" in shown
-            assert "app.open_shell" in shown
             assert "app.push_all" in shown
             # Task-context actions are hidden in this context
             assert "app.new_task" not in shown
@@ -699,22 +682,3 @@ class TestContextSensitiveFooter:
 
             create_modals = [s for s in app.screen_stack if isinstance(s, CreateTaskModal)]
             assert len(create_modals) == 1
-
-    async def test_enter_opens_shell_from_worktree_list(
-        self, app, sample_repo, task_manager, monkeypatch
-    ):
-        """Enter on the worktree list triggers open_shell (was swallowed by select)."""
-        repo_path, branch = sample_repo
-        task_manager.create_task("FOOTER-ENTER", ["sample-repo"], branch)
-
-        called = []
-        monkeypatch.setattr(app, "action_open_shell", lambda: called.append(True))
-
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            await pilot.press("tab")
-            await pilot.pause()
-            await pilot.press("enter")
-            await pilot.pause()
-
-        assert called

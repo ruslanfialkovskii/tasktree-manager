@@ -26,7 +26,6 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "open_lazygit": "g",
     "show_diff": "h",
     "open_folder": "o",
-    "open_shell": "enter",
     "open_editor": "e",
     "open_claude_resume": "c",
     "open_claude_gui_code": "C",
@@ -122,7 +121,6 @@ class Config:
     claude_path: str = "claude"
     claude_memory_dir: str = "~/.claude/tasktree-memory"
     claude_repo_memory: bool = True
-    shell: str = ""
     glab_path: str = "glab"
     gh_path: str = "gh"
 
@@ -184,7 +182,6 @@ class Config:
         claude_path = tools_config.get("claude_path", "claude")
         claude_memory_dir = tools_config.get("claude_memory_dir", "~/.claude/tasktree-memory")
         claude_repo_memory = bool(tools_config.get("claude_repo_memory", True))
-        shell = tools_config.get("shell", "")
         glab_path = tools_config.get("glab_path", "glab")
         gh_path = tools_config.get("gh_path", "gh")
 
@@ -221,8 +218,6 @@ class Config:
             default_base_branch = os.environ["TASKTREE_DEFAULT_BRANCH"]
         if "EDITOR" in os.environ and not editor:
             editor = os.environ["EDITOR"]
-        if "SHELL" in os.environ and not shell:
-            shell = os.environ["SHELL"]
 
         return cls(
             repos_dir=repos_dir,
@@ -243,7 +238,6 @@ class Config:
             claude_path=claude_path,
             claude_memory_dir=claude_memory_dir,
             claude_repo_memory=claude_repo_memory,
-            shell=shell,
             glab_path=glab_path,
             gh_path=gh_path,
             forge_enabled=forge_enabled,
@@ -398,9 +392,6 @@ claude_memory_dir = "{self._toml_escape(self.claude_memory_dir)}"
 # same repo and with the main checkout. Set to false to disable.
 claude_repo_memory = {str(self.claude_repo_memory).lower()}
 
-# Preferred shell (leave empty to use $SHELL)
-shell = "{self._toml_escape(self.shell)}"
-
 # Path to glab executable (GitLab CLI, used for MR/CI status)
 glab_path = "{self._toml_escape(self.glab_path)}"
 
@@ -436,7 +427,6 @@ delete_task = "{self._toml_escape(self.keybindings.get("delete_task", "d"))}"
 open_lazygit = "{self._toml_escape(self.keybindings.get("open_lazygit", "g"))}"
 show_diff = "{self._toml_escape(self.keybindings.get("show_diff", "h"))}"
 open_folder = "{self._toml_escape(self.keybindings.get("open_folder", "o"))}"
-open_shell = "{self._toml_escape(self.keybindings.get("open_shell", "enter"))}"
 open_editor = "{self._toml_escape(self.keybindings.get("open_editor", "e"))}"
 open_claude_resume = "{self._toml_escape(self.keybindings.get("open_claude_resume", "c"))}"
 open_claude_gui_code = "{self._toml_escape(self.keybindings.get("open_claude_gui_code", "C"))}"
@@ -512,12 +502,6 @@ blocklist = {self._toml_list(self.symlink_blocklist)}
                 dirnames.clear()
 
         return sorted(repos)
-
-    def get_shell(self) -> str:
-        """Get the shell to use, with fallback to environment or /bin/bash."""
-        if self.shell:
-            return self.shell
-        return os.environ.get("SHELL", "/bin/bash")
 
     def get_editor(self) -> str:
         """Get the editor to use, with fallback to environment or vi."""

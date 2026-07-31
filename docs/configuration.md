@@ -180,11 +180,6 @@ claude_memory_dir = "~/.claude/tasktree-memory"
 # Default: true
 claude_repo_memory = true
 
-# Preferred shell
-# Leave empty to use $SHELL environment variable
-# Default: "" (uses $SHELL, falls back to /bin/bash)
-shell = ""
-
 # Path to glab executable (GitLab CLI, used for MR/CI status)
 # Default: "glab" (searches PATH)
 glab_path = "glab"
@@ -235,7 +230,6 @@ open_lazygit = "g"      # Open lazygit in selected worktree
 show_diff = "h"         # Open hunk diff (task panel = all repos, worktree panel = one repo)
 open_editor = "e"       # Open editor in selected task/worktree
 open_folder = "o"       # Open folder in new terminal tab
-open_shell = "enter"    # Open shell in selected worktree
 push_all = "p"          # Push all worktrees in current task
 pull_all = "P"          # Pull all worktrees in current task (shift+p)
 refresh = "r"           # Refresh git status
@@ -399,7 +393,6 @@ refresh_interval = 15  # Refresh every 15 seconds
 | `editor`      | string | `""`        | `EDITOR`            | Command to launch your editor        |
 | `lazygit_path` | string | `"lazygit"` | -                   | Path to lazygit executable           |
 | `hunk_path`   | string | `"hunk"`    | -                   | Path to hunk diff-viewer executable  |
-| `shell`       | string | `""`        | `SHELL`             | Shell to use when opening terminals  |
 | `glab_path`   | string | `"glab"`    | -                   | Path to GitLab CLI (MR/CI status)    |
 | `gh_path`     | string | `"gh"`      | -                   | Path to GitHub CLI (PR/CI status)    |
 
@@ -437,12 +430,6 @@ failures degrade silently — features fall back to plain git behavior.
 - Use absolute path for custom location: `"/opt/homebrew/bin/hunk"`
 - Install hunk: `brew install hunk` (macOS) or `npm i -g hunkdiff`
 - Used when pressing `h`: from the task panel it opens a combined diff across all the task's repos; from the worktree panel it opens the selected repo's diff
-
-**`shell`:**
-- Leave empty (`""`) to use `$SHELL` environment variable
-- Fallback: `/bin/bash`
-- Examples: `"/bin/zsh"`, `"/bin/fish"`, `"/usr/local/bin/bash"`
-- Used when pressing `Enter` to open shell in worktree
 
 ## Symlinks
 
@@ -605,7 +592,6 @@ All 22 customizable keybindings with descriptions:
 | `show_diff`    | `h`      | Open hunk diff (task = all repos, worktree = one) | `show_diff = "ctrl+h"` |
 | `open_editor`  | `e`      | Open editor in task/worktree folder   | `open_editor = "ctrl+e"`    |
 | `open_folder`  | `o`      | Open folder in new terminal tab       | `open_folder = "ctrl+o"`    |
-| `open_shell`   | `enter`  | Open shell in selected worktree       | `open_shell = "ctrl+t"`     |
 | `push_all`     | `p`      | Push all worktrees in current task    | `push_all = "ctrl+p"`       |
 | `pull_all`     | `P`      | Pull all worktrees in current task    | `pull_all = "ctrl+shift+p"` |
 | `refresh`      | `r`      | Refresh git status for all worktrees  | `refresh = "F5"`            |
@@ -675,7 +661,7 @@ focus_previous = "h"
 [keybindings]
 new_task = "ctrl+n"
 delete_task = "ctrl+d"
-open_shell = "ctrl+t"
+open_folder = "ctrl+t"
 refresh = "F5"
 quit = "ctrl+q"
 ```
