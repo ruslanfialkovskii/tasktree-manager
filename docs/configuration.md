@@ -223,6 +223,7 @@ help = "?"              # Show help modal
 new_task = "n"          # Create new task
 add_repo = "a"          # Add repository to current task
 delete_task = "d"       # Delete/finish task
+rename_task = "R"       # Rename task display label (folder/branch unchanged, shift+r)
 delete_worktree = "D"   # Remove single worktree from task (shift+d)
 
 # Git operations
@@ -583,6 +584,7 @@ All 22 customizable keybindings with descriptions:
 | `clone_task`  | `y`     | Clone current task (same repos, new name) | `clone_task = "ctrl+y"`  |
 | `add_repo`    | `a`     | Add repository to current task         | `add_repo = "ctrl+a"`      |
 | `delete_task` | `d`     | Delete/finish current task             | `delete_task = "delete"`   |
+| `rename_task` | `R`     | Rename task display label (alias only) | `rename_task = "ctrl+r"`   |
 
 ### Git Operations
 

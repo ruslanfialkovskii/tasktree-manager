@@ -34,6 +34,7 @@ from .widgets.create_modal import (
     DispatchAgentModal,
     HelpModal,
     PushResultModal,
+    RenameTaskModal,
     SafeDeleteModal,
 )
 from .widgets.messages_panel import MessageLevel, MessagesPanel
@@ -274,6 +275,7 @@ class TaskTreeApp(App):
             Binding(kb.get("clone_task", "y"), "clone_task", "Clone", show=False),
             Binding(kb.get("add_repo", "a"), "add_repo", "Add Repo", show=False),
             Binding(kb.get("delete_task", "d"), "delete_task", "Delete", show=False),
+            Binding(kb.get("rename_task", "R"), "rename_task", "Rename", show=False),
             Binding(kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit", show=False),
             Binding(kb.get("show_diff", "h"), "show_diff", "Diff", show=False),
             Binding(kb.get("open_editor", "e"), "open_editor", "Editor", show=False),
@@ -320,6 +322,7 @@ class TaskTreeApp(App):
             (kb.get("clone_task", "y"), "clone_task", "Clone"),
             (kb.get("add_repo", "a"), "add_repo", "Add Repo"),
             (kb.get("delete_task", "d"), "delete_task", "Delete"),
+            (kb.get("rename_task", "R"), "rename_task", "Rename"),
             (kb.get("show_diff", "h"), "show_diff", "Diff"),
             (kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude"),
             (kb.get("cycle_sort", "s"), "cycle_sort", "Sort"),
@@ -1189,6 +1192,28 @@ class TaskTreeApp(App):
                 self._finish_task(task, force=force)
 
         self.push_screen(ConfirmModal(title, message), handle_confirm)
+
+    def action_rename_task(self) -> None:
+        """Set a display alias for the current task (folder/branch unchanged)."""
+        if not self.current_task:
+            self.notify("No task selected", severity="warning")
+            return
+        task = self.current_task
+
+        def handle_rename(new_name: str | None) -> None:
+            if new_name is None:
+                return
+            try:
+                self.task_manager.set_task_display_name(task, new_name)
+            except OSError as e:
+                self.notify(escape(f"Rename failed: {e}"), severity="error")
+                return
+            label = task.display_label
+            self.notify(escape(f"Task '{task.name}' shown as '{label}'"))
+            self._log_activity(f"Task '{task.name}' renamed to '{label}'", MessageLevel.INFO)
+            self._run_periodic_refresh(force_ui=True)
+
+        self.push_screen(RenameTaskModal(task.name, task.display_name), handle_rename)
 
     def _finish_task(self, task: Task, force: bool = False) -> None:
         """Kick off task deletion in a background thread."""

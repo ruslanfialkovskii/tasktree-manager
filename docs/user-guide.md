@@ -300,6 +300,7 @@ what is displayed. Press `?` for the full reference at any time.
 | `y` | Clone task       | Create a new task pre-populated with the current task's repos |
 | `a` | Add repository   | Add additional repositories to the current task           |
 | `d` | Delete/finish    | Delete current task and remove worktrees                  |
+| `R` | Rename task      | Set a display alias shown in the task list (folder/branch unchanged; empty input reverts) |
 
 **Task creation workflow:**
 1. Press `n`

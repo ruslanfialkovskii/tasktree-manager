@@ -462,6 +462,53 @@ class SafeDeleteModal(ThemedModalScreen[str | None]):
             self.dismiss("force")
 
 
+class RenameTaskModal(ThemedModalScreen[str | None]):
+    """Prompt for a task's display alias (TUI label only).
+
+    Dismisses with the new alias, "" to revert to the real name, or None
+    when cancelled.
+    """
+
+    CANCEL_RESULT: ClassVar[None] = None
+
+    def __init__(self, task_name: str, current_alias: str | None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.task_name = task_name
+        self.current_alias = current_alias
+
+    def compose(self) -> ComposeResult:
+        with Container():
+            yield Label("Rename Task (display only)", classes="modal-title")
+            yield Static(
+                escape(f"Folder/branch stay '{self.task_name}'; empty input reverts."),
+                classes="modal-message",
+            )
+            yield Input(
+                value=self.current_alias or "",
+                placeholder=self.task_name,
+                id="rename-input",
+            )
+            with Horizontal(classes="button-row"):
+                yield Button("Rename", variant="primary", id="rename-btn")
+                yield Button("Cancel", variant="default", id="cancel-btn")
+
+    def on_mount(self) -> None:
+        super().on_mount()
+        self.query_one("#rename-input", Input).focus()
+
+    def _submit(self) -> None:
+        self.dismiss(self.query_one("#rename-input", Input).value.strip())
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._submit()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "rename-btn":
+            self._submit()
+        elif event.button.id == "cancel-btn":
+            self.dismiss(None)
+
+
 class DispatchAgentModal(ThemedModalScreen[str | None]):
     """Prompt for dispatching a background Claude agent into a worktree.
 
@@ -669,7 +716,12 @@ class HelpModal(ThemedModalScreen[None]):
         task_section += (
             self._format_binding("add_repo", "a", "Add repository to current task") + "\n"
         )
-        task_section += self._format_binding("delete_task", "d", "Delete/finish current task")
+        task_section += (
+            self._format_binding("delete_task", "d", "Delete/finish current task") + "\n"
+        )
+        task_section += self._format_binding(
+            "rename_task", "R", "Rename task display label (folder/branch unchanged)"
+        )
         sections.append(task_section)
 
         # Tools section

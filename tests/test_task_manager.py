@@ -433,6 +433,48 @@ class TestTaskBaseRecording:
         assert GitOps.get_task_base(worktree_from_repo, "no-such-branch") is None
 
 
+class TestDisplayName:
+    """Display alias: TUI label only, folder/branch untouched."""
+
+    def test_set_and_read_alias(self, task_manager, sample_repo):
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("DIC-1901-argocd-tls", ["sample-repo"], branch)
+
+        task_manager.set_task_display_name(task, "ArgoCD TLS rollout")
+        assert task.display_name == "ArgoCD TLS rollout"
+        assert task.display_label == "ArgoCD TLS rollout"
+        # Real identity untouched
+        assert task.name == "DIC-1901-argocd-tls"
+        assert task.path.name == "DIC-1901-argocd-tls"
+        assert (task.path / ".tasktree_name").exists()
+        # A fresh load sees the alias too (read lazily from disk)
+        reloaded = task_manager.get_task("DIC-1901-argocd-tls")
+        assert reloaded is not None
+        assert reloaded.display_label == "ArgoCD TLS rollout"
+
+    def test_clear_alias_with_empty(self, task_manager, sample_repo):
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("ALIAS-CLEAR", ["sample-repo"], branch)
+        task_manager.set_task_display_name(task, "temp label")
+        task_manager.set_task_display_name(task, "")
+        assert task.display_name is None
+        assert task.display_label == "ALIAS-CLEAR"
+        assert not (task.path / ".tasktree_name").exists()
+
+    def test_alias_equal_to_real_name_clears(self, task_manager, sample_repo):
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("ALIAS-SAME", ["sample-repo"], branch)
+        task_manager.set_task_display_name(task, "ALIAS-SAME")
+        assert not (task.path / ".tasktree_name").exists()
+        assert task.display_label == "ALIAS-SAME"
+
+    def test_no_alias_by_default(self, task_manager, sample_repo):
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("ALIAS-NONE", ["sample-repo"], branch)
+        assert task.display_name is None
+        assert task.display_label == "ALIAS-NONE"
+
+
 class TestForgeAwareSafety:
     """Squash/rebase merges detected via the forge (glab/gh) MR state."""
 

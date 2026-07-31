@@ -48,6 +48,24 @@ class Task:
         """Check if the task has a CLAUDE.md file."""
         return (self.path / "CLAUDE.md").exists()
 
+    @property
+    def display_name(self) -> str | None:
+        """Display alias from <task>/.tasktree_name, or None when unset.
+
+        Read lazily from disk so every Task construction site picks it up
+        and a rename is visible on the next render without reloading.
+        """
+        try:
+            value = (self.path / ".tasktree_name").read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+        return value or None
+
+    @property
+    def display_label(self) -> str:
+        """What the task list shows: the alias when set, else the real name."""
+        return self.display_name or self.name
+
 
 @dataclass
 class GitStatus:
