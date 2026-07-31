@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.11.1] - 2026-07-31
+
+### Fixed
+- **tui**: Open editor in new terminal tab, drop Enter shell binding
+
+
 ## [2.11.0] - 2026-07-30
 
 ### Added
