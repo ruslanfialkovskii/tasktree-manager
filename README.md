@@ -113,6 +113,7 @@ a Claude Code statusline or shell prompt.
 | `r` | Refresh | `s` | Sort tasks |
 | `S` | Group worktrees | `m` | Messages |
 | `t` | Cycle theme | `Tab` | Next panel |
+| `R` | Rename task | | |
 | `?` | Show help | `q` | Quit |
 
 **Themes:** The default `tasktree` theme pairs a lazygit-classic ANSI palette with layered panels, numbered title bars, green focus borders, and a keycap footer. Five more design-system palettes ship tuned to the same shape — tokyo-night, catppuccin-mocha, gruvbox, dracula, nord — and every other Textual built-in theme works too (`Ctrl+P` to switch); the whole UI is styled with Textual design tokens, so any theme restyles it consistently.

@@ -12,6 +12,11 @@ APP_COMMANDS: list[tuple[str, str, str]] = [
     ("clone_task", "Clone Task", "Create a new task with the same repos as the current one"),
     ("add_repo", "Add Repo", "Add repositories to the current task"),
     ("delete_task", "Delete Task", "Delete the current task (with safety checks)"),
+    (
+        "rename_task",
+        "Rename Task",
+        "Set a display alias for the current task (folder/branch unchanged)",
+    ),
     ("delete_worktree", "Delete Worktree", "Delete the selected worktree from the task"),
     ("open_lazygit", "Open Lazygit", "Open lazygit in the selected worktree"),
     (

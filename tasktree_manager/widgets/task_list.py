@@ -88,10 +88,10 @@ class TaskList(OptionList):
             hook_indicator = " [green]✓[/]"
         else:
             hook_indicator = ""
-        # Escape the name: task directories can be created outside tasktree,
-        # and markup-significant brackets in a name must not style (or crash)
+        # Escape the label: task directories (and aliases) can hold
+        # markup-significant brackets which must not style (or crash)
         # the list rendering
-        name = escape(task.name)
+        name = escape(task.display_label)
         if task.is_dirty:
             prompt = f"[red]●[/]{claude_md}{name} [red]({task.dirty_count})[/]{hook_indicator}"
         else:
@@ -220,9 +220,9 @@ class TaskList(OptionList):
         """Sort tasks according to current sort mode."""
         match self._sort_mode:
             case SortMode.NAME_ASC:
-                return sorted(tasks, key=lambda t: t.name.lower())
+                return sorted(tasks, key=lambda t: t.display_label.lower())
             case SortMode.NAME_DESC:
-                return sorted(tasks, key=lambda t: t.name.lower(), reverse=True)
+                return sorted(tasks, key=lambda t: t.display_label.lower(), reverse=True)
             case SortMode.DATE_NEWEST:
                 return sorted(
                     tasks,

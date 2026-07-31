@@ -155,6 +155,7 @@ def cmd_list(manager: TaskManager, config: Config, args: argparse.Namespace) -> 
         payload = [
             {
                 "name": task.name,
+                "display_name": task.display_name,
                 "path": str(task.path),
                 "repos": [wt.name for wt in task.worktrees],
                 "dirty": dirty[task.name],

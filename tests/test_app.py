@@ -392,6 +392,72 @@ class TestOpenExternalCommands:
             assert app.is_running
 
 
+class TestRenameTaskAction:
+    """Tests for the rename (display alias) action."""
+
+    async def test_rename_via_keybinding(self, app, sample_repo, task_manager):
+        """R -> modal -> alias shows in the task list; folder unchanged."""
+        from tasktree_manager.widgets.create_modal import RenameTaskModal
+
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("RENAME-TASK", ["sample-repo"], branch)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("R")
+            await pilot.pause()
+            assert isinstance(app.screen_stack[-1], RenameTaskModal)
+
+            await pilot.press(*"nice label")
+            await pilot.press("enter")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            assert (task.path / ".tasktree_name").read_text().strip() == "nice label"
+            assert task.path.exists()  # folder untouched
+            task_list = app.query_one("#task-list", TaskList)
+            prompt = str(task_list.get_option("RENAME-TASK").prompt)
+            assert "nice label" in prompt
+            assert "RENAME-TASK" not in prompt
+
+    async def test_rename_cancel_changes_nothing(self, app, sample_repo, task_manager):
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("RENAME-CANCEL", ["sample-repo"], branch)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("R")
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not (task.path / ".tasktree_name").exists()
+
+    async def test_rename_empty_reverts(self, app, sample_repo, task_manager):
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("RENAME-REVERT", ["sample-repo"], branch)
+        task_manager.set_task_display_name(task, "old label")
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("R")
+            await pilot.pause()
+            # Prefilled with the current alias - clear it
+            from textual.widgets import Input
+
+            from tasktree_manager.widgets.create_modal import RenameTaskModal
+
+            modal = app.screen_stack[-1]
+            assert isinstance(modal, RenameTaskModal)
+            modal.query_one("#rename-input", Input).value = ""
+            await pilot.press("enter")
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            assert not (task.path / ".tasktree_name").exists()
+            task_list = app.query_one("#task-list", TaskList)
+            assert "RENAME-REVERT" in str(task_list.get_option("RENAME-REVERT").prompt)
+
+
 class TestShowDiffAction:
     """Tests for the hunk diff action (h)."""
 

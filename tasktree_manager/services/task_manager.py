@@ -337,6 +337,22 @@ class TaskManager:
         if task.path.exists():
             shutil.rmtree(task.path)
 
+    def set_task_display_name(self, task: Task, display_name: str | None) -> None:
+        """Set or clear the task's display alias (TUI label only).
+
+        The folder, branches and worktrees keep the real task name; the alias
+        lives in <task>/.tasktree_name. Empty input — or an alias equal to the
+        real name — clears the file.
+        """
+        marker = task.path / ".tasktree_name"
+        name = (display_name or "").strip()
+        if name == task.name:
+            name = ""
+        if name:
+            marker.write_text(name + "\n", encoding="utf-8")
+        elif marker.exists():
+            marker.unlink()
+
     def archive_task(self, task: Task, notes: list[str] | None = None) -> Path | None:
         """Write the task's combined diff to the archive directory.
 
