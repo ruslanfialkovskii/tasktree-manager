@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.13.0] - 2026-09-11
+
+### Added
+- **tui**: Show Claude session recap in the Info panel
+
+
 ## [2.12.1] - 2026-09-03
 
 ### Changed
