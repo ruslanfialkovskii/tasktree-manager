@@ -180,8 +180,20 @@ claude_memory_dir = "~/.claude/tasktree-memory"
 # worktree of a repo survives worktree deletion and is shared with future
 # worktrees of that repo and with sessions in the main checkout. The settings
 # file is added to the repo's .git/info/exclude so worktrees stay clean.
+# The directory name follows the current Claude CLI rule (every character
+# outside [A-Za-z0-9] becomes "-"); memory saved by older tasktree versions
+# under the previous name (which kept "_") is moved once, automatically.
 # Default: true
 claude_repo_memory = true
+
+# Claude session recap in the Info panel. When a task is highlighted, the
+# bottom of the panel shows its latest Claude Code session: title, last turn
+# duration ("Baked for 45s · done 5:27 PM"), and the idle recap Claude writes
+# a few minutes after a turn ("※ recap: ..."), or the last prompt when no
+# recap exists yet. Read from the session transcript under ~/.claude/projects
+# (honours CLAUDE_CONFIG_DIR); no CLI call.
+# Default: true
+claude_recap = true
 
 # Path to glab executable (GitLab CLI, used for MR/CI status)
 # Default: "glab" (searches PATH)

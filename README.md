@@ -20,6 +20,7 @@
 - 🔧 **Flexible Configuration** - TOML config file, custom keybindings, environment variables
 - 🤖 **Headless CLI** - Create, list, inspect, finish, and delete tasks from scripts and AI agents without opening the TUI
 - 🛰️ **Agent Dashboard** - Live Claude Code session state per worktree (from `claude agents`), plus one-key background-agent dispatch — the multi-repo agent view Claude Code lacks natively
+- ✻ **Session Recap** - The Info panel shows each task's latest Claude Code session: title, last turn duration, and Claude's own idle recap of what was done and what comes next — read straight from the transcript, no CLI call
 - 🔀 **Forge-Aware Safety** - MR/PR and CI state via `glab`/`gh`; squash- and rebase-merged branches count as merged instead of blocking deletion forever
 - 📦 **Finish Flow with Archives** - Ending a task saves its combined diff (committed-but-unmerged + uncommitted) to an archive before deleting
 

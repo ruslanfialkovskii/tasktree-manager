@@ -20,6 +20,7 @@ from . import __version__
 from .commands import TaskTreeCommands
 from .services.agent_sessions import list_agent_sessions, map_sessions_to_worktrees
 from .services.claude_hooks import ensure_claude_hooks, has_claude_session
+from .services.claude_sessions import ClaudeRecap, read_claude_recap, transcript_key
 from .services.config import Config, ConfigError
 from .services.forge import Forge, ForgeStatus, get_forge_status
 from .services.git_ops import GitOps
@@ -245,6 +246,9 @@ class TaskTreeApp(App):
         self._preserved_worktree_name: str | None = None
         # Claude session statuses: task_name -> status string
         self._claude_statuses: dict[str, str] = {}
+        # Transcript identity (path, mtime, size) behind the recap shown in
+        # the Info panel; None until the highlighted task has been scanned
+        self._recap_key: tuple[Path, int, int] | None = None
         # Agent session states from `claude agents --json`: worktree path -> state
         self._agent_sessions: dict[str, str] = {}
         # Forge MR/CI statuses: worktree path -> ForgeStatus
@@ -648,6 +652,50 @@ class TaskTreeApp(App):
         if statuses != self._claude_statuses:
             self._claude_statuses = statuses
             task_list.refresh_claude_indicators(statuses)
+            if self.current_task:
+                try:
+                    status_panel = self.query_one("#status-display", StatusPanel)
+                except Exception:
+                    return
+                status_panel.set_claude_live_status(statuses.get(self.current_task.name))
+
+        # Same tick keeps the recap fresh: a stat per poll, a read only on change
+        if self.config.claude_recap and self.current_task and task_list.has_focus:
+            self._update_claude_recap(self.current_task, self._recap_key)
+
+    @work(thread=True, exclusive=True, group="claude_recap_update")
+    def _update_claude_recap(self, task: Task, known_key: tuple[Path, int, int] | None) -> None:
+        """Read the task's latest Claude transcript tail when it changed.
+
+        ``known_key`` is passed in from the main thread so the worker never
+        reads mutable app state.
+        """
+        key = transcript_key(task.path)
+        if key == known_key:
+            return
+        recap = read_claude_recap(key[0]) if key else None
+        if get_current_worker().is_cancelled:
+            return
+        self.call_from_thread(self._apply_claude_recap, task, key, recap)
+
+    def _apply_claude_recap(
+        self, task: Task, key: tuple[Path, int, int] | None, recap: ClaudeRecap | None
+    ) -> None:
+        """Push a fetched recap to the Info panel (main thread)."""
+        if not (self.current_task and self.current_task.name == task.name):
+            return
+        self._recap_key = key
+        try:
+            status_panel = self.query_one("#status-display", StatusPanel)
+        except Exception:
+            return
+        status_panel.set_claude_recap(task.name, recap, self._claude_statuses.get(task.name))
+
+    def _request_claude_recap(self, task: Task) -> None:
+        """Start a fresh recap read for a newly shown task."""
+        self._recap_key = None
+        if self.config.claude_recap:
+            self._update_claude_recap(task, None)
 
     def _poll_agent_sessions_tick(self) -> None:
         """Dispatch an agent-session poll worker (never subprocess on UI thread)."""
@@ -936,6 +984,7 @@ class TaskTreeApp(App):
                 self._set_info_title(self.current_task.name)
                 status_panel.set_loading(True)
                 self._update_task_summary(self.current_task)
+                self._request_claude_recap(self.current_task)
         elif isinstance(event.widget, WorktreeList):
             # Worktree list focused → show worktree details
             if self.current_worktree:
@@ -983,6 +1032,7 @@ class TaskTreeApp(App):
                 self._set_info_title(event.task.name)
                 status_panel.set_loading(True)
                 self._update_task_summary(event.task)
+                self._request_claude_recap(event.task)
         else:
             worktree_list.clear_worktrees()
             status_panel.clear_status()

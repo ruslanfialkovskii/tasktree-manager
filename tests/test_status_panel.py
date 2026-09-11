@@ -1,8 +1,12 @@
 """Tests for the StatusPanel widget."""
 
+from datetime import datetime, timezone
+
 import pytest
 
+from tasktree_manager.services.claude_sessions import ClaudeRecap
 from tasktree_manager.services.git_ops import GitStatus
+from tasktree_manager.services.models import Task
 from tasktree_manager.services.task_manager import Worktree
 from tasktree_manager.widgets.status_panel import StatusPanel
 
@@ -220,3 +224,95 @@ class TestStatusPanel:
 
             assert panel._worktree_name == ""
             assert panel._status is None
+
+
+def _recap(**overrides) -> ClaudeRecap:
+    fields = dict(
+        title="access-m2",
+        duration_ms=45857,
+        finished_at=datetime(2026, 9, 11, 14, 27, 13, tzinfo=timezone.utc),
+        summary="Fulfilling ACCESS2-7180, RBAC edits sit unstaged.",
+        last_prompt="is it a good approach?",
+    )
+    fields.update(overrides)
+    return ClaudeRecap(**fields)
+
+
+class TestClaudeRecapBlock:
+    """The Claude session block under the task git summary."""
+
+    @pytest.fixture
+    def task(self, tmp_path):
+        return Task(name="ACCESS2-7180", path=tmp_path / "ACCESS2-7180", worktrees=[])
+
+    async def test_recap_rendered_under_summary(self, app, task):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#status-display", StatusPanel)
+            panel.update_task_summary(task)
+            panel.set_claude_recap(task.name, _recap(), live="running")
+
+            text = str(panel.content)
+            assert "─ claude" in text
+            assert "access-m2" in text
+            assert "✻ Baked for 45s · done " in text
+            assert "· busy" in text
+            assert "※ recap: Fulfilling ACCESS2-7180, RBAC edits sit unstaged." in text
+            assert "last prompt:" not in text
+
+    async def test_fallback_to_last_prompt(self, app, task):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#status-display", StatusPanel)
+            panel.update_task_summary(task)
+            panel.set_claude_recap(task.name, _recap(summary=None))
+
+            text = str(panel.content)
+            assert "※ recap:" not in text
+            assert "last prompt: is it a good approach?" in text
+
+    async def test_recap_for_other_task_not_rendered(self, app, task):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#status-display", StatusPanel)
+            panel.update_task_summary(task)
+            panel.set_claude_recap("OTHER-1", _recap())
+
+            assert "─ claude" not in str(panel.content)
+
+    async def test_recap_deferred_while_loading(self, app, task):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#status-display", StatusPanel)
+            panel.update_task_summary(task)
+            panel.set_loading(True)
+            panel.set_claude_recap(task.name, _recap())
+            assert str(panel.content) == "Loading..."
+
+            panel.update_task_summary(task)
+            assert "※ recap:" in str(panel.content)
+
+    async def test_live_status_suffix_updates(self, app, task):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#status-display", StatusPanel)
+            panel.update_task_summary(task)
+            panel.set_claude_recap(task.name, _recap())
+            assert "busy" not in str(panel.content)
+
+            panel.set_claude_live_status("waiting")
+            assert "· idle" in str(panel.content)
+
+            panel.set_claude_live_status("ended")
+            assert "idle" not in str(panel.content)
+
+    async def test_clear_status_drops_recap(self, app, task):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#status-display", StatusPanel)
+            panel.update_task_summary(task)
+            panel.set_claude_recap(task.name, _recap())
+            panel.clear_status()
+            panel.update_task_summary(task)
+
+            assert "─ claude" not in str(panel.content)

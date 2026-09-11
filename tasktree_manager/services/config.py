@@ -124,6 +124,7 @@ class Config:
     claude_path: str = "claude"
     claude_memory_dir: str = "~/.claude/tasktree-memory"
     claude_repo_memory: bool = True
+    claude_recap: bool = True
     glab_path: str = "glab"
     gh_path: str = "gh"
 
@@ -197,6 +198,7 @@ class Config:
         claude_path = os.path.expanduser(str(tools_config.get("claude_path", "claude")))
         claude_memory_dir = tools_config.get("claude_memory_dir", "~/.claude/tasktree-memory")
         claude_repo_memory = bool(tools_config.get("claude_repo_memory", True))
+        claude_recap = bool(tools_config.get("claude_recap", True))
         glab_path = os.path.expanduser(str(tools_config.get("glab_path", "glab")))
         gh_path = os.path.expanduser(str(tools_config.get("gh_path", "gh")))
 
@@ -267,6 +269,7 @@ class Config:
             claude_path=claude_path,
             claude_memory_dir=claude_memory_dir,
             claude_repo_memory=claude_repo_memory,
+            claude_recap=claude_recap,
             glab_path=glab_path,
             gh_path=gh_path,
             forge_enabled=forge_enabled,
@@ -415,6 +418,12 @@ claude_memory_dir = "{self._toml_escape(self.claude_memory_dir)}"
 # survives worktree deletion and is shared with future worktrees of the
 # same repo and with the main checkout. Set to false to disable.
 claude_repo_memory = {str(self.claude_repo_memory).lower()}
+
+# Show a recap of the task's latest Claude Code session under the git
+# summary in the Info panel: session title, last turn duration, and the
+# idle recap (or the last prompt when no recap exists yet). Read from the
+# session transcript; no CLI call. Set to false to disable.
+claude_recap = {str(self.claude_recap).lower()}
 
 # Path to glab executable (GitLab CLI, used for MR/CI status)
 glab_path = "{self._toml_escape(self.glab_path)}"

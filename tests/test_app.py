@@ -1,7 +1,9 @@
 """Tests for the main tasktree-manager application."""
 
+import json
 import shutil
 
+from tasktree_manager.services.claude_hooks import project_dir_candidates
 from tasktree_manager.widgets.create_modal import (
     AddRepoModal,
     ConfirmModal,
@@ -750,3 +752,63 @@ class TestContextSensitiveFooter:
 
             create_modals = [s for s in app.screen_stack if isinstance(s, CreateTaskModal)]
             assert len(create_modals) == 1
+
+
+class TestClaudeRecapPanel:
+    """The Info panel shows the highlighted task's Claude session recap."""
+
+    @staticmethod
+    def _write_transcript(task_path, monkeypatch, tmp_path) -> None:
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-cfg"))
+        project = project_dir_candidates(task_path)[0]
+        project.mkdir(parents=True)
+        records = [
+            {"type": "custom-title", "customTitle": "recap-session"},
+            {
+                "type": "system",
+                "subtype": "turn_duration",
+                "durationMs": 45857,
+                "timestamp": "2026-09-11T14:27:13.422Z",
+            },
+            {
+                "type": "system",
+                "subtype": "away_summary",
+                "content": "Fulfilling RECAP-1, edits sit unstaged. (disable recaps in /config)",
+                "timestamp": "2026-09-11T14:30:22.323Z",
+            },
+        ]
+        (project / "s1.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records))
+
+    async def test_recap_shown_for_highlighted_task(
+        self, app, sample_repos, task_manager, tmp_path, monkeypatch
+    ):
+        _, branch = sample_repos
+        task = task_manager.create_task("RECAP-1", ["repo-alpha"], branch)
+        self._write_transcript(task.path, monkeypatch, tmp_path)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            text = str(app.query_one("#status-display", StatusPanel).content)
+            assert "recap-session" in text
+            assert "Baked for 45s" in text
+            assert "※ recap: Fulfilling RECAP-1, edits sit unstaged." in text
+
+    async def test_recap_disabled_by_config(
+        self, app, sample_repos, task_manager, tmp_path, monkeypatch
+    ):
+        _, branch = sample_repos
+        task = task_manager.create_task("RECAP-1", ["repo-alpha"], branch)
+        self._write_transcript(task.path, monkeypatch, tmp_path)
+        app.config.claude_recap = False
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            text = str(app.query_one("#status-display", StatusPanel).content)
+            assert "repo-alpha" in text
+            assert "※ recap:" not in text

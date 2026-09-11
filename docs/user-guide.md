@@ -219,6 +219,23 @@ Shows detailed git status for the selected worktree:
 - **Sync status**: Ahead/behind counts
 - **File changes**: Modified, staged, and untracked files with git status codes
 
+While the task list is focused, the panel shows the task summary instead (every
+repo with its changes or `clean`), followed by a **Claude session recap** when the
+task has a Claude Code session:
+
+```
+─ claude ─────────────────
+access-m2
+✻ Baked for 45s · done 5:27 PM · busy
+※ recap: Fulfilling ACCESS2-7180, read-only M2 access: gitops RBAC and
+terraform edits sit unstaged. Next, decide whether to hand-create the group.
+```
+
+- **Title**: the session name (`/rename`), else Claude's own title, else the session slug
+- **Turn line**: duration of the last turn and when it finished; `busy`/`idle` mirrors the task's Claude status indicator
+- **Recap**: the summary Claude writes a few minutes after a turn when the session idles. Until one exists, the dim `last prompt:` line shows what was asked last
+- Nothing is shown for tasks without a session. The block refreshes as you move the cursor and every 5 seconds while a transcript changes. Disable with `claude_recap = false` under `[tools]` in `config.toml`
+
 **Git status codes:**
 - `M` - Modified
 - `A` - Added (staged)

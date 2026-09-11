@@ -3,7 +3,11 @@
 from rich.text import Text
 from textual.widgets import Static
 
+from ..services.claude_sessions import ClaudeRecap, format_clock, format_duration
 from ..services.models import GitStatus, Task, Worktree
+
+# .claude_status values worth a suffix on the recap line
+_LIVE_LABELS = {"running": ("busy", "yellow"), "waiting": ("idle", "green")}
 
 
 def _style_for_code(status_code: str) -> str:
@@ -29,6 +33,37 @@ class StatusPanel(Static):
         self._current_task: Task | None = None
         self._task_statuses: dict[str, GitStatus] = {}
         self._mode: str = "worktree"  # "worktree" or "task"
+        self._loading: bool = False
+        # Latest Claude session recap and the task it belongs to
+        self._claude_recap: ClaudeRecap | None = None
+        self._recap_task_name: str | None = None
+        self._claude_live: str | None = None
+
+    def set_claude_recap(
+        self, task_name: str, recap: ClaudeRecap | None, live: str | None = None
+    ) -> None:
+        """Store the Claude recap for a task; re-render if that task is shown.
+
+        A recap that lands while the git summary is still loading is kept
+        and drawn with the summary, so it never replaces "Loading...".
+        """
+        self._claude_recap = recap
+        self._recap_task_name = task_name
+        self._claude_live = live
+        self._rerender_task_view()
+
+    def set_claude_live_status(self, live: str | None) -> None:
+        """Update the busy/idle suffix on the recap line."""
+        if live != self._claude_live:
+            self._claude_live = live
+            self._rerender_task_view()
+
+    def _rerender_task_view(self) -> None:
+        """Redraw the task summary if the shown task owns the stored recap."""
+        if self._mode != "task" or self._loading or self._current_task is None:
+            return
+        if self._current_task.name == self._recap_task_name:
+            self._update_display()
 
     def update_status(self, worktree: Worktree | None, status: GitStatus | None) -> None:
         """Update the status display for a worktree."""
@@ -53,6 +88,7 @@ class StatusPanel(Static):
             statuses: Optional dict of worktree_name -> GitStatus with file details
         """
         self._mode = "task"
+        self._loading = False
         self._current_task = task
         self._task_statuses = statuses or {}
         self._update_display()
@@ -89,7 +125,35 @@ class StatusPanel(Static):
 
             text.append("\n")
 
+        if self._claude_recap is not None and self._recap_task_name == task.name:
+            self._append_claude_recap(text, self._claude_recap)
+
         self.update(text)
+
+    def _append_claude_recap(self, text: Text, recap: ClaudeRecap) -> None:
+        """Append the Claude session block: title, turn line, recap or prompt."""
+        text.append("─ claude " + "─" * 17 + "\n", style="dim")
+        text.append(f"{recap.title}\n", style="bold")
+
+        turn_parts = []
+        if recap.duration_ms is not None:
+            turn_parts.append(f"Baked for {format_duration(recap.duration_ms)}")
+        if recap.finished_at is not None:
+            turn_parts.append(f"done {format_clock(recap.finished_at)}")
+        live = _LIVE_LABELS.get(self._claude_live or "")
+        if turn_parts or live:
+            text.append("✻ ", style="magenta")
+            text.append(" · ".join(turn_parts), style="dim")
+            if live:
+                label, style = live
+                text.append(f"{' · ' if turn_parts else ''}{label}", style=style)
+            text.append("\n")
+
+        if recap.summary:
+            text.append("※ recap: ", style="cyan")
+            text.append(f"{recap.summary}\n")
+        elif recap.last_prompt:
+            text.append(f"last prompt: {recap.last_prompt}\n", style="dim")
 
     def _render_worktree_status(self) -> None:
         """Render the worktree-specific status view."""
@@ -149,6 +213,8 @@ class StatusPanel(Static):
         self._status = None
         self._current_task = None
         self._mode = "worktree"
+        self._claude_recap = None
+        self._recap_task_name = None
         self.update(Text("No worktree selected", style="dim"))
 
     def set_loading(self, loading: bool = True) -> None:
@@ -157,6 +223,7 @@ class StatusPanel(Static):
         Args:
             loading: If True, show loading indicator. If False, restore display.
         """
+        self._loading = loading
         if loading:
             self.update(Text("Loading...", style="dim italic"))
         else:

@@ -7,6 +7,8 @@ from tasktree_manager.services.claude_hooks import (
     ensure_claude_hooks,
     ensure_worktree_claude_settings,
     has_claude_session,
+    migrate_legacy_memory_dir,
+    project_dir_candidates,
     repo_memory_dir,
 )
 
@@ -276,3 +278,73 @@ class TestHasClaudeSession:
         (project_dir / "abc.jsonl").touch()
 
         assert has_claude_session(task_path) is True
+
+
+class TestProjectDirCandidates:
+    """Tests for project_dir_candidates and the encoder rules behind it."""
+
+    def test_current_rule_replaces_every_non_alnum(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        current, legacy = project_dir_candidates(Path("/Users/x/my_dir/a b"))
+        assert current == tmp_path / "projects" / "-Users-x-my-dir-a-b"
+        assert legacy == tmp_path / "projects" / "-Users-x-my_dir-a b"
+
+    def test_single_candidate_when_rules_agree(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        assert project_dir_candidates(Path("/some/task.dir")) == [
+            tmp_path / "projects" / "-some-task-dir"
+        ]
+
+    def test_has_claude_session_finds_legacy_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        legacy = tmp_path / "projects" / "-Users-x-my_dir"
+        legacy.mkdir(parents=True)
+        (legacy / "abc.jsonl").touch()
+        assert has_claude_session(Path("/Users/x/my_dir")) is True
+
+
+class TestMigrateLegacyMemoryDir:
+    """Memory saved under an old-rule project dir moves to the current one."""
+
+    REPO = Path("/Users/x/my_dir")
+
+    def test_moves_legacy_memory_when_current_missing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        legacy = tmp_path / "projects" / "-Users-x-my_dir" / "memory"
+        legacy.mkdir(parents=True)
+        (legacy / "MEMORY.md").write_text("remember")
+
+        assert migrate_legacy_memory_dir(self.REPO) is True
+        assert not legacy.exists()
+        assert (repo_memory_dir(self.REPO) / "MEMORY.md").read_text() == "remember"
+
+    def test_keeps_both_when_current_exists(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        legacy = tmp_path / "projects" / "-Users-x-my_dir" / "memory"
+        legacy.mkdir(parents=True)
+        repo_memory_dir(self.REPO).mkdir(parents=True)
+
+        assert migrate_legacy_memory_dir(self.REPO) is False
+        assert legacy.is_dir()
+
+    def test_noop_when_rules_agree(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+        assert migrate_legacy_memory_dir(Path("/some/task.dir")) is False
+
+    def test_worktree_settings_trigger_migration(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+        repo_path = tmp_path / "repos" / "my_repo"
+        (repo_path / ".git" / "info").mkdir(parents=True)
+        worktree_path = tmp_path / "tasks" / "TASK-1" / "my_repo"
+        worktree_path.mkdir(parents=True)
+        legacy = tmp_path / "cfg" / "projects" / project_dir_candidates(repo_path)[1].name
+        (legacy / "memory").mkdir(parents=True)
+        (legacy / "memory" / "MEMORY.md").write_text("kept")
+
+        ensure_worktree_claude_settings(
+            worktree_path, repo_path, tmp_path / "tasks" / "TASK-1" / ".claude_status"
+        )
+
+        settings = json.loads((worktree_path / ".claude" / "settings.local.json").read_text())
+        assert settings["autoMemoryDirectory"] == str(repo_memory_dir(repo_path))
+        assert (repo_memory_dir(repo_path) / "MEMORY.md").read_text() == "kept"

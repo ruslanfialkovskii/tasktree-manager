@@ -430,3 +430,34 @@ cursor_up = "up"
                 os.environ["XDG_CONFIG_HOME"] = old_xdg
             else:
                 os.environ.pop("XDG_CONFIG_HOME", None)
+
+
+class TestClaudeRecapSetting:
+    """[tools] claude_recap toggles the Info panel session block."""
+
+    def test_default_enabled(self):
+        assert Config().claude_recap is True
+
+    def test_load_and_save_roundtrip(self, temp_dirs, monkeypatch):
+        repos_dir, tasks_dir = temp_dirs
+        config_dir = repos_dir.parent / ".config" / "tasktree-manager"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.toml").write_text(
+            f'''
+repos_dir = "{repos_dir}"
+tasks_dir = "{tasks_dir}"
+
+[tools]
+claude_recap = false
+'''
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_dir.parent))
+        monkeypatch.delenv("REPOS_DIR", raising=False)
+        monkeypatch.delenv("TASKS_DIR", raising=False)
+
+        config = Config.load()
+        assert config.claude_recap is False
+
+        config.save()
+        assert "claude_recap = false" in (config_dir / "config.toml").read_text()
+        assert Config.load().claude_recap is False

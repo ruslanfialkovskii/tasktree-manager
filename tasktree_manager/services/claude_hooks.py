@@ -1,7 +1,9 @@
-"""Claude Code hook configuration for status monitoring."""
+"""Claude Code integration: config/project-dir resolution, session discovery,
+and the hook/settings writers for status monitoring and shared memory."""
 
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -22,9 +24,26 @@ def claude_config_dir() -> Path:
 def _encode_project_path(folder: Path) -> str:
     """Encode a path the way Claude CLI names ~/.claude/projects/ entries.
 
-    The encoding replaces "/" and "." with "-".
+    Current CLIs replace every character outside [A-Za-z0-9] with "-".
     """
+    return re.sub(r"[^A-Za-z0-9]", "-", str(folder))
+
+
+def _encode_project_path_legacy(folder: Path) -> str:
+    """Older CLIs replaced only "/" and "." — dirs they created keep "_" etc."""
     return str(folder).replace("/", "-").replace(".", "-")
+
+
+def project_dir_candidates(folder: Path) -> list[Path]:
+    """Project dirs that may hold transcripts for a folder, current rule first.
+
+    A dir created by an older CLI for a path with "_" or spaces has a
+    different name than the current rule produces; checking both keeps
+    session resume and recaps working for it.
+    """
+    base = claude_config_dir() / "projects"
+    names = dict.fromkeys((_encode_project_path(folder), _encode_project_path_legacy(folder)))
+    return [base / name for name in names]
 
 
 def has_claude_session(folder: Path) -> bool:
@@ -32,10 +51,10 @@ def has_claude_session(folder: Path) -> bool:
 
     Claude CLI stores transcripts at <config dir>/projects/<encoded-path>/*.jsonl.
     """
-    project_dir = claude_config_dir() / "projects" / _encode_project_path(folder)
-    if not project_dir.is_dir():
-        return False
-    return any(project_dir.glob("*.jsonl"))
+    return any(
+        project_dir.is_dir() and any(project_dir.glob("*.jsonl"))
+        for project_dir in project_dir_candidates(folder)
+    )
 
 
 def repo_memory_dir(repo_path: Path) -> Path:
@@ -47,6 +66,29 @@ def repo_memory_dir(repo_path: Path) -> Path:
     single worktree.
     """
     return claude_config_dir() / "projects" / _encode_project_path(repo_path) / "memory"
+
+
+def migrate_legacy_memory_dir(repo_path: Path) -> bool:
+    """Move memory saved under an old-rule project dir to the current one.
+
+    Worktree settings written before the encoder matched the current CLI
+    pointed repos with "_" (etc.) at a differently named dir; the CLI never
+    reads it for the main checkout. A one-time rename keeps that memory in
+    the shared pool. Skipped when the current dir already exists (nothing
+    can be merged safely). Returns True when a move happened.
+    """
+    candidates = project_dir_candidates(repo_path)
+    if len(candidates) < 2:
+        return False
+    current, legacy = candidates[0] / "memory", candidates[1] / "memory"
+    if current.exists() or not legacy.is_dir():
+        return False
+    try:
+        current.parent.mkdir(parents=True, exist_ok=True)
+        legacy.rename(current)
+    except OSError:
+        return False
+    return True
 
 
 def _make_hook(status: str, status_file: str) -> dict:
@@ -199,6 +241,7 @@ def ensure_worktree_claude_settings(
 
     # Merge, preserving user-defined hook groups (same policy as task hooks)
     existing["hooks"] = _merge_hooks(existing.get("hooks"), _build_hooks_config(str(status_file)))
+    migrate_legacy_memory_dir(repo_path)
     existing["autoMemoryDirectory"] = str(repo_memory_dir(repo_path))
 
     settings_file.write_text(json.dumps(existing, indent=2) + "\n")
