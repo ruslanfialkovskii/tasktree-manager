@@ -90,6 +90,9 @@ class ThemedModalScreen(ModalScreen[T]):
     }
 
     ThemedModalScreen .button-row {
+        /* Horizontal defaults to height: 1fr, which stretches the auto-height
+           modal up to max-height. Size the row to its buttons instead. */
+        height: auto;
         align: center middle;
         margin-top: 1;
     }

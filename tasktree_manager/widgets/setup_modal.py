@@ -73,6 +73,7 @@ class SetupModal(ModalScreen[tuple[Path, Path] | None]):
     }
 
     SetupModal .button-row {
+        height: auto;
         align: center middle;
         margin-top: 1;
     }
