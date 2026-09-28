@@ -4,7 +4,13 @@ import subprocess
 
 import pytest
 
-from tasktree_manager.services.task_manager import RepoIssue, Task, TaskSafetyReport, Worktree
+from tasktree_manager.services.task_manager import (
+    ArchiveIncompleteError,
+    RepoIssue,
+    Task,
+    TaskSafetyReport,
+    Worktree,
+)
 
 
 class TestTaskManager:
@@ -1291,3 +1297,408 @@ class TestWorktreeClaudeSettings:
         task_manager.ensure_worktree_settings(task)
 
         assert (task.path / "sample-repo" / ".claude" / "settings.local.json").exists()
+
+
+class TestRollbackPreservesReusedBranches:
+    """Rollback after a mid-create failure must not delete a branch that
+    already existed before create_task ran (regression for the fix where
+    _rollback_task ran `git branch -D` unconditionally for every worktree,
+    including ones this call reused rather than created)."""
+
+    def test_reused_branch_and_commit_survive_rollback(self, task_manager, sample_repos):
+        repos, branch = sample_repos
+        repo_a = repos[0]  # repo-alpha
+        task_name = "ROLLBACK-TASK"
+
+        # Leave a branch matching the task name in repo-a, with a commit
+        # that only exists on that branch (as if a previous task with the
+        # same name existed and its branch was left behind)
+        subprocess.run(
+            ["git", "branch", task_name, branch], cwd=repo_a, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "checkout", "-q", task_name], cwd=repo_a, check=True, capture_output=True
+        )
+        (repo_a / "kept.txt").write_text("keep me\n")
+        subprocess.run(["git", "add", "."], cwd=repo_a, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "prior work"], cwd=repo_a, check=True, capture_output=True
+        )
+        commit_sha = subprocess.run(
+            ["git", "rev-parse", task_name], cwd=repo_a, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "checkout", "-q", branch], cwd=repo_a, check=True, capture_output=True
+        )
+
+        # repo-alpha already has the task branch (reused, base irrelevant);
+        # repo-beta does not, and the bogus base makes its fresh worktree
+        # creation fail, triggering rollback of everything created so far
+        with pytest.raises(ValueError):
+            task_manager.create_task(task_name, ["repo-alpha", "repo-beta"], "no-such-base-branch")
+
+        # Rollback removed the ghost task directory
+        assert not (task_manager.config.tasks_dir / task_name).exists()
+
+        # But the pre-existing branch and its commit must survive in repo-a
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", task_name],
+            cwd=repo_a,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, "reused branch must not be deleted by rollback"
+        assert result.stdout.strip() == commit_sha
+        show = subprocess.run(
+            ["git", "show", f"{task_name}:kept.txt"],
+            cwd=repo_a,
+            capture_output=True,
+            text=True,
+        )
+        assert show.returncode == 0
+        assert "keep me" in show.stdout
+
+
+class TestFinishTaskRescan:
+    """finish_task must rescan worktrees on disk before removing anything
+    (regression: it only safety-checked/archived the task.worktrees snapshot
+    passed in, so a worktree added concurrently via `add-repo` while a
+    confirm dialog was open got silently rmtree'd unchecked)."""
+
+    def test_raises_on_worktree_added_since_snapshot(self, task_manager, sample_repos):
+        repos, branch = sample_repos
+        task = task_manager.create_task("FINISH-RACE", ["repo-alpha"], branch)
+        # A stale snapshot, as the TUI would hold across a confirm dialog
+        stale_snapshot = Task(name=task.name, path=task.path, worktrees=list(task.worktrees))
+
+        # Simulate a concurrent `add-repo` from another terminal
+        task_manager.add_repo_to_task(task, "repo-beta", branch)
+
+        with pytest.raises(ValueError, match="repo-beta"):
+            task_manager.finish_task(stale_snapshot)
+
+        # Nothing was removed
+        assert task.path.exists()
+        assert (task.path / "repo-alpha").exists()
+        assert (task.path / "repo-beta").exists()
+
+    def test_finish_task_still_works_when_snapshot_matches_disk(self, task_manager, sample_repo):
+        """No false positives: a normal finish with an accurate snapshot works."""
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("FINISH-OK", ["sample-repo"], branch)
+
+        task_manager.finish_task(task)
+
+        assert not task.path.exists()
+
+
+class TestArchiveBaseFallback:
+    """archive_task must not silently drop committed work when the base
+    branch recorded at creation no longer resolves (e.g. the base branch
+    was deleted upstream)."""
+
+    def test_falls_back_to_default_branch_when_recorded_base_gone(
+        self, task_manager, repo_with_origin, config
+    ):
+        from tasktree_manager.services.git_ops import GitOps
+
+        base = repo_with_origin
+        repo_remote = config.repos_dir / "repo-remote"
+        # Push a branch to the remote only (no local ref) to use as the
+        # recorded base, so it can be made to vanish cleanly later
+        subprocess.run(
+            ["git", "push", "origin", f"{base}:refs/heads/release/1.0"],
+            cwd=repo_remote,
+            check=True,
+            capture_output=True,
+        )
+
+        task = task_manager.create_task("BASE-GONE", ["repo-remote"], "release/1.0")
+        wt = task.worktrees[0]
+        assert GitOps.get_task_base(wt, "BASE-GONE") == "release/1.0"
+
+        (wt.path / "work.txt").write_text("work\n")
+        subprocess.run(["git", "add", "."], cwd=wt.path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "work"], cwd=wt.path, check=True, capture_output=True
+        )
+
+        # The recorded base branch vanishes entirely from the worktree's view
+        subprocess.run(
+            ["git", "update-ref", "-d", "refs/remotes/origin/release/1.0"],
+            cwd=wt.path,
+            check=True,
+            capture_output=True,
+        )
+
+        expected_fallback = GitOps.get_default_branch(wt)
+        archive_path = task_manager.archive_task(task)
+
+        assert archive_path is not None
+        content = archive_path.read_text()
+        assert f"base: {expected_fallback}" in content
+        assert "work.txt" in content
+
+    def test_raises_when_nothing_resolves(self, task_manager, sample_repo):
+        """No origin, and the only local branch is gone: nothing to fall
+        back to, so the worktree is reported as a failure, not silently
+        skipped."""
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("BASE-NONE", ["sample-repo"], branch)
+        wt = task.worktrees[0]
+
+        (wt.path / "work.txt").write_text("work\n")
+        subprocess.run(["git", "add", "."], cwd=wt.path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "work"], cwd=wt.path, check=True, capture_output=True
+        )
+
+        # Remove the only candidate base ref from the shared repo (worktree
+        # and main checkout share refs/heads)
+        subprocess.run(
+            ["git", "checkout", "-q", "--detach", "HEAD"],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "branch", "-D", branch], cwd=repo_path, check=True, capture_output=True
+        )
+
+        with pytest.raises(ArchiveIncompleteError) as excinfo:
+            task_manager.archive_task(task)
+
+        assert excinfo.value.failures[0][0] == "sample-repo"
+
+
+class TestArchiveIncomplete:
+    """A per-worktree diff failure must not discard diffs already computed
+    for other worktrees (regression: one worktree raising GitCommandError
+    used to abort the whole archive)."""
+
+    def test_partial_archive_written_on_worktree_failure(
+        self, task_manager, repo_with_origin, sample_repo, monkeypatch
+    ):
+        from tasktree_manager.services.git_ops import GitCommandError, GitOps
+
+        base = repo_with_origin
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("ARCH-FAIL", ["repo-remote"], base)
+        task_manager.add_repo_to_task(task, "sample-repo", branch)
+
+        good_wt = next(w for w in task.worktrees if w.name == "repo-remote")
+        bad_wt = next(w for w in task.worktrees if w.name == "sample-repo")
+
+        (good_wt.path / "ok.txt").write_text("ok\n")
+        subprocess.run(["git", "add", "."], cwd=good_wt.path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "ok work"],
+            cwd=good_wt.path,
+            check=True,
+            capture_output=True,
+        )
+
+        (bad_wt.path / "bad.txt").write_text("bad\n")
+        subprocess.run(["git", "add", "."], cwd=bad_wt.path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "bad work"],
+            cwd=bad_wt.path,
+            check=True,
+            capture_output=True,
+        )
+
+        real_get_worktree_diff = GitOps.get_worktree_diff
+
+        def flaky_diff(worktree, label=None):
+            if worktree.name == "sample-repo":
+                raise GitCommandError("simulated failure")
+            return real_get_worktree_diff(worktree, label=label)
+
+        monkeypatch.setattr(GitOps, "get_worktree_diff", staticmethod(flaky_diff))
+
+        with pytest.raises(ArchiveIncompleteError) as excinfo:
+            task_manager.archive_task(task)
+
+        err = excinfo.value
+        assert err.path is not None
+        assert err.failures == [("sample-repo", "simulated failure")]
+        assert err.path.exists()
+
+        content = err.path.read_text()
+        assert "ok.txt" in content
+        assert "# archive incomplete for repo sample-repo: simulated failure" in content
+        assert "bad.txt" not in content
+
+
+class TestArchiveFilenameUniqueness:
+    """Two archive writes for the same task in the same second must not
+    collide and overwrite each other (regression: write_text over a fixed
+    <task>-<timestamp>.patch path silently clobbered the earlier archive)."""
+
+    def test_write_archive_file_avoids_collision(self, task_manager, config, monkeypatch):
+        import datetime as datetime_module
+
+        from tasktree_manager.services import task_manager as tm_module
+
+        fixed = datetime_module.datetime(2026, 1, 1, 12, 0, 0)
+
+        class FixedDateTime(datetime_module.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed
+
+        monkeypatch.setattr(tm_module, "datetime", FixedDateTime)
+
+        archive_dir = config.get_archive_dir()
+        archive_dir.mkdir(parents=True, exist_ok=True)
+
+        first = task_manager._write_archive_file(
+            archive_dir, "DUP-TASK", ["# header"], "diff-one\n"
+        )
+        second = task_manager._write_archive_file(
+            archive_dir, "DUP-TASK", ["# header"], "diff-two\n"
+        )
+
+        assert first != second
+        assert first.name == "DUP-TASK-20260101-120000.patch"
+        assert second.name == "DUP-TASK-20260101-120000-1.patch"
+        assert first.read_text().endswith("diff-one\n")
+        assert second.read_text().endswith("diff-two\n")
+
+
+class TestCreateWorktreeIdempotentRetry:
+    """_create_worktree's handling of a pre-existing worktree_path (fix for
+    add_repo_to_task having no rollback on setup failure, and silently
+    no-op'ing on retry instead of finishing setup)."""
+
+    def test_rejects_non_worktree_directory(self, task_manager, sample_repos):
+        """A plain directory (not a git worktree) at the target path must be
+        reported as an error, not silently treated as 'already added'."""
+        repos, branch = sample_repos
+        task = task_manager.create_task("NOT-WT", ["repo-alpha"], branch)
+        (task.path / "repo-beta").mkdir()
+        (task.path / "repo-beta" / "dummy.txt").write_text("not a repo\n")
+
+        with pytest.raises(ValueError, match="not a worktree"):
+            task_manager.add_repo_to_task(task, "repo-beta", branch)
+
+    def test_retry_reruns_setup_on_existing_worktree(self, task_manager, sample_repo):
+        """A worktree that exists but never finished setup (e.g. an old
+        tasktree version that returned early) gets its setup completed on
+        retry instead of being silently skipped."""
+        repo_path, branch = sample_repo
+        task_manager.config.claude_repo_memory = True
+        task = task_manager.create_task("RETRY-SETUP", ["sample-repo"], branch)
+        settings_file = task.path / "sample-repo" / ".claude" / "settings.local.json"
+        assert settings_file.exists()
+
+        # Simulate an incomplete prior setup: settings never got written
+        settings_file.unlink()
+        (task.path / "sample-repo" / ".claude").rmdir()
+
+        # Calling add_repo_to_task again for the same repo must re-run setup
+        # rather than silently doing nothing because the path already exists
+        task_manager.add_repo_to_task(task, "sample-repo", branch)
+
+        assert settings_file.exists()
+        assert len(task.worktrees) == 1  # still a single worktree, not duplicated
+
+    def test_setup_failure_rolls_back_fresh_worktree_and_branch(
+        self, task_manager, sample_repo, monkeypatch
+    ):
+        """A post-add setup failure on a freshly created worktree/branch must
+        remove both, not leave a half-set-up worktree behind."""
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("ROLLBACK-ADD", [], branch)
+
+        def raiser(*args, **kwargs):
+            raise RuntimeError("simulated symlink failure")
+
+        monkeypatch.setattr(task_manager, "_create_gitignore_symlinks", raiser)
+
+        with pytest.raises(RuntimeError, match="simulated symlink failure"):
+            task_manager.add_repo_to_task(task, "sample-repo", branch)
+
+        assert not (task.path / "sample-repo").exists()
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", "ROLLBACK-ADD"],
+            cwd=repo_path,
+            capture_output=True,
+        )
+        assert result.returncode != 0, "freshly created branch must be rolled back"
+
+        # A retry without the failure now succeeds cleanly
+        monkeypatch.undo()
+        task_manager.add_repo_to_task(task, "sample-repo", branch)
+        assert (task.path / "sample-repo").exists()
+
+    def test_setup_failure_preserves_reused_branch(self, task_manager, sample_repo, monkeypatch):
+        """If the branch already existed before this add_repo_to_task call,
+        a rollback on setup failure must remove the worktree but leave the
+        pre-existing branch (and its commit) alone."""
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("ROLLBACK-REUSE", [], branch)
+
+        subprocess.run(
+            ["git", "branch", "ROLLBACK-REUSE", branch],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "checkout", "-q", "ROLLBACK-REUSE"],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+        )
+        (repo_path / "kept.txt").write_text("keep me\n")
+        subprocess.run(["git", "add", "."], cwd=repo_path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "prior work"],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+        )
+        commit_sha = subprocess.run(
+            ["git", "rev-parse", "ROLLBACK-REUSE"],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "checkout", "-q", branch], cwd=repo_path, check=True, capture_output=True
+        )
+
+        def raiser(*args, **kwargs):
+            raise RuntimeError("simulated symlink failure")
+
+        monkeypatch.setattr(task_manager, "_create_gitignore_symlinks", raiser)
+
+        with pytest.raises(RuntimeError):
+            task_manager.add_repo_to_task(task, "sample-repo", branch)
+
+        assert not (task.path / "sample-repo").exists()
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", "ROLLBACK-REUSE"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, "reused branch must survive rollback"
+        assert result.stdout.strip() == commit_sha
+
+
+class TestTaskNameRejectsLeadingDot:
+    """A task name starting with '.' must be rejected: list_tasks() hides
+    dot-dirs (the task would silently vanish from the list), and the
+    archive directory itself is TASKS_DIR/.archive."""
+
+    @pytest.mark.parametrize("name", [".hidden", ".archive", "..", "."])
+    def test_rejects_leading_dot(self, task_manager, name):
+        with pytest.raises(ValueError, match="cannot start with '.'"):
+            task_manager.create_task(name, [], "main")
+
+    def test_get_task_rejects_leading_dot(self, task_manager):
+        with pytest.raises(ValueError, match="cannot start with '.'"):
+            task_manager.get_task(".archive")

@@ -31,10 +31,12 @@ def validate_task_name(name: str) -> str | None:
         return "Task name cannot be empty"
     if name.startswith("-"):
         return "Task name cannot start with '-'"
+    if name.startswith("."):
+        # list_tasks() hides dot-dirs (so the task would vanish from the
+        # list), and the archive dir itself lives at TASKS_DIR/.archive
+        return "Task name cannot start with '.'"
     if not TASK_NAME_PATTERN.match(name):
         return "Task name can only contain letters, numbers, '.', '_', '-'"
-    if name in (".", ".."):
-        return "Task name cannot be '.' or '..'"
     return None
 
 
@@ -72,6 +74,23 @@ def normalize_base_branch(branch: str) -> str:
         if branch.startswith(prefix) and len(branch) > len(prefix):
             return branch[len(prefix) :]
     return branch
+
+
+class ArchiveIncompleteError(Exception):
+    """Raised when archive_task could not diff every worktree in a task.
+
+    Worktrees that were diffed successfully are still written to a partial
+    archive (`.path`, or None if nothing was archived at all) rather than
+    discarded because one repo's diff failed; `.failures` lists the repos
+    that could not be archived, paired with why.
+    """
+
+    def __init__(self, path: Path | None, failures: list[tuple[str, str]]):
+        self.path = path
+        self.failures = failures
+        repos = ", ".join(f"{repo} ({message})" for repo, message in failures)
+        where = f"; partial archive at {path}" if path is not None else "; nothing archived"
+        super().__init__(f"archive incomplete for: {repos}{where}")
 
 
 class TaskManager:
@@ -164,31 +183,118 @@ class TaskManager:
         task_path.mkdir(parents=True, exist_ok=True)
 
         task = Task(name=name, path=task_path)
+        # Repos for which this call created the branch fresh (-b): only
+        # these are safe to delete on rollback (see _rollback_task)
+        branch_created: set[str] = set()
 
         try:
             for repo_name in repos:
-                self._create_worktree(task, repo_name, base_branch)
+                if self._create_worktree(task, repo_name, base_branch):
+                    branch_created.add(repo_name)
         except BaseException:
             # A half-created task (a bad base branch in repo #2, a fetch
             # timeout) must not linger as a ghost: it shows up in the list
             # with no repos and blocks a retry with "task already exists"
             if created_dir:
-                self._rollback_task(task)
+                self._rollback_task(task, branch_created)
             raise
 
         task.worktrees = self._get_worktrees(task)
         return task
 
-    def _rollback_task(self, task: Task) -> None:
-        """Best-effort removal of a task this call created but could not finish."""
+    def _rollback_task(self, task: Task, branch_created: set[str] | None = None) -> None:
+        """Best-effort removal of a task this call created but could not finish.
+
+        Only deletes branches this call created fresh (`branch_created`); a
+        worktree whose branch already existed before this create_task call
+        (reused, not `-b`'d) is removed but its branch is left alone —
+        deleting it would orphan commits that predate this call.
+        """
+        branch_created = branch_created or set()
         try:
             for worktree in self._get_worktrees(task):
-                self._remove_worktree(worktree, task.name)
+                self._remove_worktree(
+                    worktree, task.name, delete_branch=worktree.name in branch_created
+                )
         finally:
             shutil.rmtree(task.path, ignore_errors=True)
 
-    def _create_worktree(self, task: Task, repo_name: str, base_branch: str) -> None:
-        """Create a worktree for a repo within a task."""
+    def _is_registered_worktree(self, worktree_path: Path, repo_path: Path) -> bool:
+        """True if worktree_path is a git worktree registered to repo_path's repo.
+
+        Compares each side's resolved --git-common-dir (shared across a repo
+        and all its worktrees) rather than trusting the directory's mere
+        presence: a leftover plain directory, or a worktree of some other
+        repo entirely, must not be mistaken for "this repo's worktree, safe
+        to reuse".
+        """
+        common_dir = self._git_common_dir(worktree_path)
+        if common_dir is None:
+            return False
+        return common_dir == self._git_common_dir(repo_path)
+
+    @staticmethod
+    def _git_common_dir(path: Path) -> Path | None:
+        """Resolved absolute --git-common-dir for a repo/worktree, or None."""
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (subprocess.SubprocessError, OSError):
+            return None
+        if result.returncode != 0:
+            return None
+        return Path(result.stdout.strip()).resolve()
+
+    def _finish_worktree_setup(
+        self, task: Task, repo_path: Path, worktree_path: Path, base_branch: str
+    ) -> None:
+        """Idempotent post-`worktree add` steps: base config, symlinks, Claude settings.
+
+        Safe to re-run on an already-set-up worktree (a retry after a
+        partial failure, or add_repo_to_task called again for a repo already
+        in the task).
+        """
+        # Record which base the task branched from (branch config is shared
+        # repo-wide) so archive_task can diff against the real base instead
+        # of guessing the repo's default branch. Only set when unset: a
+        # retry with a different --base must not overwrite the base this
+        # branch was actually created from.
+        existing_base = subprocess.run(
+            ["git", "config", "--get", f"branch.{task.name}.tasktreeBase"],
+            cwd=worktree_path,
+            capture_output=True,
+            timeout=10,
+        )
+        if existing_base.returncode != 0:
+            subprocess.run(
+                ["git", "config", f"branch.{task.name}.tasktreeBase", base_branch],
+                cwd=worktree_path,
+                capture_output=True,
+                timeout=10,
+            )
+
+        # Create symlinks for gitignored files
+        self._create_gitignore_symlinks(repo_path, worktree_path)
+
+        # Point Claude auto-memory at the repo's own memory dir so it
+        # survives worktree deletion (sessions may start here manually,
+        # before any launch-time backfill runs)
+        if self.config.claude_repo_memory:
+            ensure_worktree_claude_settings(worktree_path, repo_path, task.path / ".claude_status")
+
+    def _create_worktree(self, task: Task, repo_name: str, base_branch: str) -> bool:
+        """Create a worktree for a repo within a task.
+
+        Returns True when this call created the branch fresh (`-b`), False
+        when it reused an existing branch or the worktree already existed.
+        Callers use this to know which branches are safe to delete on a
+        rollback (see _rollback_task).
+        """
         from .git_ops import GitOps
 
         error = validate_branch_name(base_branch)
@@ -203,7 +309,14 @@ class TaskManager:
             raise ValueError(f"Repository not found: {repo_name}")
 
         if worktree_path.exists():
-            return  # Already exists
+            if self._is_registered_worktree(worktree_path, repo_path):
+                # A retry after a partial failure (post-add setup raised),
+                # or add_repo_to_task called again for a repo already in the
+                # task: re-run the idempotent setup rather than reporting
+                # success for a worktree that was never fully set up.
+                self._finish_worktree_setup(task, repo_path, worktree_path, base_branch)
+                return False
+            raise ValueError(f"{worktree_path} already exists and is not a worktree of {repo_name}")
 
         # Ensure parent directory exists for nested repos
         worktree_path.parent.mkdir(parents=True, exist_ok=True)
@@ -277,24 +390,22 @@ class TaskManager:
             error_msg = result.stderr.strip() or result.stdout.strip()
             raise ValueError(f"Failed to create worktree for {repo_name}: {error_msg}")
 
-        # Record which base the task branched from (branch config is shared
-        # repo-wide) so archive_task can diff against the real base instead
-        # of guessing the repo's default branch
-        subprocess.run(
-            ["git", "config", f"branch.{task.name}.tasktreeBase", base_branch],
-            cwd=worktree_path,
-            capture_output=True,
-            timeout=10,
-        )
+        branch_created = not branch_exists
+        try:
+            self._finish_worktree_setup(task, repo_path, worktree_path, base_branch)
+        except BaseException:
+            # Undo the worktree `add` (and the branch, if this call created
+            # it fresh) so a failed symlink/settings step never leaves a
+            # half-set-up worktree that a retry would trip over as "already
+            # exists" or silently report success without finishing.
+            self._remove_worktree(
+                Worktree(name=repo_name, path=worktree_path),
+                task.name,
+                delete_branch=branch_created,
+            )
+            raise
 
-        # Create symlinks for gitignored files
-        self._create_gitignore_symlinks(repo_path, worktree_path)
-
-        # Point Claude auto-memory at the repo's own memory dir so it
-        # survives worktree deletion (sessions may start here manually,
-        # before any launch-time backfill runs)
-        if self.config.claude_repo_memory:
-            ensure_worktree_claude_settings(worktree_path, repo_path, task.path / ".claude_status")
+        return branch_created
 
     def _list_gitignored_files(self, repo_path: Path) -> list[str]:
         """List gitignored files in a repo, relative to the repo root.
@@ -378,12 +489,34 @@ class TaskManager:
                 link_path.symlink_to(match)
 
     def add_repo_to_task(self, task: Task, repo_name: str, base_branch: str = "master") -> None:
-        """Add a repo worktree to an existing task."""
+        """Add a repo worktree to an existing task.
+
+        On a setup failure after a fresh `worktree add`, _create_worktree
+        rolls back the worktree (and the branch, if it created it) before
+        re-raising — a partial add must never look like a successful one.
+        """
         self._create_worktree(task, repo_name, base_branch)
         task.worktrees = self._get_worktrees(task)
 
     def finish_task(self, task: Task) -> None:
-        """Finish/delete a task and clean up worktrees."""
+        """Finish/delete a task and clean up worktrees.
+
+        Rescans worktrees on disk before removing anything: `task.worktrees`
+        may be a snapshot the caller held across a confirm dialog (the TUI)
+        or a safety check, during which another process (e.g.
+        `tasktree-manager add-repo` run from another terminal) could have
+        added a worktree that was never safety-checked or archived. Raises
+        instead of silently rmtree-ing anything unaccounted for.
+        """
+        current_names = {wt.name for wt in self._get_worktrees(task)}
+        known_names = {wt.name for wt in task.worktrees}
+        unexpected = sorted(current_names - known_names)
+        if unexpected:
+            raise ValueError(
+                f"Task '{task.name}' changed since it was checked "
+                f"(new worktrees: {', '.join(unexpected)}); re-run delete"
+            )
+
         for worktree in task.worktrees:
             self._remove_worktree(worktree, task.name)
 
@@ -416,15 +549,23 @@ class TaskManager:
         Must run before finish_task, which rmtrees the task directory; the
         archive lives outside it (config.get_archive_dir()).
 
-        Returns the archive path, or None when there is nothing to archive.
+        A worktree whose diff fails (GitCommandError, or no base branch
+        resolves) does not discard diffs already gathered for the other
+        worktrees: the failure is recorded in the header and in the raised
+        ArchiveIncompleteError, and a partial archive is still written.
+
+        Returns the archive path, or None when there is nothing to archive
+        and every worktree succeeded. Raises ArchiveIncompleteError if one
+        or more worktrees could not be diffed.
         """
-        from .git_ops import GitOps
+        from .git_ops import GitCommandError, GitOps
 
         sections: list[str] = []
         header = [
             f"# tasktree-manager archive: {task.name}",
             f"# created: {datetime.now().astimezone().isoformat(timespec='seconds')}",
         ]
+        failures: list[tuple[str, str]] = []
         for worktree in task.worktrees:
             if not worktree.path.exists():
                 continue
@@ -432,17 +573,24 @@ class TaskManager:
             # finish_task deletes refs/heads/<task>, so a detached or
             # switched worktree must not hide that branch's commits
             branch = task.name
-            # Prefer the base recorded at creation — diffing a --base
-            # release/1.0 task against the repo default would bloat the
-            # archive or, with no default ref resolvable, silently drop
-            # the committed work right before the branch is deleted
-            base_branch = GitOps.get_task_base(worktree, branch) or GitOps.get_default_branch(
-                worktree
-            )
-            branch_diff = GitOps.get_branch_diff(
-                worktree, base_branch, label=worktree.name, ref=branch
-            )
-            uncommitted_diff = GitOps.get_worktree_diff(worktree, label=worktree.name)
+            try:
+                # Prefer the base recorded at creation — diffing a --base
+                # release/1.0 task against the repo default would bloat the
+                # archive. But that recorded base may no longer resolve (the
+                # branch was deleted upstream); _resolve_archive_base falls
+                # back to the repo default, or fails loudly instead of
+                # letting get_branch_diff silently drop the committed work.
+                base_branch = self._resolve_archive_base(
+                    worktree, GitOps.get_task_base(worktree, branch)
+                )
+                branch_diff = GitOps.get_branch_diff(
+                    worktree, base_branch, label=worktree.name, ref=branch
+                )
+                uncommitted_diff = GitOps.get_worktree_diff(worktree, label=worktree.name)
+            except (GitCommandError, ValueError) as e:
+                failures.append((worktree.name, str(e)))
+                header.append(f"# archive incomplete for repo {worktree.name}: {e}")
+                continue
             header.append(f"# repo: {worktree.name} branch: {branch} base: {base_branch}")
             sections.append(branch_diff)
             sections.append(uncommitted_diff)
@@ -450,25 +598,101 @@ class TaskManager:
             header.append(f"# {note}")
 
         content = "".join(s for s in sections if s)
-        if not content:
-            return None
+        archive_path: Path | None = None
+        if content:
+            archive_dir = self.config.get_archive_dir()
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            archive_path = self._write_archive_file(archive_dir, task.name, header, content)
 
-        archive_dir = self.config.get_archive_dir()
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        safe_name = task.name.replace("/", "-")
-        archive_path = archive_dir / f"{safe_name}-{timestamp}.patch"
-        # Explicit encoding: under LANG=C the locale default is ASCII and a
-        # single non-ASCII diff byte would abort the archive
-        archive_path.write_text("\n".join(header) + "\n\n" + content, encoding="utf-8")
+        if failures:
+            raise ArchiveIncompleteError(archive_path, failures)
+
         return archive_path
 
-    def _remove_worktree(self, worktree: Worktree, branch_name: str) -> None:
+    def _resolve_archive_base(self, worktree: Worktree, recorded_base: str | None) -> str:
+        """Pick a base branch for the archive diff that actually resolves.
+
+        Prefers the base recorded at creation
+        (`branch.<task>.tasktreeBase`), but that branch may have been
+        deleted upstream since; falls back to the repo's current default
+        branch. Each candidate is tried as `origin/<base>`, then the local
+        ref, then a bare revision — the same candidates GitOps.get_branch_diff
+        itself resolves against, so a base returned here is always one
+        get_branch_diff can actually diff from. Raises ValueError when
+        nothing resolves, rather than letting get_branch_diff silently
+        return "" and the committed work vanish right before the branch is
+        deleted.
+        """
+        from .git_ops import GitOps
+
+        candidates = []
+        if recorded_base:
+            candidates.append(recorded_base)
+        default_branch = GitOps.get_default_branch(worktree)
+        if default_branch not in candidates:
+            candidates.append(default_branch)
+
+        for base in candidates:
+            for ref in (
+                f"refs/remotes/origin/{base}",
+                f"refs/heads/{base}",
+                f"{base}^{{commit}}",
+            ):
+                probe = subprocess.run(
+                    ["git", "rev-parse", "--verify", "--quiet", ref],
+                    cwd=worktree.path,
+                    capture_output=True,
+                    timeout=10,
+                )
+                if probe.returncode == 0:
+                    return base
+
+        tried = ", ".join(candidates)
+        raise ValueError(f"no base branch resolves for {worktree.name} (tried: {tried})")
+
+    def _write_archive_file(
+        self, archive_dir: Path, task_name: str, header: list[str], content: str
+    ) -> Path:
+        """Write header+content under a unique filename in archive_dir.
+
+        Two deletes of same-named single-worktree tasks within the same
+        second would otherwise collide on <task>-<timestamp>.patch and
+        overwrite each other; mode "x" refuses to open an existing file
+        (avoiding a check-then-write race) and a numeric suffix is added
+        until one opens.
+        """
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        safe_name = task_name.replace("/", "-")
+        # Explicit encoding: under LANG=C the locale default is ASCII and a
+        # single non-ASCII diff byte would abort the archive
+        body = "\n".join(header) + "\n\n" + content
+        suffix = 0
+        while True:
+            name = (
+                f"{safe_name}-{timestamp}.patch"
+                if suffix == 0
+                else f"{safe_name}-{timestamp}-{suffix}.patch"
+            )
+            candidate = archive_dir / name
+            try:
+                with open(candidate, "x", encoding="utf-8") as f:
+                    f.write(body)
+                return candidate
+            except FileExistsError:
+                suffix += 1
+
+    def _remove_worktree(
+        self, worktree: Worktree, branch_name: str, delete_branch: bool = True
+    ) -> None:
         """Remove a worktree from its main repo.
 
         Args:
             worktree: The worktree to remove
             branch_name: The branch name to delete (usually the task name)
+            delete_branch: Whether to also delete `branch_name`. False for a
+                branch that predates this operation (reused, not created by
+                it) — deleting it would orphan commits that were never this
+                call's to remove.
         """
         main_repo = None
 
@@ -511,7 +735,8 @@ class TaskManager:
         self._run_cleanup_git(["git", "worktree", "prune"], cwd=main_repo, timeout=10)
 
         # Delete the branch
-        self._run_cleanup_git(["git", "branch", "-D", branch_name], cwd=main_repo, timeout=10)
+        if delete_branch:
+            self._run_cleanup_git(["git", "branch", "-D", branch_name], cwd=main_repo, timeout=10)
 
     @staticmethod
     def _run_cleanup_git(cmd: list[str], cwd: Path, timeout: int) -> None:
