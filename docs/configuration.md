@@ -59,6 +59,13 @@ rm ~/.config/tasktree-manager/config.toml
 tasktree-manager
 ```
 
+### Value Types
+
+Boolean settings take TOML `true`/`false`; the quoted strings `"true"`/`"yes"`/`"1"`
+and `"false"`/`"no"`/`"0"` (any case) are accepted too. Any other value, or a section such
+as `[keybindings]` set to a plain value instead of a table, stops startup with an error that
+names the key.
+
 ## Complete Configuration Example
 
 Here's a fully annotated `config.toml` with all available options:

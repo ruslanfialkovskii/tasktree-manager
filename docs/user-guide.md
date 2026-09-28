@@ -328,8 +328,9 @@ what is displayed. Press `?` for the full reference at any time.
 6. Tab to "Create" button, press `Enter`
 
 Task names may contain letters, numbers, `.`, `_` and `-`. The name becomes a
-single directory under your tasks dir (and a git branch), so `/`, `.`, `..` and a
-leading `-` are rejected; base branch names must be plain branch names too (no
+single directory under your tasks dir (and a git branch), so `/`, a leading `.`
+(hidden from the task list, and `.archive` is the archive dir) and a leading `-`
+are rejected; base branch names must be plain branch names too (no
 leading `-`/`+`, no `:` refspecs, none of the characters git forbids in refs).
 
 **Clone task workflow:**

@@ -78,7 +78,7 @@ workflows (e.g. a skill that creates a Jira ticket and then the matching task):
 
 ```bash
 tasktree-manager create DIC-1901-argocd-tls --repos backend,frontend  # --base overrides the default base branch
-tasktree-manager list --json     # tasks with repos and dirty state (plain text without --json)
+tasktree-manager list --json     # tasks with repos and state: clean / dirty / error (plain text without --json)
 tasktree-manager repos           # available repos in REPOS_DIR
 tasktree-manager add-repo DIC-1901-argocd-tls infra
 tasktree-manager status                       # current task inferred from $PWD; also --json / --oneline / --forge
@@ -88,7 +88,9 @@ tasktree-manager delete DIC-1901-argocd-tls   # archive diff -> delete; refuses 
 
 Exit code is 0 on success, 1 on failure with the reason on stderr. `delete` and `finish` run
 the same safety check as the TUI (uncommitted, unpushed, or unmerged work blocks deletion);
-with `glab`/`gh` installed, squash/rebase-merged branches are recognized as merged.
+with `glab`/`gh` installed, squash/rebase-merged branches are recognized as merged. If the
+diff cannot be archived for any repo, the CLI stops before deleting and prints the path of
+the partial archive; the TUI warns and deletes anyway.
 `status --oneline` emits a compact `TASK repoA✓ repoB●2↑1` summary that slots straight into
 a Claude Code statusline or shell prompt.
 
