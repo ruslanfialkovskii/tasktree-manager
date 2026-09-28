@@ -117,8 +117,14 @@ def update_pyproject_version(current_version: str, new_version: str, dry_run: bo
         if in_section and re.match(
             r'^version\s*=\s*"' + re.escape(current_version) + '"', stripped
         ):
-            line = line.replace(f'"{current_version}"', f'"{new_version}"')
-            changed = True
+            new_line = line.replace(f'"{current_version}"', f'"{new_version}"')
+            # A `--set` to the version that's already current (e.g. a retried
+            # release re-running against an already-bumped commit) makes the
+            # regex match but shouldn't count as a change — only the text
+            # actually differing does.
+            if new_line != line:
+                changed = True
+            line = new_line
 
         updated_lines.append(line)
 
@@ -236,6 +242,15 @@ def update_changelog(new_version: str, message: str = "", dry_run: bool = False)
                 "and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\n\n"
             )
 
+    content = CHANGELOG_PATH.read_text() if CHANGELOG_PATH.exists() else ""
+
+    # A retried release (e.g. re-running after tag-release failed partway)
+    # can call this again for a version that's already documented — don't
+    # insert a second copy of its section.
+    if f"## [{new_version}]" in content:
+        print(f"CHANGELOG.md already has an entry for version {new_version}, skipping")
+        return False
+
     today = datetime.now().strftime("%Y-%m-%d")
 
     if message:
@@ -251,8 +266,6 @@ def update_changelog(new_version: str, message: str = "", dry_run: bool = False)
     if dry_run:
         print(f"Would add new entry to CHANGELOG.md for version {new_version}")
         return True
-
-    content = CHANGELOG_PATH.read_text()
 
     # Insert after [Unreleased] section or at top after header
     if "## [Unreleased]" in content:

@@ -49,7 +49,7 @@ Thumbs.db
 
 # Project specific
 *.log
-tasktree/_version.py
+tasktree_manager/_version.py
 
 # Documentation (tracked separately)
 PRD.md

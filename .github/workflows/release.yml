@@ -14,6 +14,9 @@
 #   - Manual dispatch: choose release type, pre-release, and draft options.
 #     Both `draft` and `pre_release` skip the PyPI upload (the pipeline can
 #     only produce final X.Y.Z versions) and only shape the GitHub release.
+#     workflow_dispatch can target ANY branch, not just main (branch
+#     protection also has enforce_admins=false), so prepare-release and
+#     tag-release both refuse to run off main — see their `if:` guards.
 
 name: Release
 
@@ -46,6 +49,12 @@ on:
 jobs:
   prepare-release:
     name: Prepare Release
+    # workflow_dispatch can target any branch; the push trigger is already
+    # restricted to main via `on.push.branches`, so this only closes the
+    # workflow_dispatch path. Everything downstream (lint/test/tag-release/
+    # build/publish-pypi) needs this job and is skipped by cascade when it
+    # is; github-release guards itself separately via needs.build.result.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       new_version: ${{ steps.determine_version.outputs.new_version }}
@@ -174,6 +183,10 @@ jobs:
   tag-release:
     name: Commit and Tag
     needs: [prepare-release, lint, test]
+    # Belt and suspenders: this is the job that pushes to main and pushes
+    # the tag using the owner PAT, so it gets its own explicit ref guard
+    # rather than relying only on the cascade from prepare-release.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -206,8 +219,10 @@ jobs:
           git diff --cached --quiet && echo "No changes to commit" || \
             git commit -m "chore(release): ${new_version} [skip ci]"
           git tag -a "v${new_version}" -m "Release v${new_version}"
-          git push origin HEAD:main
-          git push origin "v${new_version}"
+          # Atomic: one push carrying both refs, so a rejected tag (already
+          # exists, race with another push) can never leave main bumped
+          # without the tag that's supposed to go with it.
+          git push --atomic origin HEAD:main "v${new_version}"
 
   build:
     name: Build Package
