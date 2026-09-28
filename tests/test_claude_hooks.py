@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from tasktree_manager.services.claude_hooks import (
     ensure_claude_hooks,
     ensure_worktree_claude_settings,
@@ -95,6 +97,63 @@ class TestEnsureClaudeHooks:
         backups = list(claude_dir.glob("settings.local.json.broken-*"))
         assert len(backups) == 1
         assert backups[0].read_text() == "{not json"
+
+    def test_recovers_from_non_utf8_settings(self, tmp_path):
+        """Bytes that fail to decode are quarantined like unparseable JSON
+        (UnicodeDecodeError is a ValueError, not an OSError)."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_file = claude_dir / "settings.local.json"
+        settings_file.write_bytes(b"\xff\xfe{not utf8")
+
+        ensure_claude_hooks(tmp_path, "~/.claude/tasktree-memory")
+
+        settings = json.loads(settings_file.read_text())
+        assert "hooks" in settings
+        assert "autoMemoryDirectory" in settings
+        backups = list(claude_dir.glob("settings.local.json.broken-*"))
+        assert len(backups) == 1
+        assert backups[0].read_bytes() == b"\xff\xfe{not utf8"
+
+    def test_recovers_from_non_dict_json(self, tmp_path):
+        """Valid JSON that is not an object (e.g. an array) is quarantined
+        too, not silently discarded in place."""
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_file = claude_dir / "settings.local.json"
+        settings_file.write_text("[1, 2, 3]")
+
+        ensure_claude_hooks(tmp_path, "~/.claude/tasktree-memory")
+
+        settings = json.loads(settings_file.read_text())
+        assert "hooks" in settings
+        assert "autoMemoryDirectory" in settings
+        backups = list(claude_dir.glob("settings.local.json.broken-*"))
+        assert len(backups) == 1
+        assert backups[0].read_text() == "[1, 2, 3]"
+
+    def test_write_leaves_no_temp_file_behind(self, tmp_path):
+        """A successful write cleans up after the temp-file + rename dance."""
+        ensure_claude_hooks(tmp_path)
+
+        assert list((tmp_path / ".claude").glob("settings.local.json.tmp")) == []
+
+    def test_write_failure_leaves_existing_settings_untouched(self, tmp_path, monkeypatch):
+        """A crash between the temp-file write and the rename (os.replace)
+        must not corrupt the settings already on disk."""
+        ensure_claude_hooks(tmp_path)
+        settings_file = tmp_path / ".claude" / "settings.local.json"
+        original = settings_file.read_text()
+
+        def boom(*_args, **_kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("tasktree_manager.services.claude_hooks.os.replace", boom)
+
+        with pytest.raises(OSError):
+            ensure_claude_hooks(tmp_path, "~/.claude/tasktree-memory")
+
+        assert settings_file.read_text() == original
 
     def test_preserves_user_hooks(self, tmp_path):
         """User-written hook groups survive: settings.local.json holds
@@ -348,3 +407,86 @@ class TestMigrateLegacyMemoryDir:
         settings = json.loads((worktree_path / ".claude" / "settings.local.json").read_text())
         assert settings["autoMemoryDirectory"] == str(repo_memory_dir(repo_path))
         assert (repo_memory_dir(repo_path) / "MEMORY.md").read_text() == "kept"
+
+
+class TestSymlinkedRepoPath:
+    """Claude CLI keys a session to the OS-resolved cwd, so a symlinked
+    repos/tasks dir must encode to the same project dir as the resolved
+    path — otherwise repo-memory sharing, session-resume detection, and
+    recap all miss (regression tests for the resolve-before-encode fix)."""
+
+    def test_repo_memory_dir_matches_resolved_path(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+        real_repo = tmp_path / "real" / "repo"
+        real_repo.mkdir(parents=True)
+        link_root = tmp_path / "link"
+        link_root.symlink_to(tmp_path / "real")
+
+        assert repo_memory_dir(link_root / "repo") == repo_memory_dir(real_repo)
+
+    def test_has_claude_session_finds_resolved_project_dir(self, tmp_path, monkeypatch):
+        """A transcript filed under the resolved path is found through the
+        symlink, matching where the real Claude CLI would write it."""
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+        real_task = tmp_path / "real" / "task"
+        real_task.mkdir(parents=True)
+        link_root = tmp_path / "link"
+        link_root.symlink_to(tmp_path / "real")
+
+        resolved_dir = project_dir_candidates(real_task)[0]
+        resolved_dir.mkdir(parents=True)
+        (resolved_dir / "s1.jsonl").touch()
+
+        assert has_claude_session(link_root / "task") is True
+
+    def test_has_claude_session_still_finds_raw_symlink_dir(self, tmp_path, monkeypatch):
+        """Backwards compatibility: a dir a pre-fix tasktree wrote, keyed to
+        the raw (unresolved) symlinked path, must remain discoverable so
+        existing sessions are not orphaned by this change."""
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+        real_task = tmp_path / "real" / "task"
+        real_task.mkdir(parents=True)
+        link_root = tmp_path / "link"
+        link_root.symlink_to(tmp_path / "real")
+        raw_folder = link_root / "task"
+
+        resolved_candidates = project_dir_candidates(real_task)
+        raw_only = [c for c in project_dir_candidates(raw_folder) if c not in resolved_candidates]
+        assert raw_only, "test setup requires the raw and resolved paths to differ"
+        raw_only[0].mkdir(parents=True)
+        (raw_only[0] / "s1.jsonl").touch()
+
+        assert has_claude_session(raw_folder) is True
+
+    def test_migrate_legacy_memory_dir_keys_off_resolved_path(self, tmp_path, monkeypatch):
+        """migrate_legacy_memory_dir must resolve independently of
+        project_dir_candidates' now-larger candidate list."""
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+        real_repo = tmp_path / "real" / "my_repo"
+        real_repo.mkdir(parents=True)
+        link_root = tmp_path / "link"
+        link_root.symlink_to(tmp_path / "real")
+
+        legacy_dir = project_dir_candidates(real_repo)[1] / "memory"
+        legacy_dir.mkdir(parents=True)
+        (legacy_dir / "MEMORY.md").write_text("kept")
+
+        assert migrate_legacy_memory_dir(link_root / "my_repo") is True
+        assert (repo_memory_dir(real_repo) / "MEMORY.md").read_text() == "kept"
+
+    def test_ensure_worktree_claude_settings_symlinked_repo(self, tmp_path, monkeypatch):
+        """A worktree of a symlinked repo shares memory with the main
+        checkout's own (resolved-path) memory dir, not a raw-path one."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        real_repo = tmp_path / "real" / "repo3"
+        (real_repo / ".git" / "info").mkdir(parents=True)
+        link_root = tmp_path / "link"
+        link_root.symlink_to(tmp_path / "real")
+        worktree_path = tmp_path / "tasks" / "TASK-1" / "repo3"
+        worktree_path.mkdir(parents=True)
+        status_file = tmp_path / "tasks" / "TASK-1" / ".claude_status"
+
+        ensure_worktree_claude_settings(worktree_path, link_root / "repo3", status_file)
+
+        settings = json.loads((worktree_path / ".claude" / "settings.local.json").read_text())
+        assert settings["autoMemoryDirectory"] == str(repo_memory_dir(real_repo))

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from tasktree_manager.services.claude_hooks import project_dir_candidates
 from tasktree_manager.services.claude_sessions import (
     TAIL_WINDOW,
     format_clock,
@@ -204,6 +205,26 @@ class TestTranscriptSelection:
 
     def test_no_transcripts(self, project_dir):
         assert transcript_key(FOLDER) is None
+
+    def test_resolves_symlinked_folder(self, tmp_path, monkeypatch):
+        """A transcript filed under a task dir's resolved path is found
+        when looked up through a symlink to that dir (e.g. a symlinked
+        REPOS_DIR/TASKS_DIR) — matching where Claude CLI itself would
+        write it, since it keys sessions to the OS-resolved cwd."""
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+        real_task = tmp_path / "real" / "task"
+        real_task.mkdir(parents=True)
+        link_root = tmp_path / "link"
+        link_root.symlink_to(tmp_path / "real")
+
+        resolved_dir = project_dir_candidates(real_task)[0]
+        resolved_dir.mkdir(parents=True)
+        _write(resolved_dir / "s1.jsonl", [TURN])
+
+        key = transcript_key(link_root / "task")
+
+        assert key is not None
+        assert key[0] == resolved_dir / "s1.jsonl"
 
 
 class TestFormatting:

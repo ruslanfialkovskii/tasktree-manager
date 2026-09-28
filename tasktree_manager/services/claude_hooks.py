@@ -35,14 +35,26 @@ def _encode_project_path_legacy(folder: Path) -> str:
 
 
 def project_dir_candidates(folder: Path) -> list[Path]:
-    """Project dirs that may hold transcripts for a folder, current rule first.
+    """Project dirs that may hold transcripts for a folder, resolved rule first.
 
-    A dir created by an older CLI for a path with "_" or spaces has a
-    different name than the current rule produces; checking both keeps
-    session resume and recaps working for it.
+    Claude CLI names the dir from the OS-resolved cwd, so the resolved path
+    is encoded first. The raw (only expanduser'd) path is kept as a
+    fallback candidate too: a symlinked repos/tasks dir means earlier
+    tasktree releases (before paths were resolved here) wrote dirs keyed to
+    the raw path, and a dir created by an older CLI for a path with "_" or
+    spaces has a different name than the current rule produces. Checking
+    all forms keeps session resume and recaps working for each.
     """
     base = claude_config_dir() / "projects"
-    names = dict.fromkeys((_encode_project_path(folder), _encode_project_path_legacy(folder)))
+    resolved = folder.resolve()
+    names = dict.fromkeys(
+        (
+            _encode_project_path(resolved),
+            _encode_project_path_legacy(resolved),
+            _encode_project_path(folder),
+            _encode_project_path_legacy(folder),
+        )
+    )
     return [base / name for name in names]
 
 
@@ -63,9 +75,11 @@ def repo_memory_dir(repo_path: Path) -> Path:
     Sessions running in the main checkout use this directory by default,
     so pointing worktree sessions here gives every worktree of a repo —
     and the main checkout itself — one shared memory that outlives any
-    single worktree.
+    single worktree. The path is resolved before encoding: Claude CLI keys
+    a session to the OS-resolved cwd, so a symlinked repo would otherwise
+    get a memory dir the main checkout's own sessions never read from.
     """
-    return claude_config_dir() / "projects" / _encode_project_path(repo_path) / "memory"
+    return claude_config_dir() / "projects" / _encode_project_path(repo_path.resolve()) / "memory"
 
 
 def migrate_legacy_memory_dir(repo_path: Path) -> bool:
@@ -76,12 +90,16 @@ def migrate_legacy_memory_dir(repo_path: Path) -> bool:
     reads it for the main checkout. A one-time rename keeps that memory in
     the shared pool. Skipped when the current dir already exists (nothing
     can be merged safely). Returns True when a move happened.
+
+    Computed independently of project_dir_candidates (whose candidate list
+    also carries raw-path forms for lookup fallback): this only ever moves
+    between the current and legacy encodings of the same resolved path.
     """
-    candidates = project_dir_candidates(repo_path)
-    if len(candidates) < 2:
-        return False
-    current, legacy = candidates[0] / "memory", candidates[1] / "memory"
-    if current.exists() or not legacy.is_dir():
+    resolved = repo_path.resolve()
+    base = claude_config_dir() / "projects"
+    current = base / _encode_project_path(resolved) / "memory"
+    legacy = base / _encode_project_path_legacy(resolved) / "memory"
+    if current == legacy or current.exists() or not legacy.is_dir():
         return False
     try:
         current.parent.mkdir(parents=True, exist_ok=True)
@@ -111,12 +129,23 @@ def _build_hooks_config(status_file: str) -> dict:
     }
 
 
+def _quarantine_corrupt_settings(settings_file: Path) -> dict:
+    """Move a settings file that failed to load aside as ``<name>.broken-<ts>``."""
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    try:
+        settings_file.rename(settings_file.with_name(f"{settings_file.name}.broken-{stamp}"))
+    except OSError:
+        pass
+    return {}
+
+
 def _load_settings(settings_file: Path) -> dict:
     """Read existing settings JSON, tolerating a missing or corrupt file.
 
-    A file that does not parse is moved aside to ``<name>.broken-<ts>``
-    rather than silently overwritten: settings.local.json also holds the
-    user's permissions.allow/deny and hooks, which would otherwise be lost.
+    A file that does not decode, does not parse, or does not hold a JSON
+    object is moved aside to ``<name>.broken-<ts>`` rather than silently
+    overwritten: settings.local.json also holds the user's
+    permissions.allow/deny and hooks, which would otherwise be lost.
     """
     if not settings_file.exists():
         return {}
@@ -124,14 +153,23 @@ def _load_settings(settings_file: Path) -> dict:
         data = json.loads(settings_file.read_text())
     except OSError:
         return {}
-    except json.JSONDecodeError:
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        try:
-            settings_file.rename(settings_file.with_name(f"{settings_file.name}.broken-{stamp}"))
-        except OSError:
-            pass
-        return {}
-    return data if isinstance(data, dict) else {}
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _quarantine_corrupt_settings(settings_file)
+    if isinstance(data, dict):
+        return data
+    return _quarantine_corrupt_settings(settings_file)
+
+
+def _write_settings(settings_file: Path, data: dict) -> None:
+    """Write settings JSON atomically (temp file + rename).
+
+    Same pattern as ``Config.save`` (services/config.py): a crash or a
+    concurrent read mid-write cannot leave a truncated settings.local.json,
+    which also holds the user's permissions.allow/deny and hooks.
+    """
+    tmp_file = settings_file.with_name(settings_file.name + ".tmp")
+    tmp_file.write_text(json.dumps(data, indent=2) + "\n")
+    os.replace(tmp_file, settings_file)
 
 
 def _is_tasktree_hook_group(group: object) -> bool:
@@ -195,7 +233,7 @@ def ensure_claude_hooks(task_path: Path, memory_dir: str = "") -> None:
     if memory_dir:
         existing["autoMemoryDirectory"] = str(Path(memory_dir).expanduser())
 
-    settings_file.write_text(json.dumps(existing, indent=2) + "\n")
+    _write_settings(settings_file, existing)
 
 
 def exclude_from_git(repo_path: Path, entry: str) -> None:
@@ -244,6 +282,6 @@ def ensure_worktree_claude_settings(
     migrate_legacy_memory_dir(repo_path)
     existing["autoMemoryDirectory"] = str(repo_memory_dir(repo_path))
 
-    settings_file.write_text(json.dumps(existing, indent=2) + "\n")
+    _write_settings(settings_file, existing)
     # Hide the generated file from git status in the repo and its worktrees
     exclude_from_git(repo_path, ".claude/settings.local.json")
