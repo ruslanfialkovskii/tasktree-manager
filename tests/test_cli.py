@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -78,6 +79,24 @@ class TestCreate:
         assert code == 1
         assert "at least one repo" in capsys.readouterr().err
 
+    def test_create_warns_on_post_step_failure(self, cli_config, monkeypatch, capsys):
+        """Post-creation Claude/worktree-settings steps are best-effort: a
+        failure there is a warning, not a reason to report the (already
+        created) task as failed."""
+        from tasktree_manager.services.task_manager import TaskManager
+
+        def _boom(self, task):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(TaskManager, "ensure_claude_md_files", _boom)
+        code = cli(cli_config, "create", "task-x", "--repos", "repo-alpha")
+        assert code == 0
+        out = capsys.readouterr()
+        assert "Created task task-x" in out.out
+        assert "warning:" in out.err
+        assert "CLAUDE.md files" in out.err
+        assert (cli_config.tasks_dir / "task-x" / "repo-alpha" / ".git").exists()
+
 
 class TestList:
     def test_list_empty(self, config, capsys):
@@ -115,6 +134,28 @@ class TestList:
         assert cli(cli_config, "list", "--json") == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload[0]["dirty"] is True
+
+    def test_list_error_state_plain(self, cli_config, capsys):
+        """Regression: a worktree whose git status failed must not read as clean."""
+        cli(cli_config, "create", "task-x", "--repos", "repo-alpha")
+        # A corrupted .git pointer makes every git invocation fail while the
+        # directory itself still looks like a worktree (_get_worktrees only
+        # checks that .git exists)
+        (cli_config.tasks_dir / "task-x" / "repo-alpha" / ".git").write_text("garbage\n")
+        capsys.readouterr()
+        assert cli(cli_config, "list") == 0
+        out = capsys.readouterr().out
+        assert "task-x\terror\t" in out
+        assert "clean" not in out
+
+    def test_list_error_state_json(self, cli_config, capsys):
+        cli(cli_config, "create", "task-x", "--repos", "repo-alpha")
+        (cli_config.tasks_dir / "task-x" / "repo-alpha" / ".git").write_text("garbage\n")
+        capsys.readouterr()
+        assert cli(cli_config, "list", "--json") == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload[0]["error"] is True
+        assert payload[0]["dirty"] is False  # unknown state, not clean-and-not-dirty
 
 
 class TestDelete:
@@ -176,6 +217,26 @@ class TestDelete:
         capsys.readouterr()
         assert cli(config, "delete", "TASK-squash") == 1
         assert "not merged" in capsys.readouterr().err
+
+    def test_delete_archive_failure_aborts_with_partial_path(self, cli_config, monkeypatch, capsys):
+        """A failing archive must abort before finish_task, and the message
+        must surface the partial archive path when the exception carries one
+        (task_manager's ArchiveIncompleteError)."""
+        from tasktree_manager.services.task_manager import ArchiveIncompleteError, TaskManager
+
+        def _boom(self, task, notes=None):
+            raise ArchiveIncompleteError(
+                Path("/tmp/whatever-partial.patch"), [("repo-alpha", "disk full")]
+            )
+
+        cli(cli_config, "create", "task-x", "--repos", "repo-alpha")
+        capsys.readouterr()
+        monkeypatch.setattr(TaskManager, "archive_task", _boom)
+        assert cli(cli_config, "delete", "task-x", "--force") == 1
+        err = capsys.readouterr().err
+        assert "archive failed" in err
+        assert "/tmp/whatever-partial.patch" in err
+        assert (cli_config.tasks_dir / "task-x").exists()  # aborted before finish_task
 
 
 class TestFinish:
@@ -301,6 +362,42 @@ class TestFinish:
         assert "Archived diff to" in out
         assert "Finished task TASK-squash" in out
         assert not (config.tasks_dir / "TASK-squash").exists()
+
+    def test_finish_archive_failure_aborts_with_partial_path(self, cli_config, monkeypatch, capsys):
+        """Same archive-failure handling as delete, on the finish path."""
+        from tasktree_manager.services.task_manager import ArchiveIncompleteError, TaskManager
+
+        def _boom(self, task, notes=None):
+            raise ArchiveIncompleteError(
+                Path("/tmp/whatever-partial.patch"), [("repo-alpha", "disk full")]
+            )
+
+        cli(cli_config, "create", "task-x", "--repos", "repo-alpha")
+        capsys.readouterr()
+        monkeypatch.setattr(TaskManager, "archive_task", _boom)
+        assert cli(cli_config, "finish", "task-x", "--force") == 1
+        err = capsys.readouterr().err
+        assert "archive failed" in err
+        assert "/tmp/whatever-partial.patch" in err
+        assert (cli_config.tasks_dir / "task-x").exists()  # aborted before finish_task
+
+    def test_finish_reports_finish_task_valueerror(
+        self, config, repo_with_origin, monkeypatch, capsys
+    ):
+        """Regression: finish_task() may raise ValueError if the task gained
+        worktrees since loading; that must surface as a normal error: line,
+        not a raw traceback."""
+        from tasktree_manager.services.task_manager import TaskManager
+
+        cli(config, "create", "task-x", "--repos", "repo-remote", "--base", repo_with_origin)
+        capsys.readouterr()
+
+        def _boom(self, task):
+            raise ValueError("task gained worktrees since loading")
+
+        monkeypatch.setattr(TaskManager, "finish_task", _boom)
+        assert cli(config, "finish", "task-x") == 1
+        assert "error: task gained worktrees since loading" in capsys.readouterr().err
 
 
 class TestStatus:
@@ -437,6 +534,20 @@ class TestAddRepo:
         assert cli(cli_config, "add-repo", "task-x", "no-such-repo") == 1
         assert "unknown repo(s)" in capsys.readouterr().err
 
+    def test_add_repo_existing_plain_dir_reports_failure(self, cli_config, capsys):
+        """Regression: a target path that exists but isn't a worktree of the
+        repo (e.g. a plain directory) must not print "Added ..." and exit 0
+        for nothing created. Passes now via cli.py's post-call check against
+        task.worktrees; task_manager's own ValueError for this case (once it
+        lands) would just make the error message more specific."""
+        cli(cli_config, "create", "task-x", "--repos", "repo-alpha")
+        (cli_config.tasks_dir / "task-x" / "repo-beta").mkdir()
+        capsys.readouterr()
+        code = cli(cli_config, "add-repo", "task-x", "repo-beta")
+        assert code == 1
+        assert "error:" in capsys.readouterr().err
+        assert not (cli_config.tasks_dir / "task-x" / "repo-beta" / ".git").exists()
+
 
 class TestRepos:
     def test_repos(self, config, sample_repos, capsys):
@@ -446,6 +557,48 @@ class TestRepos:
     def test_repos_empty(self, config, capsys):
         assert cli(config, "repos") == 0
         assert capsys.readouterr().out == ""
+
+
+class TestErrorHandling:
+    """run_cli's own error handling: setup failures and FileNotFoundError."""
+
+    def test_setup_failure_reported_cleanly(self, config, monkeypatch, capsys):
+        """Regression: config.ensure_dirs()/forge.Forge.configure()/
+        TaskManager() used to run outside run_cli's try/except, so a
+        PermissionError printed a raw traceback instead of "error: ..."."""
+
+        def _boom():
+            raise PermissionError("denied")
+
+        monkeypatch.setattr(config, "ensure_dirs", _boom)
+        assert cli(config, "list") == 1
+        assert "permission denied" in capsys.readouterr().err
+
+    def test_missing_git_executable_reported(self, config, monkeypatch, capsys):
+        """A FileNotFoundError whose .filename is 'git' means the git binary
+        itself is missing, not a missing repo/worktree directory."""
+        import tasktree_manager.cli as cli_module
+
+        def _boom(manager, cfg, args):
+            raise FileNotFoundError(2, "No such file or directory", "git")
+
+        monkeypatch.setattr(cli_module, "cmd_repos", _boom)
+        assert cli(config, "repos") == 1
+        assert "git executable not found on PATH" in capsys.readouterr().err
+
+    def test_missing_repo_dir_still_reported_as_repository_not_found(
+        self, config, monkeypatch, capsys
+    ):
+        """Same exception type, but .filename names a repo/worktree path
+        (not 'git') — must keep the original "repository not found" message."""
+        import tasktree_manager.cli as cli_module
+
+        def _boom(manager, cfg, args):
+            raise FileNotFoundError(2, "No such file or directory", str(cfg.repos_dir / "gone"))
+
+        monkeypatch.setattr(cli_module, "cmd_repos", _boom)
+        assert cli(config, "repos") == 1
+        assert "repository not found" in capsys.readouterr().err
 
 
 class TestParser:

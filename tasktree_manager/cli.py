@@ -8,6 +8,7 @@ errors on stderr, exit code 0 on success and 1 on failure.
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -134,9 +135,17 @@ def cmd_create(manager: TaskManager, config: Config, args: argparse.Namespace) -
     base = args.base or config.default_base_branch
     task = manager.create_task(args.name, repos, base)
     # CLI-created tasks may never pass through the TUI's lazy Claude prep,
-    # so materialize CLAUDE.md files and worktree settings right away
-    manager.ensure_claude_md_files(task)
-    manager.ensure_worktree_settings(task)
+    # so materialize CLAUDE.md files and worktree settings right away. These
+    # are best-effort polish on a task that already exists: a failure here
+    # is reported as a warning, not as task-creation failure.
+    for step_name, step in (
+        ("CLAUDE.md files", manager.ensure_claude_md_files),
+        ("worktree settings", manager.ensure_worktree_settings),
+    ):
+        try:
+            step(task)
+        except Exception as e:
+            print(f"warning: {step_name} setup failed: {e}", file=sys.stderr)
 
     repo_list = ", ".join(wt.name for wt in task.worktrees)
     print(f"Created task {task.name} at {task.path} ({len(task.worktrees)} repo(s): {repo_list})")
@@ -147,9 +156,13 @@ def cmd_list(manager: TaskManager, config: Config, args: argparse.Namespace) -> 
     """List tasks with their repos and dirty state."""
     tasks = manager.list_tasks()
     dirty: dict[str, bool] = {}
+    errored: dict[str, bool] = {}
     for task in tasks:
         statuses = GitOps.get_statuses_parallel(task.worktrees)
         dirty[task.name] = any(s.is_dirty for s in statuses.values())
+        # A worktree whose git status failed has unknown state, not clean
+        # state; is_dirty is False by default and must not be read as "ok"
+        errored[task.name] = any(s.error for s in statuses.values())
 
     if args.as_json:
         payload = [
@@ -159,6 +172,7 @@ def cmd_list(manager: TaskManager, config: Config, args: argparse.Namespace) -> 
                 "path": str(task.path),
                 "repos": [wt.name for wt in task.worktrees],
                 "dirty": dirty[task.name],
+                "error": errored[task.name],
             }
             for task in tasks
         ]
@@ -169,7 +183,12 @@ def cmd_list(manager: TaskManager, config: Config, args: argparse.Namespace) -> 
         print("No tasks")
         return 0
     for task in tasks:
-        state = "dirty" if dirty[task.name] else "clean"
+        if errored[task.name]:
+            state = "error"
+        elif dirty[task.name]:
+            state = "dirty"
+        else:
+            state = "clean"
         repos = ", ".join(wt.name for wt in task.worktrees) or "(no repos)"
         print(f"{task.name}\t{state}\t{repos}")
     return 0
@@ -198,7 +217,10 @@ def cmd_delete(manager: TaskManager, config: Config, args: argparse.Namespace) -
 
     # Same safety net as the TUI: the remaining diff is archived before the
     # worktrees and branches are removed, --force included
-    archive_path = manager.archive_task(task)
+    try:
+        archive_path = manager.archive_task(task)
+    except Exception as e:
+        return _error(f"archive failed: {e}")
     if archive_path is not None:
         print(f"Archived diff to {archive_path}")
     manager.finish_task(task)
@@ -240,7 +262,10 @@ def cmd_finish(manager: TaskManager, config: Config, args: argparse.Namespace) -
 
     if not args.no_archive:
         notes = [f"{issue.repo_name}: {issue.details}" for issue in report.merged_via_forge]
-        archive_path = manager.archive_task(task, notes=notes or None)
+        try:
+            archive_path = manager.archive_task(task, notes=notes or None)
+        except Exception as e:
+            return _error(f"archive failed: {e}")
         if archive_path is not None:
             print(f"Archived diff to {archive_path}")
         else:
@@ -419,19 +444,27 @@ def cmd_status(manager: TaskManager, config: Config, args: argparse.Namespace) -
 def run_cli(argv: list[str], config: Config | None = None) -> int:
     """Parse argv and run the matching subcommand, returning an exit code."""
     args = build_parser().parse_args(argv)
-    if config is None:
-        try:
-            config = Config.load()
-        except ConfigError as e:
-            return _error(str(e))
-    config.ensure_dirs()
-    GitOps.network_timeout = config.git_timeout
-    forge.Forge.configure(config)
-    manager = TaskManager(config)
     try:
+        if config is None:
+            config = Config.load()
+        # Setup shares the same error handling as the subcommand itself: a
+        # PermissionError from ensure_dirs() (or any other startup failure)
+        # must print "error: ..." like everything else, not a raw traceback
+        config.ensure_dirs()
+        GitOps.network_timeout = config.git_timeout
+        forge.Forge.configure(config)
+        manager = TaskManager(config)
         return args.func(manager, config, args)
     except FileNotFoundError as e:
+        # subprocess sets .filename to the executable it tried to exec
+        # (argv[0]); that's how a missing `git` binary is told apart from a
+        # missing repo/worktree directory, which raises the same exception
+        # type with the missing path as .filename instead
+        if e.filename == "git" or shutil.which("git") is None:
+            return _error("git executable not found on PATH")
         return _error(f"repository not found: {e}")
+    except ConfigError as e:
+        return _error(str(e))
     except PermissionError:
         return _error("permission denied: check directory permissions")
     except ValueError as e:
