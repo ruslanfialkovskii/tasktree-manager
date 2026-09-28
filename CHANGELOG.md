@@ -15,6 +15,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.13.2] - 2026-09-28
+
+### Changed
+- Document list error state, config value types and task name rules
+- **release**: Release only from main and push main and tag atomically
+
+### Fixed
+- **tui**: Harden workers, refresh and selection handling
+- **cli**: Report status errors, setup failures and missing git correctly
+- **claude**: Resolve symlinked paths and write settings atomically
+- **config**: Validate booleans and section tables in config.toml
+- **git**: Count partially staged files as staged and modified
+- **tasks**: Protect existing branches and unchecked worktrees on create/delete
+
+
 ## [2.13.1] - 2026-09-16
 
 ### Fixed
