@@ -2,7 +2,15 @@
 
 from pathlib import Path
 
-from tasktree_manager.services.config import DEFAULT_KEYBINDINGS, Config
+import pytest
+
+from tasktree_manager.services.config import (
+    DEFAULT_KEYBINDINGS,
+    Config,
+    ConfigError,
+    _toml_bool,
+    _toml_table,
+)
 
 
 class TestConfig:
@@ -430,6 +438,128 @@ cursor_up = "up"
                 os.environ["XDG_CONFIG_HOME"] = old_xdg
             else:
                 os.environ.pop("XDG_CONFIG_HOME", None)
+
+
+class TestTomlBoolHelper:
+    """Unit tests for the _toml_bool coercion helper."""
+
+    def test_real_bool_passthrough(self):
+        assert _toml_bool({"k": True}, "k", False, path="s.k") is True
+        assert _toml_bool({"k": False}, "k", True, path="s.k") is False
+
+    def test_missing_key_uses_default(self):
+        assert _toml_bool({}, "k", True, path="s.k") is True
+        assert _toml_bool({}, "k", False, path="s.k") is False
+
+    @pytest.mark.parametrize("value", ["true", "True", "TRUE", "yes", "YES", "1"])
+    def test_truthy_strings(self, value):
+        assert _toml_bool({"k": value}, "k", False, path="s.k") is True
+
+    @pytest.mark.parametrize("value", ["false", "False", "FALSE", "no", "NO", "0"])
+    def test_falsy_strings(self, value):
+        assert _toml_bool({"k": value}, "k", True, path="s.k") is False
+
+    def test_invalid_string_raises_naming_key(self):
+        with pytest.raises(ConfigError, match="s.k must be a boolean"):
+            _toml_bool({"k": "maybe"}, "k", False, path="s.k")
+
+    def test_non_bool_non_string_raises(self):
+        with pytest.raises(ConfigError, match="s.k must be a boolean"):
+            _toml_bool({"k": 1}, "k", False, path="s.k")
+
+
+class TestTomlTableHelper:
+    """Unit tests for the _toml_table sub-table validation helper."""
+
+    def test_dict_passthrough(self):
+        assert _toml_table({"section": {"a": 1}}, "section") == {"a": 1}
+
+    def test_missing_key_returns_empty_dict(self):
+        assert _toml_table({}, "section") == {}
+
+    @pytest.mark.parametrize("value", ["oops", ["oops"], 5])
+    def test_non_dict_raises(self, value):
+        with pytest.raises(ConfigError, match=r"\[section\] must be a table"):
+            _toml_table({"section": value}, "section")
+
+
+class TestBooleanCoercionIntegration:
+    """Config.load() coerces string boolean spellings and rejects garbage."""
+
+    def test_quoted_yes_loads_true_and_resaves_as_real_bool(self, temp_dirs, monkeypatch):
+        """A hand-edited `show_hidden_files = "yes"` must load as True and,
+        on the next save(), be written back as a real TOML boolean — not
+        `str("yes").lower()`, which would be the unparsable bareword `yes`.
+        """
+        repos_dir, tasks_dir = temp_dirs
+        config_dir = repos_dir.parent / ".config" / "tasktree-manager"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.toml").write_text(
+            f'''
+repos_dir = "{repos_dir}"
+tasks_dir = "{tasks_dir}"
+
+[ui]
+show_hidden_files = "yes"
+'''
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_dir.parent))
+        monkeypatch.delenv("REPOS_DIR", raising=False)
+        monkeypatch.delenv("TASKS_DIR", raising=False)
+
+        config = Config.load()
+        assert config.show_hidden_files is True
+
+        config.save()
+        content = (config_dir / "config.toml").read_text()
+        assert "show_hidden_files = true" in content
+
+        reloaded = Config.load()
+        assert reloaded.show_hidden_files is True
+
+    def test_invalid_auto_push_string_raises_config_error(self, temp_dirs, monkeypatch):
+        repos_dir, tasks_dir = temp_dirs
+        config_dir = repos_dir.parent / ".config" / "tasktree-manager"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.toml").write_text(
+            f'''
+repos_dir = "{repos_dir}"
+tasks_dir = "{tasks_dir}"
+
+[git]
+auto_push = "maybe"
+'''
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_dir.parent))
+        monkeypatch.delenv("REPOS_DIR", raising=False)
+        monkeypatch.delenv("TASKS_DIR", raising=False)
+
+        with pytest.raises(ConfigError, match="git.auto_push must be a boolean"):
+            Config.load()
+
+
+class TestSubTableValidation:
+    """A sub-table key holding a non-table value fails with ConfigError."""
+
+    @pytest.mark.parametrize("section", ["ui", "git", "tools", "forge", "keybindings", "symlinks"])
+    def test_non_table_section_raises(self, temp_dirs, monkeypatch, section):
+        repos_dir, tasks_dir = temp_dirs
+        config_dir = repos_dir.parent / ".config" / "tasktree-manager"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.toml").write_text(
+            f'''
+repos_dir = "{repos_dir}"
+tasks_dir = "{tasks_dir}"
+
+{section} = "oops"
+'''
+        )
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(config_dir.parent))
+        monkeypatch.delenv("REPOS_DIR", raising=False)
+        monkeypatch.delenv("TASKS_DIR", raising=False)
+
+        with pytest.raises(ConfigError, match=rf"\[{section}\] must be a table"):
+            Config.load()
 
 
 class TestClaudeRecapSetting:

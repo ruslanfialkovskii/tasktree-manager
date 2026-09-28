@@ -56,6 +56,45 @@ def _toml_int(section: dict, key: str, default: int) -> int:
         return default
 
 
+_TOML_TRUE_STRINGS = {"true", "yes", "1"}
+_TOML_FALSE_STRINGS = {"false", "no", "0"}
+
+
+def _toml_bool(section: dict, key: str, default: bool, *, path: str) -> bool:
+    """Read a boolean config value, coercing common string spellings.
+
+    A real TOML boolean passes straight through. A quoted "yes"/"false"/"1"
+    etc. (case-insensitive) is coerced too, so a hand-edited config file
+    still loads. Anything else is a ConfigError naming the offending key —
+    silently falling back to the default would let a typo like
+    `auto_push = "maybe"` masquerade as `false`, and str(value).lower() in
+    save() would otherwise write it back as an unparsable TOML bareword.
+    """
+    value = section.get(key, default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in _TOML_TRUE_STRINGS:
+            return True
+        if lowered in _TOML_FALSE_STRINGS:
+            return False
+    raise ConfigError(f"{path} must be a boolean (true/false)")
+
+
+def _toml_table(config_data: dict, key: str) -> dict:
+    """Read a sub-table, raising ConfigError if the key holds something else.
+
+    `keybindings = "oops"` (or any other non-table value) must fail loudly
+    here rather than crash later with AttributeError the first time the
+    caller does `.items()` or `.get()` on it.
+    """
+    value = config_data.get(key, {})
+    if not isinstance(value, dict):
+        raise ConfigError(f"[{key}] must be a table")
+    return value
+
+
 # Default patterns excluded when symlinking gitignored files into worktrees.
 # Caches/build artifacts are excluded as noise; key material is excluded so
 # private keys and certificates never spread beyond the main checkout
@@ -174,21 +213,23 @@ class Config:
             archive_dir = ""
 
         # UI settings
-        ui_config = config_data.get("ui", {})
+        ui_config = _toml_table(config_data, "ui")
         theme = ui_config.get("theme", "tasktree")
-        show_hidden_files = ui_config.get("show_hidden_files", False)
+        show_hidden_files = _toml_bool(
+            ui_config, "show_hidden_files", False, path="ui.show_hidden_files"
+        )
         refresh_interval = _toml_int(ui_config, "refresh_interval", 30)
         agent_poll_interval = _toml_int(ui_config, "agent_poll_interval", 10)
         forge_poll_interval = _toml_int(ui_config, "forge_poll_interval", 60)
 
         # Git settings
-        git_config = config_data.get("git", {})
+        git_config = _toml_table(config_data, "git")
         default_base_branch = git_config.get("default_base_branch", "main")
-        auto_push = git_config.get("auto_push", False)
+        auto_push = _toml_bool(git_config, "auto_push", False, path="git.auto_push")
         git_timeout = _toml_int(git_config, "timeout", 30)
 
         # External tools
-        tools_config = config_data.get("tools", {})
+        tools_config = _toml_table(config_data, "tools")
         editor = tools_config.get("editor", "")
         # Tool paths are used as argv[0] (no shell), so "~" must be expanded
         # here; the `c` key goes through a shell and would otherwise be the
@@ -197,14 +238,16 @@ class Config:
         hunk_path = os.path.expanduser(str(tools_config.get("hunk_path", "hunk")))
         claude_path = os.path.expanduser(str(tools_config.get("claude_path", "claude")))
         claude_memory_dir = tools_config.get("claude_memory_dir", "~/.claude/tasktree-memory")
-        claude_repo_memory = bool(tools_config.get("claude_repo_memory", True))
-        claude_recap = bool(tools_config.get("claude_recap", True))
+        claude_repo_memory = _toml_bool(
+            tools_config, "claude_repo_memory", True, path="tools.claude_repo_memory"
+        )
+        claude_recap = _toml_bool(tools_config, "claude_recap", True, path="tools.claude_recap")
         glab_path = os.path.expanduser(str(tools_config.get("glab_path", "glab")))
         gh_path = os.path.expanduser(str(tools_config.get("gh_path", "gh")))
 
         # Forge settings
-        forge_config = config_data.get("forge", {})
-        forge_enabled = bool(forge_config.get("enabled", True))
+        forge_config = _toml_table(config_data, "forge")
+        forge_enabled = _toml_bool(forge_config, "enabled", True, path="forge.enabled")
         forge_gitlab_hosts = forge_config.get("gitlab_hosts", [])
         if isinstance(forge_gitlab_hosts, list):
             # Drop non-string elements: they would crash provider detection
@@ -215,7 +258,7 @@ class Config:
 
         # Keybindings - start with defaults and override with config
         keybindings = DEFAULT_KEYBINDINGS.copy()
-        keybindings_config = config_data.get("keybindings", {})
+        keybindings_config = _toml_table(config_data, "keybindings")
         for action, key in keybindings_config.items():
             if action in keybindings and isinstance(key, str):
                 keybindings[action] = key
@@ -223,7 +266,7 @@ class Config:
         # Symlink settings. The key replaces the defaults wholesale, so it
         # must be a list of patterns: a scalar would iterate as characters
         # ("*" blocks everything) and a non-string element crashes fnmatch
-        symlink_config = config_data.get("symlinks", {})
+        symlink_config = _toml_table(config_data, "symlinks")
         symlink_blocklist = symlink_config.get("blocklist", list(DEFAULT_SYMLINK_BLOCKLIST))
         if isinstance(symlink_blocklist, list):
             symlink_blocklist = [p for p in symlink_blocklist if isinstance(p, str)]
