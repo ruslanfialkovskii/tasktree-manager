@@ -184,19 +184,16 @@ class TaskList(OptionList):
         current_idx = modes.index(self._sort_mode)
         self._sort_mode = modes[(current_idx + 1) % len(modes)]
 
-        # Re-sort and reload with current tasks
+        # Re-sort and reload with current tasks, preserving whichever task
+        # was highlighted (same preserve_selection path load_tasks/
+        # refresh_tasks use) so re-sorting doesn't snap back to the first
+        # task and doesn't double-emit TaskHighlighted.
         if self.tasks:
-            sorted_tasks = self._sort_tasks(self.tasks)
-            self.tasks = sorted_tasks
-            self.clear_options()
-            for task in sorted_tasks:
-                self.add_option(
-                    self._format_task_option(task, self._claude_statuses.get(task.name))
-                )
-
-            if self.tasks and self.option_count > 0:
-                self.action_first()
-                self._emit_highlighted()
+            current_task = self.get_selected_task()
+            self.load_tasks(
+                self.tasks,
+                preserve_selection=current_task.name if current_task else None,
+            )
 
         self.post_message(self.SortModeChanged(self._sort_mode, self.get_sort_label()))
 

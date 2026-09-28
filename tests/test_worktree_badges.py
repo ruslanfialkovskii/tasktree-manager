@@ -225,7 +225,7 @@ class TestDispatchAgent:
 
         async with app.run_test() as pilot:
             await pilot.pause()
-            app._dispatch_agent_worker("FAIL-TASK/repo-alpha", "repo-alpha", alpha_path, "hi")
+            app._dispatch_agent_worker(task, "FAIL-TASK/repo-alpha", "repo-alpha", alpha_path, "hi")
             await app.workers.wait_for_complete()
             await pilot.pause()
             messages_panel = app.query_one("#messages-display", MessagesPanel)

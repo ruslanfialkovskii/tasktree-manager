@@ -180,6 +180,27 @@ class TestCreateTaskModal:
             await pilot.pause()
             assert modal.selected_repos == {"ansible"}
 
+    async def test_initial_repos_filtered_to_available(self, app, sample_repos):
+        """A stale initial_repos entry (e.g. from Clone-Task) must not stay
+        selected once it's no longer in available_repos - otherwise it's
+        invisible in the list but still blocks creation as "selected".
+        """
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            modal = CreateTaskModal(
+                available_repos=["repo-a", "repo-b"],
+                initial_repos=["repo-a", "repo-stale"],
+            )
+            app.push_screen(modal)
+            await pilot.pause()
+
+            assert modal.selected_repos == {"repo-a"}
+
+            # The list itself only ever offered the available repos.
+            repo_list = modal.query_one("#repo-list", SelectionList)
+            assert _visible_values(repo_list) == ["repo-a", "repo-b"]
+
     async def test_create_task_validates_empty_name(self, app, sample_repos):
         """Test that creating task with empty name shows error."""
         async with app.run_test() as pilot:
@@ -533,6 +554,31 @@ class TestHelpModal:
         info_text = modal._build_info_text()
         assert "/custom/path/config.toml" in info_text
 
+    def test_build_info_text_escapes_bracket_path(self):
+        """A config_path containing '[...]' must survive markup parsing.
+
+        Static renders with markup=True; an unescaped '[weird]' segment is
+        silently swallowed as an (invalid) style tag.
+        """
+        from rich.text import Text
+
+        weird_path = "/custom/no[weird]path/config.toml"
+        modal = HelpModal(config_path=weird_path)
+        info_text = modal._build_info_text()
+
+        assert Text.from_markup(info_text).plain.endswith(weird_path)
+
+    def test_format_binding_escapes_bracket_key(self):
+        """A keybinding value containing '[...]' must survive markup parsing."""
+        from rich.text import Text
+
+        modal = HelpModal(keybindings={"quit": "ctrl+[x]"})
+        result = modal._format_binding("quit", "q", "Quit application")
+
+        rendered = Text.from_markup(result).plain
+        assert "[x]" in rendered
+        assert "Quit application" in rendered
+
     def test_default_config_path(self):
         """Test default config path when not specified."""
         modal = HelpModal(config_path="")
@@ -564,6 +610,38 @@ class TestHelpModal:
         assert "Git Operations" in content
         assert "General" in content
         assert "Tips" in content
+
+
+class TestSetupModalMarkupEscaping:
+    """SetupModal._save_config must escape Input paths before rendering.
+
+    error_message is interpolated into a markup-enabled Static; an
+    unescaped "[...]" segment in a user-typed path is silently swallowed
+    by Rich's markup parser instead of shown to the user.
+    """
+
+    async def test_error_message_preserves_bracket_path(self, app, tmp_path):
+        from rich.text import Text
+
+        from tasktree_manager.widgets.setup_modal import SetupModal
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            modal = SetupModal()
+            app.push_screen(modal)
+            await pilot.pause()
+
+            weird_repos_dir = tmp_path / "no[such]dir"
+            modal.query_one("#repos-dir", Input).value = str(weird_repos_dir)
+            modal.query_one("#tasks-dir", Input).value = str(tmp_path / "tasks")
+
+            modal._save_config()
+            await pilot.pause()
+
+            assert modal.error_message != ""
+            rendered = Text.from_markup(modal.error_message).plain
+            assert str(weird_repos_dir) in rendered
 
 
 class TestEscapeDismissesModals:

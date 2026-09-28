@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from rich.markup import escape
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal
@@ -145,18 +146,21 @@ class SetupModal(ModalScreen[tuple[Path, Path] | None]):
         # Validate
         errors = []
 
+        # Paths are escaped: they come from free-text Input values and may
+        # contain "[...]", which the markup-enabled Static below would
+        # otherwise consume as (invalid) style tags and silently drop.
         if not repos_dir.exists():
-            errors.append(f"Repositories directory does not exist: {repos_dir}")
+            errors.append(f"Repositories directory does not exist: {escape(str(repos_dir))}")
         elif not repos_dir.is_dir():
-            errors.append(f"Repositories path is not a directory: {repos_dir}")
+            errors.append(f"Repositories path is not a directory: {escape(str(repos_dir))}")
 
         if not repos_input.value.strip() or not tasks_input.value.strip():
             errors.append("Both directories are required")
         if not tasks_dir.parent.exists():
-            errors.append(f"Parent directory does not exist: {tasks_dir.parent}")
+            errors.append(f"Parent directory does not exist: {escape(str(tasks_dir.parent))}")
         elif tasks_dir.exists() and not tasks_dir.is_dir():
             # Saving this would make every later launch crash in ensure_dirs()
-            errors.append(f"Tasks path is not a directory: {tasks_dir}")
+            errors.append(f"Tasks path is not a directory: {escape(str(tasks_dir))}")
 
         # The task list treats every subdirectory of tasks_dir as a deletable
         # task, so the repos must never live inside it (or be it)

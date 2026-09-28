@@ -200,7 +200,10 @@ class CreateTaskModal(RepoFilterMixin, ThemedModalScreen[tuple[str, list[str], s
     ):
         super().__init__(*args, **kwargs)
         self.available_repos = available_repos
-        self.selected_repos: set[str] = set(initial_repos or [])
+        # Filter to repos still in REPOS_DIR: an initial_repos entry (e.g.
+        # from Clone-Task) that no longer exists there would stay selected
+        # but never render, silently blocking creation.
+        self.selected_repos: set[str] = set(initial_repos or []) & set(available_repos)
         self.initial_base_branch = initial_base_branch
         self.title_text = title
         self._reset_visible_repos()
@@ -691,8 +694,9 @@ class HelpModal(ThemedModalScreen[None]):
     def _format_binding(self, action: str, default: str, description: str) -> str:
         """Format a single keybinding line."""
         key = self._get_key(action, default)
-        # Pad key to align descriptions
-        return f"  [bold cyan]{key:<12}[/] {description}"
+        # Pad key to align descriptions, then escape: key comes from
+        # config.toml and could contain "[...]" that markup would consume
+        return f"  [bold cyan]{escape(f'{key:<12}')}[/] {description}"
 
     def compose(self) -> ComposeResult:
         with Container():
@@ -811,7 +815,8 @@ class HelpModal(ThemedModalScreen[None]):
         """Build the info text showing config location."""
         info = "Config: "
         if self.config_path:
-            info += f"{self.config_path}"
+            # Filesystem path: may contain "[...]" that markup would consume
+            info += escape(self.config_path)
         else:
             info += "~/.config/tasktree-manager/config.toml"
         return info

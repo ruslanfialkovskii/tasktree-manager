@@ -536,7 +536,7 @@ class TaskTreeApp(App):
                     self.config.save()
                 except OSError as e:
                     self.push_screen(
-                        SetupModal(error_message=f"Could not set up directories: {e}"),
+                        SetupModal(error_message=escape(f"Could not set up directories: {e}")),
                         handle_setup,
                     )
                     return
@@ -628,6 +628,11 @@ class TaskTreeApp(App):
         if self._mutation_in_flight():
             self.notify("Another task operation is still running", severity="warning")
             return False
+        # A periodic scan already in flight would otherwise apply its
+        # pre-mutation snapshot after this mutation finishes, clobbering the
+        # loading indicators set below (see the worker check in
+        # _apply_refreshed_tasks, its belt-and-suspenders counterpart).
+        self.workers.cancel_group(self, "auto_refresh")
         for widget_id in loading_widget_ids:
             self.query_one(f"#{widget_id}").loading = True
         return True
@@ -642,12 +647,19 @@ class TaskTreeApp(App):
         statuses: dict[str, str] = {}
         for task in task_list.tasks:
             status_file = task.path / ".claude_status"
-            if status_file.exists():
-                try:
-                    data = json.loads(status_file.read_text())
-                    statuses[task.name] = data.get("status", "unknown")
-                except (json.JSONDecodeError, OSError):
-                    pass
+            if not status_file.exists():
+                continue
+            try:
+                data = json.loads(status_file.read_text())
+            except (OSError, UnicodeDecodeError, ValueError):
+                # ValueError also catches json.JSONDecodeError (a subclass);
+                # UnicodeDecodeError covers a non-UTF-8 status file
+                continue
+            if not isinstance(data, dict):
+                # Valid JSON but not an object (e.g. "[]") - .get() below
+                # would raise AttributeError and kill the poll interval
+                continue
+            statuses[task.name] = data.get("status", "unknown")
 
         if statuses != self._claude_statuses:
             self._claude_statuses = statuses
@@ -880,7 +892,12 @@ class TaskTreeApp(App):
         entirely to avoid selection/status-panel flicker. A snapshot from a
         scan that was superseded while this call sat in the queue is dropped.
         """
-        if worker is not None and worker.is_cancelled:
+        # `worker` is only passed by the background auto_refresh scan. Skip
+        # its apply if it was cancelled, or if a mutation started after the
+        # scan's git calls finished but before this callback reached the
+        # main thread - either way this is a pre-mutation snapshot that
+        # must not clobber the mutation's own loading state and reload.
+        if worker is not None and (worker.is_cancelled or self._mutation_in_flight()):
             return
         try:
             task_list = self.query_one("#task-list", TaskList)
@@ -896,7 +913,6 @@ class TaskTreeApp(App):
         fingerprint = self._tasks_fingerprint(tasks)
         if not force_ui and fingerprint == self._last_tasks_fingerprint:
             return
-        self._last_tasks_fingerprint = fingerprint
         self._update_header_stats(tasks)
 
         # Prune forge entries for worktrees that no longer exist — a deleted
@@ -927,6 +943,7 @@ class TaskTreeApp(App):
                 status_panel.clear_status()
                 self._set_counter("task-panel-counter", "")
                 self._set_counter("worktree-panel-counter", "")
+                self._last_tasks_fingerprint = fingerprint
                 return
 
             # The worktree list is (re)loaded by the TaskHighlighted handler
@@ -939,8 +956,13 @@ class TaskTreeApp(App):
                         self.current_task = t
                         break
             self._push_badges_to_worktree_list()
+            self._last_tasks_fingerprint = fingerprint
         except Exception as e:
-            # A worker error would exit the app; refresh glitches are not fatal
+            # A worker error would exit the app; refresh glitches are not
+            # fatal. Deliberately leave _last_tasks_fingerprint at its prior
+            # value: the UI never actually reflected this data, so a later
+            # refresh with the same (still-unapplied) snapshot must retry
+            # instead of being skipped as a no-op.
             self.log.error(f"Failed to apply refreshed tasks: {e}")
 
     def _run_external_command(
@@ -1288,6 +1310,8 @@ class TaskTreeApp(App):
     def _check_task_safety_worker(self, task: Task) -> None:
         """Run task safety checks in a background thread."""
         safety_report = self.task_manager.check_task_safety(task)
+        if get_current_worker().is_cancelled:
+            return
         self.call_from_thread(self._show_delete_task_dialog, task, safety_report)
 
     def _show_delete_task_dialog(self, task: Task, safety_report: TaskSafetyReport) -> None:
@@ -1365,11 +1389,17 @@ class TaskTreeApp(App):
             except Exception as e:
                 # A failed archive must not block deletion, but it must be
                 # loud — the archive is the safety net for the work the
-                # delete below is about to destroy
+                # delete below is about to destroy (ArchiveIncompleteError's
+                # message names the partial archive, if one was written)
                 detail = f"Archive failed for '{task.name}': {type(e).__name__}: {e}"
                 self.call_from_thread(self.notify, escape(detail), severity="warning", timeout=10)
                 self.call_from_thread(self._log_activity, detail, MessageLevel.ERROR, task.name)
             self.task_manager.finish_task(task)
+        except ValueError as e:
+            # finish_task raises ValueError (nothing removed) when worktrees
+            # on disk no longer match task.worktrees - the task changed
+            # during the confirm dialog. Its message is already clear.
+            error = str(e)
         except Exception as e:
             error = f"{type(e).__name__}: {e}"
         self.call_from_thread(self._apply_finish_task_result, task.name, force, error, archive_path)
@@ -1385,6 +1415,14 @@ class TaskTreeApp(App):
         if error:
             self.notify(escape(f"Failed to delete task: {error}"), severity="error")
             self._log_activity(f"Failed to delete task: {error}", MessageLevel.ERROR, task_name)
+            if archive_path is not None:
+                # The archive succeeded before the delete itself failed - the
+                # user's work is not lost, but they should know where it is
+                self._log_activity(
+                    f"Archived diff to {archive_path} before the failed delete",
+                    MessageLevel.INFO,
+                    task_name,
+                )
         else:
             self.notify(escape(f"Deleted task: {task_name}"))
             suffix = " (force)" if force else ""
@@ -1420,6 +1458,8 @@ class TaskTreeApp(App):
         """Push all branches and re-run safety checks in a background thread."""
         success_repos, failed_repos = self.task_manager.push_all_branches(task)
         new_report = self.task_manager.check_task_safety(task)
+        if get_current_worker().is_cancelled:
+            return
         self.call_from_thread(
             self._apply_delete_push_results, task, success_repos, failed_repos, new_report
         )
@@ -1479,6 +1519,8 @@ class TaskTreeApp(App):
     def _check_worktree_safety_worker(self, task: Task, worktree: Worktree) -> None:
         """Run the safety check for a single worktree in a background thread."""
         report = self.task_manager.check_task_safety(self._worktree_view(task, worktree))
+        if get_current_worker().is_cancelled:
+            return
         self.call_from_thread(self._show_delete_worktree_dialog, task, worktree, report)
 
     def _show_delete_worktree_dialog(
@@ -1529,6 +1571,8 @@ class TaskTreeApp(App):
         view = self._worktree_view(task, worktree)
         success, failed = self.task_manager.push_all_branches(view)
         report = self.task_manager.check_task_safety(view)
+        if get_current_worker().is_cancelled:
+            return
         self.call_from_thread(
             self._apply_worktree_push_result, task, worktree, success, failed, report
         )
@@ -1603,6 +1647,12 @@ class TaskTreeApp(App):
                 MessageLevel.ERROR,
                 task_name,
             )
+            if archive_path is not None:
+                self._log_activity(
+                    f"Archived diff to {archive_path} before the failed delete",
+                    MessageLevel.INFO,
+                    task_name,
+                )
         else:
             self.notify(escape(f"Deleted worktree: {worktree_name}"))
             suffix = " (force)" if force else ""
@@ -1828,13 +1878,20 @@ class TaskTreeApp(App):
         self._open_ghostty_tab(folder_path, command=f"{editor} .")
         self.notify(escape(f"Opened {editor} in new tab"))
 
-    def _prepare_claude_session(self, task_path: Path) -> None:
-        """Refresh CLAUDE.md files, worktree settings, and hooks before launching Claude."""
-        fresh_task = self.task_manager.get_task(self.current_task.name)
+    def _prepare_claude_session(self, task: Task) -> None:
+        """Refresh CLAUDE.md files, worktree settings, and hooks before launching Claude.
+
+        Must run off the UI thread: ensure_claude_md_files can shell out to
+        git (symbolic-ref/show, each with a 10s timeout) once per worktree
+        missing a CLAUDE.md. Every caller runs this inside a
+        @work(thread=True) worker and passes the task explicitly rather than
+        reading self.current_task, which is not safe to read from a thread.
+        """
+        fresh_task = self.task_manager.get_task(task.name)
         if fresh_task:
             self.task_manager.ensure_claude_md_files(fresh_task)
             self.task_manager.ensure_worktree_settings(fresh_task)
-        ensure_claude_hooks(task_path, self.config.claude_memory_dir)
+        ensure_claude_hooks(task.path, self.config.claude_memory_dir)
 
     def action_open_claude_resume(self) -> None:
         """Open Claude Code in a new Ghostty tab.
@@ -1846,13 +1903,36 @@ class TaskTreeApp(App):
             self.notify("No task selected", severity="warning")
             return
 
-        task_path = self.current_task.path
-        if not task_path.exists():
+        task = self.current_task
+        if not task.path.exists():
             self.notify("Task directory not found", severity="error")
             return
 
-        self._prepare_claude_session(task_path)
-        if has_claude_session(task_path):
+        self._open_claude_resume_worker(task)
+
+    @work(thread=True, group="claude_prep")
+    def _open_claude_resume_worker(self, task: Task) -> None:
+        """Prepare the session off the UI thread, then open the Ghostty tab.
+
+        A prep failure is reported but does not block the launch - stale
+        CLAUDE.md content is not worth failing the session over.
+        """
+        try:
+            self._prepare_claude_session(task)
+        except Exception as e:
+            self.call_from_thread(
+                self.notify,
+                escape(f"Claude session prep failed for '{task.name}': {type(e).__name__}: {e}"),
+                severity="warning",
+            )
+        resume = has_claude_session(task.path)
+        if get_current_worker().is_cancelled:
+            return
+        self.call_from_thread(self._open_claude_resume_tab, task.path, resume)
+
+    def _open_claude_resume_tab(self, task_path: Path, resume: bool) -> None:
+        """Open the Ghostty tab for a prepared Claude session (main thread)."""
+        if resume:
             self._open_ghostty_tab(task_path, command=f"{self.config.claude_path} -r")
             self.notify("Opened Claude Code in new tab (resume)")
         else:
@@ -1870,27 +1950,39 @@ class TaskTreeApp(App):
             self.notify("Worktree directory not found", severity="error")
             return
 
-        self._prepare_claude_session(task.path)
         session_name = f"{task.name}/{worktree.name}"
 
         def handle_prompt(prompt: str | None) -> None:
             if not prompt:
                 return
             self.notify(escape(f"Dispatching agent in '{worktree.name}'…"))
-            self._dispatch_agent_worker(session_name, worktree.name, str(worktree.path), prompt)
+            self._dispatch_agent_worker(
+                task, session_name, worktree.name, str(worktree.path), prompt
+            )
 
         self.push_screen(DispatchAgentModal(session_name), handle_prompt)
 
     @work(thread=True, group="agent_dispatch")
     def _dispatch_agent_worker(
-        self, session_name: str, wt_name: str, wt_path: str, prompt: str
+        self, task: Task, session_name: str, wt_name: str, wt_path: str, prompt: str
     ) -> None:
-        """Run `claude --bg` in the worktree.
+        """Prepare the session, then run `claude --bg` in the worktree.
 
         Deliberately not exclusive: dispatching agents to different worktrees
         in parallel is legitimate. `--bg` detaches and returns promptly; the
-        30s timeout only guards against a hung CLI.
+        30s timeout only guards against a hung CLI. Session prep can shell
+        out to git per worktree, so it belongs in this thread worker too -
+        never on the UI thread. A prep failure is reported but does not
+        block dispatch.
         """
+        try:
+            self._prepare_claude_session(task)
+        except Exception as e:
+            self.call_from_thread(
+                self.notify,
+                escape(f"Claude session prep failed for '{wt_name}': {type(e).__name__}: {e}"),
+                severity="warning",
+            )
         try:
             # "--" terminates option parsing: a prompt starting with "-"
             # must reach claude as the prompt, not be eaten as CLI flags
@@ -1946,27 +2038,62 @@ class TaskTreeApp(App):
 
     def action_open_claude_gui_code(self) -> None:
         """Open Claude desktop app on the Code page in the current task folder."""
-        from urllib.parse import quote
-
         if not self.current_task:
             self.notify("No task selected", severity="warning")
             return
 
-        task_path = self.current_task.path
-        if not task_path.exists():
+        task = self.current_task
+        if not task.path.exists():
             self.notify("Task directory not found", severity="error")
             return
 
-        self._prepare_claude_session(task_path)
-        encoded_path = quote(str(task_path), safe="")
+        self._open_claude_gui_code_worker(task)
+
+    @work(thread=True, group="claude_prep")
+    def _open_claude_gui_code_worker(self, task: Task) -> None:
+        """Prepare the session, then open Claude desktop, off the UI thread."""
+        from urllib.parse import quote
+
+        try:
+            self._prepare_claude_session(task)
+        except Exception as e:
+            self.call_from_thread(
+                self.notify,
+                escape(f"Claude session prep failed for '{task.name}': {type(e).__name__}: {e}"),
+                severity="warning",
+            )
+
+        encoded_path = quote(str(task.path), safe="")
         url = f"claude://code/new?folder={encoded_path}"
         try:
-            subprocess.run(["open", url], check=False)
-            self.notify("Opened Claude desktop on Code page")
+            result = subprocess.run(["open", url], capture_output=True, text=True)
         except FileNotFoundError:
-            self.notify("'open' command not found (macOS only)", severity="error")
+            self.call_from_thread(
+                self.notify, "'open' command not found (macOS only)", severity="error"
+            )
+            return
         except Exception as e:
-            self.notify(escape(f"Failed to open Claude desktop: {e}"), severity="error")
+            self.call_from_thread(
+                self.notify, escape(f"Failed to open Claude desktop: {e}"), severity="error"
+            )
+            return
+
+        if get_current_worker().is_cancelled:
+            return
+
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "unknown error").strip()
+            self.call_from_thread(
+                self.notify, escape(f"Failed to open Claude desktop: {detail}"), severity="error"
+            )
+            self.call_from_thread(
+                self._log_activity,
+                f"Failed to open Claude desktop for '{task.name}': {detail}",
+                MessageLevel.ERROR,
+                task.name,
+            )
+            return
+        self.call_from_thread(self.notify, "Opened Claude desktop on Code page")
 
     def action_open_folder(self) -> None:
         """Open current folder in a new terminal tab."""
@@ -2088,6 +2215,12 @@ class TaskTreeApp(App):
         if not self.current_task:
             self.notify("No task selected", severity="warning")
             return
+        if self._mutation_in_flight():
+            # A delete worker can be rmtree'ing these same worktrees right
+            # now; pushing into that race would run git against a tree
+            # that's disappearing under it.
+            self.notify("Another task operation is still running", severity="warning")
+            return
 
         worktree_list = self.query_one("#worktree-list", WorktreeList)
         worktree_list.loading = True
@@ -2107,6 +2240,9 @@ class TaskTreeApp(App):
         """Pull all worktrees in the current task."""
         if not self.current_task:
             self.notify("No task selected", severity="warning")
+            return
+        if self._mutation_in_flight():
+            self.notify("Another task operation is still running", severity="warning")
             return
 
         worktree_list = self.query_one("#worktree-list", WorktreeList)

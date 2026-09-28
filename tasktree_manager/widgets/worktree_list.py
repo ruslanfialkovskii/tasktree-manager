@@ -270,10 +270,17 @@ class WorktreeList(OptionList):
 
     def toggle_grouping(self) -> None:
         """Toggle grouping mode and reload worktrees."""
+        # Capture the current selection under the OLD grouping mode, before
+        # flipping the flag changes how get_selected_worktree() interprets
+        # self.highlighted (flat index vs. _option_to_worktree lookup).
+        current = self.get_selected_worktree()
         self._grouping_enabled = not self._grouping_enabled
 
-        # Reload with current worktrees
+        # Reload with current worktrees, preserving the highlighted worktree
         if self.worktrees:
-            self.load_worktrees(list(self.worktrees))
+            self.load_worktrees(
+                list(self.worktrees),
+                preserve_selection=current.name if current else None,
+            )
 
         self.post_message(self.GroupingChanged(self._grouping_enabled))
