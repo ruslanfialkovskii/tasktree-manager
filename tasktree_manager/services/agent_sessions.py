@@ -65,6 +65,7 @@ def run_claude_agents(claude_path: str, timeout: float = 5.0) -> str | None:
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=timeout,
         )
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):

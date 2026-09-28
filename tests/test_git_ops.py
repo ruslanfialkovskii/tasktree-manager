@@ -1,5 +1,7 @@
 """Tests for the git operations service."""
 
+import os
+import stat
 import subprocess
 from pathlib import Path
 
@@ -328,6 +330,26 @@ class TestBranchOperations:
 
         assert GitOps.check_merged(worktree, base_branch) is False
 
+    def test_get_default_branch_non_utf8_output_does_not_raise(
+        self, sample_repo, tmp_path, monkeypatch
+    ):
+        """get_default_branch must degrade to the "main"/"master" fallback
+        on non-UTF-8 output from `git symbolic-ref`, never raise
+        UnicodeDecodeError."""
+        repo_path, branch = sample_repo
+
+        shim_dir = tmp_path / "bin"
+        shim_dir.mkdir()
+        fake_git = shim_dir / "git"
+        fake_git.write_text("#!/bin/sh\nprintf '\\377\\376refs/remotes/origin/main\\n'\n")
+        fake_git.chmod(fake_git.stat().st_mode | stat.S_IXUSR)
+        monkeypatch.setenv("PATH", f"{shim_dir}:{os.environ['PATH']}")
+
+        worktree = Worktree(name="sample", path=repo_path)
+        result = GitOps.get_default_branch(worktree)
+        assert isinstance(result, str)
+        assert "�" in result
+
     def test_get_default_branch_slashed(self, tmp_path):
         """Slashed default branches (release/1.0) survive origin/HEAD parsing."""
         remote = tmp_path / "slashed-remote.git"
@@ -646,6 +668,48 @@ class TestStatusRealCodes:
         status = GitOps.get_status(worktree)
 
         assert weird_name in status.untracked
+
+    def test_partially_staged_file_appears_in_both_lists(self, sample_repo):
+        """A file staged then modified again (git status code "MM") has real
+        changes in both the index and the worktree, and must show up in
+        both `staged` and `modified` — not only the first that matched in
+        what used to be an elif chain."""
+        repo_path, branch = sample_repo
+
+        tracked = repo_path / "README.md"
+        tracked.write_text("staged change\n")
+        subprocess.run(["git", "add", "README.md"], cwd=repo_path, capture_output=True)
+        # Further, unstaged modification on top of the staged one
+        tracked.write_text("staged change\nplus unstaged change\n")
+
+        worktree = Worktree(name="sample", path=repo_path)
+        status = GitOps.get_status(worktree)
+
+        assert "README.md" in status.staged
+        assert "README.md" in status.modified
+        # The file is recorded once in entries, with its real "MM" code
+        matches = [code for code, name in status.entries if name == "README.md"]
+        assert matches == ["MM"]
+        # ...and counted once in the "N files changed" total
+        assert status.changed_files == 1
+
+    def test_newly_added_then_modified_file_appears_in_both_lists(self, sample_repo):
+        """A new file staged (git add) then edited again shows status "AM":
+        staged (the add) and modified (the unstaged edit) at once."""
+        repo_path, branch = sample_repo
+
+        new_file = repo_path / "new_file.txt"
+        new_file.write_text("v1\n")
+        subprocess.run(["git", "add", "new_file.txt"], cwd=repo_path, capture_output=True)
+        new_file.write_text("v1\nv2\n")
+
+        worktree = Worktree(name="sample", path=repo_path)
+        status = GitOps.get_status(worktree)
+
+        assert "new_file.txt" in status.staged
+        assert "new_file.txt" in status.modified
+        matches = [code for code, name in status.entries if name == "new_file.txt"]
+        assert matches == ["AM"]
 
     def test_entries_match_file_counts(self, sample_repo):
         """Recorded entries mirror the per-bucket counts exactly."""

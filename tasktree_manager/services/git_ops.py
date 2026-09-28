@@ -163,12 +163,20 @@ class GitOps:
                 # Unmerged (conflict) entries - count as modified so the
                 # worktree shows as dirty and safety checks block deletion
                 status.modified.append(filename)
-            elif status_code[0] in "MADRCT":
-                status.staged.append(filename)
-            elif status_code[1] in "MADRCT":
-                status.modified.append(filename)
             else:
-                continue
+                # X (index) and Y (worktree) columns are classified
+                # independently, not as an elif chain: a partially staged
+                # file ("MM", "AM"...) has real changes in both the index
+                # and the worktree, and must appear in both lists rather
+                # than only the first one that matches.
+                staged = status_code[0] in "MADRCT"
+                modified = status_code[1] in "MADRCT"
+                if not (staged or modified):
+                    continue
+                if staged:
+                    status.staged.append(filename)
+                if modified:
+                    status.modified.append(filename)
             status.entries.append((status_code, filename))
 
         return status
@@ -425,6 +433,7 @@ class GitOps:
                 cwd=worktree.path,
                 capture_output=True,
                 text=True,
+                errors="replace",
                 timeout=GitOps.LOCAL_TIMEOUT,
             )
             if result.returncode == 0:

@@ -7,6 +7,7 @@ the suite's first fake binary (there is no unittest.mock precedent).
 """
 
 import json
+import os
 import stat
 
 import pytest
@@ -16,6 +17,7 @@ from tasktree_manager.services.config import Config
 from tasktree_manager.services.forge import (
     Forge,
     ForgeStatus,
+    _get_remote_url,
     _parse_gh_payload,
     _parse_glab_payload,
     _parse_host,
@@ -299,6 +301,25 @@ class TestPathShimEndToEnd:
 
         Forge.glab_path = str(fake_glab)
         assert get_forge_status(repo_path, branch) is None
+
+
+class TestGetRemoteUrlNonUtf8:
+    """_get_remote_url must degrade to a replaced string, never raise, on
+    non-UTF-8 output — the documented "" / None-on-failure contract."""
+
+    def test_non_utf8_stdout_does_not_raise(self, tmp_path, monkeypatch):
+        shim_dir = tmp_path / "bin"
+        shim_dir.mkdir()
+        fake_git = shim_dir / "git"
+        # \xff\xfe is not valid UTF-8; printf writes it raw to stdout
+        fake_git.write_text("#!/bin/sh\nprintf '\\377\\376origin-url\\n'\n")
+        fake_git.chmod(fake_git.stat().st_mode | stat.S_IXUSR)
+
+        monkeypatch.setenv("PATH", f"{shim_dir}:{os.environ['PATH']}")
+
+        result = _get_remote_url(tmp_path)
+        assert isinstance(result, str)
+        assert "�" in result
 
 
 class TestBranchWithSlash:

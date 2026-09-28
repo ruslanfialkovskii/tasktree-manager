@@ -89,7 +89,9 @@ class GitStatus:
     @property
     def changed_files(self) -> int:
         """Total number of changed files."""
-        return len(self.staged) + len(self.modified) + len(self.untracked)
+        # A partially staged file (MM, AM) sits in both staged and modified;
+        # count it once
+        return len(set(self.staged) | set(self.modified) | set(self.untracked))
 
     @property
     def all_changes(self) -> list[tuple[str, str]]:

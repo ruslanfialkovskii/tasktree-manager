@@ -124,6 +124,7 @@ def _get_remote_url(worktree_path: Path) -> str:
             cwd=worktree_path,
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=Forge.LOCAL_TIMEOUT,
         )
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError):
