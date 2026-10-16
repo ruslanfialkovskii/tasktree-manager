@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.13.3] - 2026-10-16
+
+### Changed
+- Remove unused specs and refresh the README roadmap
+
+### Fixed
+- **archive**: Keep task-folder files when a task is finished
+
+
 ## [2.13.2] - 2026-09-28
 
 ### Changed
