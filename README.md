@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-228%20passed-green.svg)](./tests/)
+[![Tests](https://img.shields.io/badge/tests-pytest-green.svg)](./tests/)
 
 **tasktree-manager** is a terminal user interface (TUI) application for managing development tasks that span multiple git repositories. Create tasks, organize worktrees, and track status across your entire codebase—all from a beautiful, keyboard-driven interface inspired by [lazygit](https://github.com/jesseduffield/lazygit).
 
@@ -147,7 +147,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed development setup and guidel
 
 **Quick Start:**
 ```bash
-git clone https://github.com/yourusername/tasktree-manager.git
+git clone https://github.com/ruslanfialkovskii/tasktree-manager.git
 cd tasktree-manager
 mise install
 mise run install
@@ -197,14 +197,13 @@ For comprehensive troubleshooting, see the [Troubleshooting Guide](docs/troubles
 
 Recently shipped: agent dashboard (per-worktree Claude session badges + background dispatch),
 forge-aware merged detection (glab/gh, squash/rebase merges), MR/CI status badges,
-guided `finish` flow with diff archiving, `status` subcommand for scripts and statuslines.
+guided `finish` flow that archives the diff and the task-folder files, `status` subcommand
+for scripts and statuslines, Claude session recap in the Info panel.
 
-Upcoming:
-- **v0.3.0** - Search/filter, task templates
-- **v0.4.0** - JIRA status column, git hooks, automation
-- **v1.0.0** - Stable release
+Next: epics, a layer that groups related tasks (for example a Jira epic and its child
+tasks) in the task list.
 
-See [ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md) for details.
+See [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 ## 📄 License
 
@@ -218,11 +217,11 @@ MIT License - see [LICENSE](./LICENSE) for details.
 
 ## 💬 Support & Community
 
-- 🐛 [Bug Reports](https://github.com/yourusername/tasktree-manager/issues)
-- 💡 [Feature Requests](https://github.com/yourusername/tasktree-manager/issues)
-- 💬 [Discussions](https://github.com/yourusername/tasktree-manager/discussions)
+- 🐛 [Bug Reports](https://github.com/ruslanfialkovskii/tasktree-manager/issues)
+- 💡 [Feature Requests](https://github.com/ruslanfialkovskii/tasktree-manager/issues)
+- 💬 [Discussions](https://github.com/ruslanfialkovskii/tasktree-manager/discussions)
 - 📖 [Documentation](docs/)
 
 ---
 
-**Made with ❤️ by developers, for developers** | [⭐ Star this repo](https://github.com/yourusername/tasktree-manager)
+**Made with ❤️ by developers, for developers** | [⭐ Star this repo](https://github.com/ruslanfialkovskii/tasktree-manager)

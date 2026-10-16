@@ -18,7 +18,7 @@ Be respectful, inclusive, and constructive. We're all here to build something us
 
 1. **Fork and clone**
    ```bash
-   git clone https://github.com/yourusername/tasktree-manager.git
+   git clone https://github.com/ruslanfialkovskii/tasktree-manager.git
    cd tasktree-manager
    ```
 
@@ -149,7 +149,7 @@ def create_task(name: str, repos: list[str]) -> Task:
 - Add docstrings to all public functions/classes
 - Use Google-style docstrings
 - Update README.md for user-facing changes
-- Update OPENSPEC.md for architecture changes
+- Update the Architecture section of CLAUDE.md for architecture changes
 
 Example docstring:
 ```python
@@ -206,18 +206,15 @@ tasktree-manager/
 │   ├── themes/         # Color themes
 │   └── app.py          # Main app
 ├── tests/              # Test suite
-├── specs/              # Technical specs
 └── docs/               # Documentation
 ```
 
 ### Adding New Features
 
-1. **Check specs**: Review existing specs in `specs/`
-2. **Create spec**: Write a new spec (SPEC-XXX) if needed
-3. **Write tests**: Add tests first (TDD approach)
-4. **Implement**: Write the code
-5. **Document**: Update README/specs
-6. **PR**: Submit for review
+1. **Write tests**: Add tests first (TDD approach)
+2. **Implement**: Write the code
+3. **Document**: Update README.md and `docs/`
+4. **PR**: Submit for review
 
 ## Submitting Issues
 
@@ -260,7 +257,7 @@ Include:
 
 ## Questions?
 
-- Open a [Discussion](https://github.com/yourusername/tasktree-manager/discussions)
+- Open a [Discussion](https://github.com/ruslanfialkovskii/tasktree-manager/discussions)
 - Ask in Pull Request
 - Check existing issues
 
