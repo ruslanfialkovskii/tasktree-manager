@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from textual.worker import WorkerCancelled
 
-from tasktree_manager.services.models import TaskSafetyReport
+from tasktree_manager.services.models import ArchiveResult, TaskSafetyReport
 from tasktree_manager.services.task_manager import ArchiveIncompleteError
 from tasktree_manager.widgets.create_modal import ConfirmModal, PushResultModal, SafeDeleteModal
 from tasktree_manager.widgets.messages_panel import MessagesPanel
@@ -496,7 +496,7 @@ class TestArchivePathOnDeleteFailure:
 
         async with app.run_test() as pilot:
             await pilot.pause()
-            app.task_manager.archive_task = lambda t: archive_path
+            app.task_manager.archive_task = lambda t: ArchiveResult(patch=archive_path)
             app.task_manager.finish_task = failing_finish
 
             app._finish_task_worker(task, False)
@@ -509,3 +509,98 @@ class TestArchivePathOnDeleteFailure:
             assert any(str(archive_path) in t for t in texts)
             # Nothing removed, matching finish_task's contract
             assert task.path.exists()
+
+    async def test_finish_task_worker_logs_task_files_and_skips(
+        self, app, task_manager, sample_repo
+    ):
+        """Archived task files are logged, and files left out are warned
+        about: the delete that follows destroys them."""
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("FILES-LOG-TASK", ["sample-repo"], branch)
+        files_dir = app.config.get_archive_dir() / "FILES-LOG-TASK.files"
+        result = ArchiveResult(
+            files_dir=files_dir,
+            files=("PLAN.md",),
+            skipped=("capture.pcap (2.0 GB, over the 10.0 MB file limit)",),
+        )
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.task_manager.archive_task = lambda t: result
+
+            app._finish_task_worker(task, False)
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            messages_panel = app.query_one("#messages-display", MessagesPanel)
+            texts = [m.message for m in messages_panel._store.messages]
+            assert any(f"Archived 1 task file(s) to {files_dir}" in t for t in texts)
+            assert any("Not archived: capture.pcap" in t for t in texts)
+
+    async def test_finish_task_worker_logs_left_out_files_on_incomplete_archive(
+        self, app, task_manager, sample_repo
+    ):
+        """The TUI deletes after a failed archive, so the files left out must
+        be named from the exception's result."""
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("INCOMPLETE-LOG", ["sample-repo"], branch)
+        result = ArchiveResult(skipped=("capture.pcap (2.0 GB, over the 10.0 MB file limit)",))
+
+        def failing_archive(t):
+            raise ArchiveIncompleteError(None, [("repo-x", "diff failed")], result=result)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.task_manager.archive_task = failing_archive
+
+            app._finish_task_worker(task, False)
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            messages_panel = app.query_one("#messages-display", MessagesPanel)
+            texts = [m.message for m in messages_panel._store.messages]
+            assert any("Not archived: capture.pcap" in t for t in texts)
+            assert not task.path.exists()
+
+    async def test_log_archive_caps_notes_and_ends_with_location(self, app):
+        """Hundreds of notes must not push the archive location out of the
+        bounded messages panel."""
+        patch = app.config.get_archive_dir() / "MANY.patch"
+        result = ArchiveResult(patch=patch, skipped=tuple(f"f{i}.bin (x)" for i in range(30)))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._log_archive("MANY", result)
+            await pilot.pause()
+
+            messages_panel = app.query_one("#messages-display", MessagesPanel)
+            texts = [m.message for m in messages_panel._store.messages]
+            assert sum("Not archived:" in t for t in texts) == 20
+            assert any("... and 10 more not archived" in t for t in texts)
+            assert f"Archived diff to {patch}" in texts[-1]
+
+    async def test_remove_worktree_worker_archives_diff_only(self, app, task_manager, sample_repo):
+        """Deleting one worktree keeps the task folder: archive_task is asked
+        for the diff only, and the patch path is logged."""
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("WT-ARCHIVE-TASK", ["sample-repo"], branch)
+        worktree = task.worktrees[0]
+        patch = app.config.get_archive_dir() / "WT-ARCHIVE-TASK.patch"
+        calls = []
+
+        def fake_archive(t, include_files=True):
+            calls.append((t.worktrees, include_files))
+            return ArchiveResult(patch=patch)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.task_manager.archive_task = fake_archive
+
+            app._remove_worktree_worker(task, worktree, False)
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            assert calls == [([worktree], False)]
+            messages_panel = app.query_one("#messages-display", MessagesPanel)
+            texts = [m.message for m in messages_panel._store.messages]
+            assert any(f"Archived diff to {patch}" in t for t in texts)

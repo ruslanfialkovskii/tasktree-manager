@@ -11,8 +11,9 @@ from pathlib import Path
 
 from . import forge
 from .claude_hooks import ensure_worktree_claude_settings, exclude_from_git
-from .config import Config
-from .models import RepoIssue, Task, TaskSafetyReport, Worktree
+from .config import KEY_MATERIAL_PATTERNS, Config
+from .git_ops import sanitize_text
+from .models import ArchiveResult, RepoIssue, Task, TaskSafetyReport, Worktree
 
 # Task name validation pattern. No '/': a task is exactly one directory
 # level under TASKS_DIR (list_tasks() only reads that level), and a slashed
@@ -76,21 +77,97 @@ def normalize_base_branch(branch: str) -> str:
     return branch
 
 
+# Task-folder files (plans, ADRs, notes) are copied into the archive; the
+# caps keep a capture or dataset dropped into the task folder out of it
+ARCHIVE_FILE_MAX_BYTES = 10 * 1024 * 1024
+ARCHIVE_TOTAL_MAX_BYTES = 100 * 1024 * 1024
+
+# Front ends show this many left-out notes, then a count: a bulky task
+# folder must not bury the archive location under hundreds of warnings
+ARCHIVE_NOTES_SHOWN = 20
+
+# Secrets are deleted with the task instead of outliving it in the archive
+ARCHIVE_SECRET_PATTERNS = [
+    *KEY_MATERIAL_PATTERNS,
+    "kubeconfig",
+    "*.kubeconfig",
+    "*.tfstate",
+    "*.tfstate.backup",
+    "credentials*.json",
+]
+
+# A worktree entry of the generated CLAUDE.md and its optional branch line
+_STUB_ENTRY = re.compile(r"- \*\*(?P<name>[^*]+)\*\*: `(?P<path>[^`]+)`")
+_STUB_BRANCH = re.compile(r"  - Branch: `[^`]+`")
+
+
+def _without_worktree_entries(text: str, task_path: Path) -> list[str]:
+    """CLAUDE.md lines minus the generated entries of its Worktrees section.
+
+    Only entries naming a path inside the task count as generated, so a
+    note in that shape elsewhere (or pointing elsewhere) is still an edit.
+    """
+    lines: list[str] = []
+    in_worktrees = False
+    for line in text.strip().splitlines():
+        if line.startswith("## "):
+            in_worktrees = line == "## Worktrees"
+        elif in_worktrees:
+            entry = _STUB_ENTRY.fullmatch(line)
+            if entry and entry["path"] == str(task_path / entry["name"]):
+                continue
+            if _STUB_BRANCH.fullmatch(line):
+                continue
+        lines.append(line)
+    return lines
+
+
+def _safe_name(name: str) -> str:
+    """A file name fit for notes: no control characters, surrogates escaped."""
+    return sanitize_text(name.encode("utf-8", "backslashreplace").decode("utf-8"))
+
+
+def _format_size(size: float) -> str:
+    """Render a byte count as 512 B, 3.4 KB, 12.0 MB or 2.1 GB."""
+    if size < 1024:
+        return f"{size:.0f} B"
+    for unit in ("KB", "MB"):
+        size /= 1024
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+    return f"{size / 1024:.1f} GB"
+
+
 class ArchiveIncompleteError(Exception):
     """Raised when archive_task could not diff every worktree in a task.
 
     Worktrees that were diffed successfully are still written to a partial
     archive (`.path`, or None if nothing was archived at all) rather than
     discarded because one repo's diff failed; `.failures` lists the repos
-    that could not be archived, paired with why.
+    that could not be archived, paired with why. Task-folder files are
+    copied regardless (`.files_dir`); `.result` holds the full outcome,
+    files left out included, so callers can still report it.
     """
 
-    def __init__(self, path: Path | None, failures: list[tuple[str, str]]):
+    def __init__(
+        self,
+        path: Path | None,
+        failures: list[tuple[str, str]],
+        files_dir: Path | None = None,
+        result: ArchiveResult | None = None,
+    ):
         self.path = path
         self.failures = failures
+        self.files_dir = files_dir
+        self.result = result
         repos = ", ".join(f"{repo} ({message})" for repo, message in failures)
-        where = f"; partial archive at {path}" if path is not None else "; nothing archived"
-        super().__init__(f"archive incomplete for: {repos}{where}")
+        locations = []
+        if path is not None:
+            locations.append(f"partial archive at {path}")
+        if files_dir is not None:
+            locations.append(f"task files at {files_dir}")
+        where = "; ".join(locations) or "nothing archived"
+        super().__init__(f"archive incomplete for: {repos}; {where}")
 
 
 class TaskManager:
@@ -540,23 +617,34 @@ class TaskManager:
         elif marker.exists():
             marker.unlink()
 
-    def archive_task(self, task: Task, notes: list[str] | None = None) -> Path | None:
-        """Write the task's combined diff to the archive directory.
+    def archive_task(
+        self, task: Task, notes: list[str] | None = None, include_files: bool = True
+    ) -> ArchiveResult | None:
+        """Archive what deleting the task would destroy.
 
-        Captures committed-but-unmerged work (base...HEAD) plus uncommitted
-        changes per worktree, labelled with repo names, preceded by a
-        '#'-prefixed metadata header (git apply skips leading non-diff lines).
-        Must run before finish_task, which rmtrees the task directory; the
-        archive lives outside it (config.get_archive_dir()).
+        Writes <task>-<timestamp>.patch: committed-but-unmerged work
+        (base...HEAD) plus uncommitted changes per worktree, labelled with
+        repo names, preceded by a '#'-prefixed metadata header (git apply
+        skips leading non-diff lines). Copies the task-folder files that live
+        outside every worktree (plans, ADRs, notes) to the sibling
+        <task>-<timestamp>.files/ directory, unless include_files is False
+        (removing a single worktree keeps the task folder). Must run before
+        finish_task, which rmtrees the task directory; the archive lives
+        outside it (config.get_archive_dir()).
 
         A worktree whose diff fails (GitCommandError, or no base branch
-        resolves) does not discard diffs already gathered for the other
-        worktrees: the failure is recorded in the header and in the raised
-        ArchiveIncompleteError, and a partial archive is still written.
+        resolves) does not discard what was already gathered: the failure is
+        recorded in the header and in the raised ArchiveIncompleteError, and
+        a partial archive (task files included) is still written.
 
-        Returns the archive path, or None when there is nothing to archive
-        and every worktree succeeded. Raises ArchiveIncompleteError if one
-        or more worktrees could not be diffed.
+        The diff is written before any file is copied, and the file step never
+        raises: a full disk or an unreadable entry must not cost the diff.
+
+        Returns None when there is nothing to archive and every worktree
+        succeeded. Files left out by policy (caps, key material) are listed
+        in the result's ``skipped`` and files that could not be read or
+        copied in ``failed``, even when nothing else was archived. Raises
+        ArchiveIncompleteError if one or more worktrees could not be diffed.
         """
         from .git_ops import GitCommandError, GitOps
 
@@ -598,16 +686,160 @@ class TaskManager:
             header.append(f"# {note}")
 
         content = "".join(s for s in sections if s)
-        archive_path: Path | None = None
-        if content:
+        files: list[tuple[Path, str]] = []
+        skipped: list[str] = []
+        failed: list[str] = []
+        if include_files:
+            try:
+                files, skipped, failed = self._collect_task_files(task)
+            except Exception as e:
+                failed.append(f"task files (not collected: {_safe_name(str(e))})")
+        patch_path: Path | None = None
+        files_dir: Path | None = None
+        archived: list[str] = []
+        if content or files:
             archive_dir = self.config.get_archive_dir()
             archive_dir.mkdir(parents=True, exist_ok=True)
-            archive_path = self._write_archive_file(archive_dir, task.name, header, content)
+            patch_path, files_dir = self._claim_archive_paths(
+                archive_dir, task.name, with_patch=bool(content), with_files=bool(files)
+            )
+            if patch_path is not None:
+                if files_dir is not None:
+                    header.append(f"# task files: {files_dir.name} ({len(files)} to copy)")
+                header.extend(f"# not archived: {item}" for item in skipped + failed)
+                # Explicit encoding: under LANG=C the locale default is ASCII
+                # and a single non-ASCII diff byte would abort the archive
+                patch_path.write_text(
+                    "\n".join(header) + "\n\n" + content,
+                    encoding="utf-8",
+                    errors="backslashreplace",
+                )
+            if files_dir is not None:
+                archived, copy_failures = self._copy_task_files(files, files_dir)
+                failed.extend(copy_failures)
+                if not archived:
+                    shutil.rmtree(files_dir, ignore_errors=True)
+                    files_dir = None
 
+        result = ArchiveResult(
+            patch=patch_path,
+            files_dir=files_dir,
+            files=tuple(archived),
+            skipped=tuple(skipped),
+            failed=tuple(failed),
+        )
         if failures:
-            raise ArchiveIncompleteError(archive_path, failures)
+            raise ArchiveIncompleteError(patch_path, failures, files_dir, result)
+        if not (result.saved or skipped or failed):
+            return None
+        return result
 
-        return archive_path
+    def _collect_task_files(
+        self, task: Task
+    ) -> tuple[list[tuple[Path, str]], list[str], list[str]]:
+        """Find task-folder files outside every worktree, for the archive.
+
+        Returns (path, name relative to the task folder) pairs to copy, plus
+        "name (reason)" notes for files left out by policy (caps, key
+        material) and for files that could not be read. Hidden entries
+        (tasktree and Claude state), symlinks, IGNORED_PATHS and an unedited
+        generated CLAUDE.md are skipped silently.
+        """
+        files: list[tuple[Path, str]] = []
+        skipped: list[str] = []
+        failed: list[str] = []
+        total = 0
+        over_budget = over_budget_bytes = 0
+        if not os.path.isdir(task.path):
+            return files, skipped, failed
+
+        def note_walk_error(error: OSError) -> None:
+            name = Path(error.filename or task.path).relative_to(task.path).as_posix()
+            failed.append(f"{_safe_name(name)} (unreadable: {error.strerror or error})")
+
+        for dirpath, dirnames, filenames in os.walk(task.path, onerror=note_walk_error):
+            current = Path(dirpath)
+            # Same worktree rule as _get_worktrees, checked before pruning:
+            # a worktree's content is archived as its diff, not copied
+            if current != task.path and (".git" in dirnames or ".git" in filenames):
+                dirnames[:] = []
+                continue
+            dirnames[:] = sorted(
+                d for d in dirnames if not d.startswith(".") and d not in self.IGNORED_PATHS
+            )
+            for filename in sorted(filenames):
+                path = current / filename
+                # os.path.islink, unlike Path.is_symlink, never raises
+                if filename.startswith(".") or os.path.islink(path):
+                    continue
+                name = path.relative_to(task.path).as_posix()
+                if name == "CLAUDE.md" and self._is_generated_claude_md(task, path):
+                    continue
+                if self._matches_blocklist(filename, ARCHIVE_SECRET_PATTERNS):
+                    skipped.append(f"{_safe_name(name)} (key material, not archived)")
+                    continue
+                try:
+                    size = path.stat().st_size
+                except OSError as e:
+                    failed.append(f"{_safe_name(name)} (unreadable: {e.strerror or e})")
+                    continue
+                if size > ARCHIVE_FILE_MAX_BYTES:
+                    limit = _format_size(ARCHIVE_FILE_MAX_BYTES)
+                    skipped.append(
+                        f"{_safe_name(name)} ({_format_size(size)}, over the {limit} file limit)"
+                    )
+                    continue
+                if total + size > ARCHIVE_TOTAL_MAX_BYTES:
+                    # One summary note, not one per file: a bulky folder
+                    # would otherwise flood the CLI and the messages panel
+                    over_budget += 1
+                    over_budget_bytes += size
+                    continue
+                total += size
+                files.append((path, name))
+        if over_budget:
+            limit = _format_size(ARCHIVE_TOTAL_MAX_BYTES)
+            skipped.append(
+                f"{over_budget} file(s) ({_format_size(over_budget_bytes)}, "
+                f"archive {limit} limit reached)"
+            )
+        return files, skipped, failed
+
+    @staticmethod
+    def _copy_task_files(
+        files: list[tuple[Path, str]], files_dir: Path
+    ) -> tuple[list[str], list[str]]:
+        """Copy task files into files_dir; a failed copy is noted, not raised.
+
+        Half an archive beats none: the task folder is deleted right after.
+        """
+        archived: list[str] = []
+        failed: list[str] = []
+        for path, name in files:
+            target = files_dir / name
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, target, follow_symlinks=False)
+            except OSError as e:
+                failed.append(f"{_safe_name(name)} (copy failed: {e.strerror or e})")
+                continue
+            archived.append(name)
+        return archived, failed
+
+    def _is_generated_claude_md(self, task: Task, path: Path) -> bool:
+        """True when the task CLAUDE.md is still tasktree's unedited stub.
+
+        Generated worktree entries are ignored: the stub is written once, so
+        its list falls behind as soon as a repo is added or removed.
+        """
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return False
+        stub = self._render_task_claude_md(task.name, [])
+        return _without_worktree_entries(text, task.path) == _without_worktree_entries(
+            stub, task.path
+        )
 
     def _resolve_archive_base(self, worktree: Worktree, recorded_base: str | None) -> str:
         """Pick a base branch for the archive diff that actually resolves.
@@ -650,36 +882,41 @@ class TaskManager:
         tried = ", ".join(candidates)
         raise ValueError(f"no base branch resolves for {worktree.name} (tried: {tried})")
 
-    def _write_archive_file(
-        self, archive_dir: Path, task_name: str, header: list[str], content: str
-    ) -> Path:
-        """Write header+content under a unique filename in archive_dir.
+    @staticmethod
+    def _claim_archive_paths(
+        archive_dir: Path, task_name: str, with_patch: bool, with_files: bool
+    ) -> tuple[Path | None, Path | None]:
+        """Reserve <task>-<timestamp>[-N].patch and/or .files/ under one stem.
 
-        Two deletes of same-named single-worktree tasks within the same
-        second would otherwise collide on <task>-<timestamp>.patch and
-        overwrite each other; mode "x" refuses to open an existing file
-        (avoiding a check-then-write race) and a numeric suffix is added
-        until one opens.
+        Two finishes of same-named tasks within one second would otherwise
+        collide and overwrite each other. Exclusive creates (mkdir, open "x")
+        avoid a check-then-write race, and a stem whose sibling already
+        exists is skipped, so a patch and its files directory always pair up.
         """
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         safe_name = task_name.replace("/", "-")
-        # Explicit encoding: under LANG=C the locale default is ASCII and a
-        # single non-ASCII diff byte would abort the archive
-        body = "\n".join(header) + "\n\n" + content
         suffix = 0
         while True:
-            name = (
-                f"{safe_name}-{timestamp}.patch"
-                if suffix == 0
-                else f"{safe_name}-{timestamp}-{suffix}.patch"
-            )
-            candidate = archive_dir / name
+            stem = f"{safe_name}-{timestamp}" + (f"-{suffix}" if suffix else "")
+            suffix += 1
+            patch_path = archive_dir / f"{stem}.patch"
+            files_dir = archive_dir / f"{stem}.files"
+            if (not with_patch and patch_path.exists()) or (not with_files and files_dir.exists()):
+                continue
             try:
-                with open(candidate, "x", encoding="utf-8") as f:
-                    f.write(body)
-                return candidate
+                if with_files:
+                    # Owner-only: task files can hold notes worth keeping private
+                    files_dir.mkdir(mode=0o700)
+                if with_patch:
+                    try:
+                        open(patch_path, "x").close()
+                    except FileExistsError:
+                        if with_files:
+                            files_dir.rmdir()
+                        raise
             except FileExistsError:
-                suffix += 1
+                continue
+            return (patch_path if with_patch else None), (files_dir if with_files else None)
 
     def _remove_worktree(
         self, worktree: Worktree, branch_name: str, delete_branch: bool = True
@@ -994,18 +1231,23 @@ class TaskManager:
         Args:
             task: The task to create CLAUDE.md for
         """
-        content = f"""# Task: {task.name}
+        (task.path / "CLAUDE.md").write_text(self._render_task_claude_md(task.name, task.worktrees))
+
+    @staticmethod
+    def _render_task_claude_md(name: str, worktrees: list[Worktree]) -> str:
+        """The generated task CLAUDE.md (archive_task compares against it)."""
+        content = f"""# Task: {name}
 
 ## Worktrees
 
 """
-        for wt in task.worktrees:
+        for wt in worktrees:
             content += f"- **{wt.name}**: `{wt.path}`\n"
             if wt.branch:
                 content += f"  - Branch: `{wt.branch}`\n"
 
         content += "\n## Notes\n\nAdd task-specific context here.\n"
-        (task.path / "CLAUDE.md").write_text(content)
+        return content
 
     def _copy_repo_claude_md(self, worktree: Worktree) -> None:
         """Copy the source repo's CLAUDE.md into a worktree that lacks one.

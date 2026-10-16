@@ -1,5 +1,7 @@
 """Tests for the task manager service."""
 
+import os
+import stat
 import subprocess
 
 import pytest
@@ -454,9 +456,9 @@ class TestTaskBaseRecording:
         assert GitOps.get_task_base(wt, "BASE-TASK") == base
 
         (wt.path / "x.txt").write_text("x\n")
-        archive_path = task_manager.archive_task(task)
-        assert archive_path is not None
-        assert f"base: {base}" in archive_path.read_text()
+        archive = task_manager.archive_task(task)
+        assert archive is not None and archive.patch is not None
+        assert f"base: {base}" in archive.patch.read_text()
 
     def test_get_task_base_missing(self, worktree_from_repo):
         from tasktree_manager.services.git_ops import GitOps
@@ -586,11 +588,15 @@ class TestArchiveTask:
         )
         (wt.path / "uncommitted.txt").write_text("uncommitted change\n")
 
-        archive_path = task_manager.archive_task(task, notes=["mr: !42 merged"])
+        archive = task_manager.archive_task(task, notes=["mr: !42 merged"])
+        assert archive is not None
+        archive_path = archive.patch
         assert archive_path is not None
         assert archive_path.parent == config.get_archive_dir()
         assert archive_path.name.startswith("ARCH-TASK-")
         assert archive_path.suffix == ".patch"
+        # Nothing in the task folder outside the worktree
+        assert archive.files_dir is None
 
         content = archive_path.read_text()
         assert "# tasktree-manager archive: ARCH-TASK" in content
@@ -632,9 +638,9 @@ class TestArchiveTask:
             capture_output=True,
         )
 
-        archive_path = task_manager.archive_task(task)
-        assert archive_path is not None
-        assert "committed.txt" in archive_path.read_text()
+        archive = task_manager.archive_task(task)
+        assert archive is not None and archive.patch is not None
+        assert "committed.txt" in archive.patch.read_text()
 
     def test_list_tasks_ignores_archive_dir(self, config, task_manager, repo_with_origin):
         base = repo_with_origin
@@ -1432,10 +1438,10 @@ class TestArchiveBaseFallback:
         )
 
         expected_fallback = GitOps.get_default_branch(wt)
-        archive_path = task_manager.archive_task(task)
+        archive = task_manager.archive_task(task)
 
-        assert archive_path is not None
-        content = archive_path.read_text()
+        assert archive is not None and archive.patch is not None
+        content = archive.patch.read_text()
         assert f"base: {expected_fallback}" in content
         assert "work.txt" in content
 
@@ -1531,11 +1537,15 @@ class TestArchiveIncomplete:
 
 
 class TestArchiveFilenameUniqueness:
-    """Two archive writes for the same task in the same second must not
-    collide and overwrite each other (regression: write_text over a fixed
-    <task>-<timestamp>.patch path silently clobbered the earlier archive)."""
+    """Two archives for the same task in the same second must not collide
+    and overwrite each other (regression: write_text over a fixed
+    <task>-<timestamp>.patch path silently clobbered the earlier archive),
+    and a patch and its .files directory must share one stem."""
 
-    def test_write_archive_file_avoids_collision(self, task_manager, config, monkeypatch):
+    STEM = "DUP-TASK-20260101-120000"
+
+    @pytest.fixture
+    def archive_dir(self, config, monkeypatch):
         import datetime as datetime_module
 
         from tasktree_manager.services import task_manager as tm_module
@@ -1548,22 +1558,374 @@ class TestArchiveFilenameUniqueness:
                 return fixed
 
         monkeypatch.setattr(tm_module, "datetime", FixedDateTime)
-
         archive_dir = config.get_archive_dir()
         archive_dir.mkdir(parents=True, exist_ok=True)
+        return archive_dir
 
-        first = task_manager._write_archive_file(
-            archive_dir, "DUP-TASK", ["# header"], "diff-one\n"
-        )
-        second = task_manager._write_archive_file(
-            archive_dir, "DUP-TASK", ["# header"], "diff-two\n"
+    def test_patch_claims_avoid_collision(self, task_manager, archive_dir):
+        first, _ = task_manager._claim_archive_paths(archive_dir, "DUP-TASK", True, False)
+        second, _ = task_manager._claim_archive_paths(archive_dir, "DUP-TASK", True, False)
+
+        assert first.name == f"{self.STEM}.patch"
+        assert second.name == f"{self.STEM}-1.patch"
+        assert first.exists() and second.exists()
+
+    def test_pair_shares_one_stem(self, task_manager, archive_dir):
+        patch, files_dir = task_manager._claim_archive_paths(archive_dir, "DUP-TASK", True, True)
+
+        assert patch.name == f"{self.STEM}.patch"
+        assert files_dir.name == f"{self.STEM}.files"
+        assert files_dir.is_dir()
+
+    def test_files_only_claim_skips_stem_of_existing_patch(self, task_manager, archive_dir):
+        (archive_dir / f"{self.STEM}.patch").write_text("earlier archive\n")
+
+        patch, files_dir = task_manager._claim_archive_paths(archive_dir, "DUP-TASK", False, True)
+
+        assert patch is None
+        assert files_dir.name == f"{self.STEM}-1.files"
+
+    def test_pair_claim_releases_files_dir_when_patch_taken(self, task_manager, archive_dir):
+        (archive_dir / f"{self.STEM}.patch").write_text("earlier archive\n")
+
+        patch, files_dir = task_manager._claim_archive_paths(archive_dir, "DUP-TASK", True, True)
+
+        assert patch.name == f"{self.STEM}-1.patch"
+        assert files_dir.name == f"{self.STEM}-1.files"
+        # The half-claimed pair of the taken stem is not left behind
+        assert not (archive_dir / f"{self.STEM}.files").exists()
+        assert (archive_dir / f"{self.STEM}.patch").read_text() == "earlier archive\n"
+
+
+class TestArchiveTaskFiles:
+    """Task-folder files outside the worktrees (plans, ADRs, notes) are copied
+    into the archive: finish_task rmtrees the task folder (regression: a
+    finished task's PLAN.md was lost because only git diffs were archived)."""
+
+    def test_copies_files_outside_worktrees(self, task_manager, repo_with_origin):
+        task = task_manager.create_task("FILES-TASK", ["repo-remote"], repo_with_origin)
+        task_manager.ensure_claude_md_files(task)
+        (task.path / "PLAN.md").write_text("# plan\n")
+        (task.path / "ADR.md").write_text("# adr\n")
+        (task.path / "notes").mkdir()
+        (task.path / "notes" / "today.md").write_text("notes\n")
+        (task.path / ".claude_status").write_text("{}")
+        (task.path / ".tasktree_name").write_text("alias\n")
+        (task.worktrees[0].path / "wip.txt").write_text("wip\n")
+
+        archive = task_manager.archive_task(task)
+
+        assert archive is not None
+        assert archive.files == ("ADR.md", "PLAN.md", "notes/today.md")
+        assert archive.skipped == ()
+        assert archive.files_dir.name == archive.patch.name.replace(".patch", ".files")
+        assert (archive.files_dir / "PLAN.md").read_text() == "# plan\n"
+        assert (archive.files_dir / "notes" / "today.md").read_text() == "notes\n"
+        # Hidden state, the unedited CLAUDE.md stub and worktree content stay out
+        assert not (archive.files_dir / ".claude_status").exists()
+        assert not (archive.files_dir / "CLAUDE.md").exists()
+        assert not (archive.files_dir / "repo-remote").exists()
+        # Owner-only, whatever the umask
+        assert stat.S_IMODE(archive.files_dir.stat().st_mode) == 0o700
+        patch = archive.patch.read_text()
+        assert f"# task files: {archive.files_dir.name} (3 to copy)" in patch
+        assert "wip.txt" in patch
+
+    def test_edited_claude_md_is_kept(self, task_manager, repo_with_origin):
+        task = task_manager.create_task("EDITED-MD", ["repo-remote"], repo_with_origin)
+        task_manager.ensure_claude_md_files(task)
+        claude_md = task.path / "CLAUDE.md"
+        claude_md.write_text(claude_md.read_text() + "\nDeploy only after the freeze.\n")
+
+        archive = task_manager.archive_task(task)
+
+        assert archive is not None and archive.files == ("CLAUDE.md",)
+
+    def test_stub_still_skipped_once_worktrees_carry_branches(self, task_manager, repo_with_origin):
+        """The TUI fills in branches from git status before a task finishes;
+        the stub was written without them and must still count as unedited."""
+        task = task_manager.create_task("STUB-BRANCH", ["repo-remote"], repo_with_origin)
+        task_manager.ensure_claude_md_files(task)
+        task.worktrees[0].branch = "STUB-BRANCH"
+
+        assert task_manager.archive_task(task) is None
+
+    def test_stub_still_skipped_after_repo_added(self, task_manager, repo_with_origin, sample_repo):
+        """The stub is written once, so its worktree list falls behind when a
+        repo is added later; that alone must not count as an edit."""
+        _, branch = sample_repo
+        task = task_manager.create_task("STUB-DRIFT", ["repo-remote"], repo_with_origin)
+        task_manager.ensure_claude_md_files(task)
+        task_manager.add_repo_to_task(task, "sample-repo", branch)
+        task = task_manager.get_task("STUB-DRIFT")
+        assert len(task.worktrees) == 2
+
+        assert task_manager.archive_task(task) is None
+
+    def test_bullet_note_in_entry_shape_counts_as_edit(self, task_manager, config):
+        """A note shaped like a generated entry, outside the Worktrees list,
+        is user content (regression: such lines were stripped anywhere)."""
+        task = task_manager.create_task("STUB-NOTE", [], "main")
+        task_manager.ensure_claude_md_files(task)
+        claude_md = task.path / "CLAUDE.md"
+        claude_md.write_text(claude_md.read_text() + "- **Rollback**: `git revert abc`\n")
+
+        archive = task_manager.archive_task(task)
+
+        assert archive is not None and archive.files == ("CLAUDE.md",)
+
+    def test_worktree_entry_outside_task_counts_as_edit(self, task_manager, config):
+        """Only entries naming a path inside the task are generated."""
+        task = task_manager.create_task("STUB-ENTRY", [], "main")
+        task_manager.ensure_claude_md_files(task)
+        claude_md = task.path / "CLAUDE.md"
+        claude_md.write_text(
+            claude_md.read_text().replace(
+                "## Worktrees\n\n", "## Worktrees\n\n- **scratch**: `/tmp/clone`\n"
+            )
         )
 
-        assert first != second
-        assert first.name == "DUP-TASK-20260101-120000.patch"
-        assert second.name == "DUP-TASK-20260101-120000-1.patch"
-        assert first.read_text().endswith("diff-one\n")
-        assert second.read_text().endswith("diff-two\n")
+        archive = task_manager.archive_task(task)
+
+        assert archive is not None and archive.files == ("CLAUDE.md",)
+
+    def test_task_without_worktrees_archives_files_only(self, task_manager, config):
+        task = task_manager.create_task("NO-REPOS", [], "main")
+        (task.path / "PLAN.md").write_text("# plan\n")
+
+        archive = task_manager.archive_task(task)
+
+        assert archive is not None
+        assert archive.patch is None
+        assert archive.files == ("PLAN.md",)
+        assert archive.files_dir.parent == config.get_archive_dir()
+        assert not list(config.get_archive_dir().glob("*.patch"))
+
+    def test_single_worktree_archive_leaves_task_files(
+        self, task_manager, repo_with_origin, config
+    ):
+        """Removing one worktree (TUI `D`) keeps the task folder, so its
+        archive holds the diff only."""
+        task = task_manager.create_task("ONE-WT", ["repo-remote"], repo_with_origin)
+        (task.path / "PLAN.md").write_text("# plan\n")
+        worktree = task.worktrees[0]
+        (worktree.path / "wip.txt").write_text("wip\n")
+        view = Task(name=task.name, path=task.path, worktrees=[worktree])
+
+        archive = task_manager.archive_task(view, include_files=False)
+
+        assert archive is not None and archive.patch is not None
+        assert archive.files_dir is None
+        assert not list(config.get_archive_dir().glob("*.files"))
+
+    def test_files_beside_nested_worktree_are_kept(self, task_manager, config):
+        task_path = config.tasks_dir / "NESTED"
+        worktree = task_path / "mdp" / "docs"
+        worktree.mkdir(parents=True)
+        (worktree / ".git").write_text("gitdir: elsewhere\n")
+        (worktree / "inside.md").write_text("worktree content\n")
+        (task_path / "mdp" / "notes.md").write_text("container notes\n")
+
+        archive = task_manager.archive_task(Task(name="NESTED", path=task_path))
+
+        assert archive is not None and archive.files == ("mdp/notes.md",)
+
+    def test_symlinks_hidden_and_ignored_dirs_skipped(self, task_manager, config):
+        task = task_manager.create_task("SKIPS", [], "main")
+        (task.path / "PLAN.md").write_text("# plan\n")
+        (task.path / "link.md").symlink_to(task.path / "PLAN.md")
+        (task.path / "node_modules" / "pkg").mkdir(parents=True)
+        (task.path / "node_modules" / "pkg" / "index.js").write_text("x\n")
+        (task.path / ".venv").mkdir()
+        (task.path / ".venv" / "cfg").write_text("x\n")
+
+        archive = task_manager.archive_task(task)
+
+        assert archive is not None and archive.files == ("PLAN.md",)
+
+    def test_size_limits_reported(self, task_manager, monkeypatch):
+        from tasktree_manager.services import task_manager as tm_module
+
+        monkeypatch.setattr(tm_module, "ARCHIVE_FILE_MAX_BYTES", 10)
+        monkeypatch.setattr(tm_module, "ARCHIVE_TOTAL_MAX_BYTES", 8)
+        task = task_manager.create_task("LIMITS", [], "main")
+        (task.path / "a.txt").write_text("12345")
+        (task.path / "b.txt").write_text("12345")
+        (task.path / "capture.pcap").write_bytes(b"x" * 20)
+
+        archive = task_manager.archive_task(task)
+
+        assert archive is not None and archive.files == ("a.txt",)
+        assert archive.skipped == (
+            "capture.pcap (20 B, over the 10 B file limit)",
+            "1 file(s) (5 B, archive 8 B limit reached)",
+        )
+
+    def test_over_budget_files_get_one_summary_note(self, task_manager, monkeypatch):
+        """Past the total cap, files are summarized instead of noted one by
+        one, which would flood the CLI and bury the archive location."""
+        from tasktree_manager.services import task_manager as tm_module
+
+        monkeypatch.setattr(tm_module, "ARCHIVE_TOTAL_MAX_BYTES", 4)
+        task = task_manager.create_task("BUDGET", [], "main")
+        for i in range(30):
+            (task.path / f"note-{i:02}.txt").write_text("1234")
+
+        archive = task_manager.archive_task(task)
+
+        assert archive is not None and archive.files == ("note-00.txt",)
+        assert archive.skipped == ("29 file(s) (116 B, archive 4 B limit reached)",)
+
+    def test_key_material_is_not_archived(self, task_manager):
+        task = task_manager.create_task("KEYS", [], "main")
+        (task.path / "PLAN.md").write_text("# plan\n")
+        for name in ("server.pem", "id_rsa", "kubeconfig", "terraform.tfstate", "credentials.json"):
+            (task.path / name).write_text("not a real secret\n")
+
+        archive = task_manager.archive_task(task)
+
+        assert archive is not None and archive.files == ("PLAN.md",)
+        assert len(archive.skipped) == 5
+        assert all(note.endswith("(key material, not archived)") for note in archive.skipped)
+
+    def test_control_characters_in_names_are_escaped(self, task_manager, monkeypatch):
+        """Names reach the terminal and the patch header: an ESC or a newline
+        in a crafted name must arrive escaped."""
+        from tasktree_manager.services import task_manager as tm_module
+
+        monkeypatch.setattr(tm_module, "ARCHIVE_FILE_MAX_BYTES", 10)
+        task = task_manager.create_task("ESCAPES", [], "main")
+        (task.path / "evil\x1b]52;c;eA==\x07\nname.bin").write_bytes(b"x" * 20)
+
+        archive = task_manager.archive_task(task)
+
+        assert archive is not None and len(archive.skipped) == 1
+        note = archive.skipped[0]
+        assert "\x1b" not in note and "\n" not in note and "\x07" not in note
+        assert note.startswith("evil\\x1b]52;c;eA==\\x07\\x0aname.bin")
+
+    @pytest.mark.skipif(
+        hasattr(os, "geteuid") and os.geteuid() == 0, reason="root ignores permission bits"
+    )
+    def test_unreadable_entry_is_reported_not_raised(self, task_manager):
+        """A folder that can be listed but not searched made the walk raise
+        (regression), so the archive was never written."""
+        task = task_manager.create_task("NO-SEARCH", [], "main")
+        (task.path / "PLAN.md").write_text("# plan\n")
+        locked = task.path / "locked"
+        locked.mkdir()
+        (locked / "inner.md").write_text("x\n")
+        locked.chmod(0o600)
+        try:
+            archive = task_manager.archive_task(task)
+        finally:
+            locked.chmod(0o700)
+
+        assert archive is not None and archive.files == ("PLAN.md",)
+        assert archive.failed and archive.failed[0].startswith("locked/inner.md (unreadable")
+
+    def test_collection_error_never_costs_the_diff(
+        self, task_manager, repo_with_origin, monkeypatch
+    ):
+        """The file step is best effort; the diff is the critical artifact."""
+        task = task_manager.create_task("SAFE-DIFF", ["repo-remote"], repo_with_origin)
+        (task.worktrees[0].path / "wip.txt").write_text("wip\n")
+
+        def boom(t):
+            raise RuntimeError("walk exploded")
+
+        monkeypatch.setattr(task_manager, "_collect_task_files", boom)
+
+        archive = task_manager.archive_task(task)
+
+        assert archive is not None and "wip.txt" in archive.patch.read_text()
+        assert archive.failed == ("task files (not collected: walk exploded)",)
+
+    def test_patch_written_before_files_are_copied(
+        self, task_manager, repo_with_origin, monkeypatch
+    ):
+        """A copy that fills the disk must find the diff already on disk."""
+        task = task_manager.create_task("ORDER", ["repo-remote"], repo_with_origin)
+        (task.path / "PLAN.md").write_text("# plan\n")
+        (task.worktrees[0].path / "wip.txt").write_text("wip\n")
+        seen = {}
+        real_copy = task_manager._copy_task_files
+
+        def spy(files, files_dir):
+            patch = files_dir.with_suffix(".patch")
+            seen["patch"] = patch.read_text() if patch.exists() else ""
+            return real_copy(files, files_dir)
+
+        monkeypatch.setattr(task_manager, "_copy_task_files", spy)
+
+        task_manager.archive_task(task)
+
+        assert "wip.txt" in seen["patch"]
+
+    def test_skipped_only_still_returns_result(self, task_manager, monkeypatch):
+        """A file too large to archive is about to be deleted with the task;
+        the caller needs the result to warn, even with nothing archived."""
+        from tasktree_manager.services import task_manager as tm_module
+
+        monkeypatch.setattr(tm_module, "ARCHIVE_FILE_MAX_BYTES", 10)
+        task = task_manager.create_task("SKIP-ONLY", [], "main")
+        (task.path / "capture.pcap").write_bytes(b"x" * 20)
+
+        archive = task_manager.archive_task(task)
+
+        assert archive is not None
+        assert archive.patch is None and archive.files_dir is None
+        assert archive.skipped and archive.skipped[0].startswith("capture.pcap")
+
+    def test_copy_failure_noted_not_raised(self, task_manager, monkeypatch):
+        from tasktree_manager.services import task_manager as tm_module
+
+        real_copy2 = tm_module.shutil.copy2
+
+        def flaky_copy2(src, dst, *args, **kwargs):
+            if str(src).endswith("locked.md"):
+                raise PermissionError(13, "Permission denied")
+            return real_copy2(src, dst, *args, **kwargs)
+
+        monkeypatch.setattr(tm_module.shutil, "copy2", flaky_copy2)
+        task = task_manager.create_task("COPY-FAIL", [], "main")
+        (task.path / "PLAN.md").write_text("# plan\n")
+        (task.path / "locked.md").write_text("x\n")
+
+        archive = task_manager.archive_task(task)
+
+        assert archive is not None and archive.files == ("PLAN.md",)
+        assert archive.skipped == ()
+        assert archive.failed == ("locked.md (copy failed: Permission denied)",)
+
+    def test_incomplete_archive_still_copies_files(
+        self, task_manager, repo_with_origin, monkeypatch
+    ):
+        """The TUI deletes even after a failed archive, so task files must be
+        saved when a repo diff fails."""
+        from tasktree_manager.services import task_manager as tm_module
+        from tasktree_manager.services.git_ops import GitCommandError, GitOps
+
+        monkeypatch.setattr(tm_module, "ARCHIVE_FILE_MAX_BYTES", 10)
+        task = task_manager.create_task("FAIL-FILES", ["repo-remote"], repo_with_origin)
+        (task.path / "PLAN.md").write_text("# plan\n")
+        (task.path / "capture.pcap").write_bytes(b"x" * 20)
+
+        def boom(worktree, label=None):
+            raise GitCommandError("simulated failure")
+
+        monkeypatch.setattr(GitOps, "get_worktree_diff", staticmethod(boom))
+
+        with pytest.raises(ArchiveIncompleteError) as excinfo:
+            task_manager.archive_task(task)
+
+        err = excinfo.value
+        assert err.path is None
+        assert (err.files_dir / "PLAN.md").read_text() == "# plan\n"
+        assert f"task files at {err.files_dir}" in str(err)
+        # The left-out list travels with the error: no patch header holds it
+        assert err.result.files == ("PLAN.md",)
+        assert err.result.skipped == ("capture.pcap (20 B, over the 10 B file limit)",)
 
 
 class TestCreateWorktreeIdempotentRetry:

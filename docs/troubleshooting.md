@@ -921,7 +921,7 @@ Yes! Each task creates its own worktree and branch:
 
 - Worktrees are removed from `TASKS_DIR`
 - The local task branch is deleted from the main repository (`git branch -D`);
-  the remaining diff is archived under `archive_dir` first
+  the remaining diff and the task-folder files are archived under `archive_dir` first
 - Remote branches remain on GitHub/GitLab (if pushed)
 
 **Manual cleanup (only for branches created outside tasktree):**

@@ -249,6 +249,94 @@ class TestFinish:
         assert "Finished task task-x" in out
         assert not (config.tasks_dir / "task-x").exists()
 
+    def test_finish_archives_task_files(self, config, repo_with_origin, capsys):
+        cli(config, "create", "task-x", "--repos", "repo-remote", "--base", repo_with_origin)
+        (config.tasks_dir / "task-x" / "PLAN.md").write_text("# plan\n")
+        capsys.readouterr()
+        assert cli(config, "finish", "task-x") == 0
+        out = capsys.readouterr().out
+        assert "Archived 1 task file(s) to" in out
+        assert "Nothing to archive" not in out
+        plans = list(config.get_archive_dir().glob("task-x-*.files/PLAN.md"))
+        assert len(plans) == 1 and plans[0].read_text() == "# plan\n"
+
+    def test_finish_warns_about_files_left_out(self, config, repo_with_origin, monkeypatch, capsys):
+        from tasktree_manager.services import task_manager as tm_module
+
+        monkeypatch.setattr(tm_module, "ARCHIVE_FILE_MAX_BYTES", 10)
+        cli(config, "create", "task-x", "--repos", "repo-remote", "--base", repo_with_origin)
+        (config.tasks_dir / "task-x" / "capture.pcap").write_bytes(b"x" * 20)
+        capsys.readouterr()
+        assert cli(config, "finish", "task-x") == 0
+        captured = capsys.readouterr()
+        assert "warning: not archived: capture.pcap (20 B, over the 10 B file limit)" in (
+            captured.err
+        )
+        assert "Nothing to archive" in captured.out
+
+    def test_finish_refuses_when_task_files_cannot_be_copied(
+        self, config, repo_with_origin, monkeypatch, capsys
+    ):
+        """The task folder is the only copy of its files: a copy failure stops
+        the finish (exit 1), like a failed diff does, unless --force."""
+        from tasktree_manager.services import task_manager as tm_module
+
+        real_copy2 = tm_module.shutil.copy2
+
+        def flaky_copy2(src, dst, *args, **kwargs):
+            if str(src).endswith("PLAN.md"):
+                raise OSError(28, "No space left on device")
+            return real_copy2(src, dst, *args, **kwargs)
+
+        monkeypatch.setattr(tm_module.shutil, "copy2", flaky_copy2)
+        cli(config, "create", "task-x", "--repos", "repo-remote", "--base", repo_with_origin)
+        (config.tasks_dir / "task-x" / "PLAN.md").write_text("# plan\n")
+        capsys.readouterr()
+
+        assert cli(config, "finish", "task-x") == 1
+        err = capsys.readouterr().err
+        assert "could not archive: PLAN.md (copy failed: No space left on device)" in err
+        assert "use --force to finish anyway" in err
+        assert (config.tasks_dir / "task-x").exists()
+
+        assert cli(config, "finish", "task-x", "--force") == 0
+        assert not (config.tasks_dir / "task-x").exists()
+
+    def test_finish_reports_left_out_files_on_incomplete_archive(
+        self, config, repo_with_origin, monkeypatch, capsys
+    ):
+        from tasktree_manager.services import task_manager as tm_module
+        from tasktree_manager.services.git_ops import GitCommandError, GitOps
+
+        def boom(worktree, label=None):
+            raise GitCommandError("simulated failure")
+
+        monkeypatch.setattr(tm_module, "ARCHIVE_FILE_MAX_BYTES", 10)
+        cli(config, "create", "task-x", "--repos", "repo-remote", "--base", repo_with_origin)
+        (config.tasks_dir / "task-x" / "capture.pcap").write_bytes(b"x" * 20)
+        monkeypatch.setattr(GitOps, "get_worktree_diff", staticmethod(boom))
+        capsys.readouterr()
+
+        assert cli(config, "finish", "task-x", "--force") == 1
+        err = capsys.readouterr().err
+        assert "warning: not archived: capture.pcap" in err
+        assert "archive failed" in err
+        assert (config.tasks_dir / "task-x").exists()
+
+    def test_finish_caps_left_out_notes(self, config, repo_with_origin, monkeypatch, capsys):
+        from tasktree_manager.services import task_manager as tm_module
+
+        monkeypatch.setattr(tm_module, "ARCHIVE_FILE_MAX_BYTES", 1)
+        cli(config, "create", "task-x", "--repos", "repo-remote", "--base", repo_with_origin)
+        for i in range(25):
+            (config.tasks_dir / "task-x" / f"dump-{i:02}.bin").write_bytes(b"xx")
+        capsys.readouterr()
+
+        assert cli(config, "finish", "task-x") == 0
+        err = capsys.readouterr().err
+        assert err.count("warning: not archived:") == 20
+        assert "warning: ... and 5 more" in err
+
     def test_finish_missing(self, config, capsys):
         assert cli(config, "finish", "nope") == 1
         assert "no such task" in capsys.readouterr().err

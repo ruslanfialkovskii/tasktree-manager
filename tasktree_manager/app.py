@@ -24,8 +24,8 @@ from .services.claude_sessions import ClaudeRecap, read_claude_recap, transcript
 from .services.config import Config, ConfigError
 from .services.forge import Forge, ForgeStatus, get_forge_status
 from .services.git_ops import GitOps
-from .services.models import GitStatus, Task, TaskSafetyReport, Worktree
-from .services.task_manager import TaskManager
+from .services.models import ArchiveResult, GitStatus, Task, TaskSafetyReport, Worktree
+from .services.task_manager import ARCHIVE_NOTES_SHOWN, TaskManager
 from .themes import ALL_THEMES, THEME_CYCLE
 from .widgets.app_header import AppHeader
 from .widgets.create_modal import (
@@ -1378,14 +1378,15 @@ class TaskTreeApp(App):
 
         Removing worktrees runs git per repo and rmtree over trees that can
         be huge (node_modules etc.) - never block the UI thread on it.
-        The task's remaining diff (committed-but-unmerged + uncommitted) is
-        archived first — finish_task rmtrees the task directory.
+        The task's remaining diff (committed-but-unmerged + uncommitted) and
+        its task-folder files are archived first — finish_task rmtrees the
+        task directory.
         """
         error: str | None = None
-        archive_path: Path | None = None
+        archive: ArchiveResult | None = None
         try:
             try:
-                archive_path = self.task_manager.archive_task(task)
+                archive = self.task_manager.archive_task(task)
             except Exception as e:
                 # A failed archive must not block deletion, but it must be
                 # loud — the archive is the safety net for the work the
@@ -1394,6 +1395,8 @@ class TaskTreeApp(App):
                 detail = f"Archive failed for '{task.name}': {type(e).__name__}: {e}"
                 self.call_from_thread(self.notify, escape(detail), severity="warning", timeout=10)
                 self.call_from_thread(self._log_activity, detail, MessageLevel.ERROR, task.name)
+                # Still report the files that were saved and the ones left out
+                archive = getattr(e, "result", None)
             self.task_manager.finish_task(task)
         except ValueError as e:
             # finish_task raises ValueError (nothing removed) when worktrees
@@ -1402,36 +1405,65 @@ class TaskTreeApp(App):
             error = str(e)
         except Exception as e:
             error = f"{type(e).__name__}: {e}"
-        self.call_from_thread(self._apply_finish_task_result, task.name, force, error, archive_path)
+        self.call_from_thread(self._apply_finish_task_result, task.name, force, error, archive)
 
     def _apply_finish_task_result(
         self,
         task_name: str,
         force: bool,
         error: str | None,
-        archive_path: Path | None = None,
+        archive: ArchiveResult | None = None,
     ) -> None:
         """Report the delete outcome and reload (runs on the main thread)."""
         if error:
             self.notify(escape(f"Failed to delete task: {error}"), severity="error")
             self._log_activity(f"Failed to delete task: {error}", MessageLevel.ERROR, task_name)
-            if archive_path is not None:
+            if archive is not None:
                 # The archive succeeded before the delete itself failed - the
                 # user's work is not lost, but they should know where it is
-                self._log_activity(
-                    f"Archived diff to {archive_path} before the failed delete",
-                    MessageLevel.INFO,
-                    task_name,
-                )
+                self._log_archive(task_name, archive, " before the failed delete")
         else:
             self.notify(escape(f"Deleted task: {task_name}"))
             suffix = " (force)" if force else ""
             self._log_activity(
                 f"Task '{task_name}' deleted{suffix}", MessageLevel.SUCCESS, task_name
             )
-            if archive_path is not None:
-                self._log_activity(f"Archived diff to {archive_path}", MessageLevel.INFO, task_name)
+            if archive is not None:
+                self._log_archive(task_name, archive)
         self._load_tasks()
+
+    def _log_archive(self, task_name: str, archive: ArchiveResult, context: str = "") -> None:
+        """Log where a task's work was archived and warn about files left out.
+
+        The left-out notes come first and are capped, so the archive
+        location stays among the latest entries of the bounded panel.
+        """
+        notes = [f"Not archived: {item}" for item in archive.skipped]
+        notes += [f"Could not archive: {item}" for item in archive.failed]
+        for note in notes[:ARCHIVE_NOTES_SHOWN]:
+            self._log_activity(note, MessageLevel.WARNING, task_name)
+        if len(notes) > ARCHIVE_NOTES_SHOWN:
+            self._log_activity(
+                f"... and {len(notes) - ARCHIVE_NOTES_SHOWN} more not archived",
+                MessageLevel.WARNING,
+                task_name,
+            )
+        if archive.patch is not None:
+            self._log_activity(
+                f"Archived diff to {archive.patch}{context}", MessageLevel.INFO, task_name
+            )
+        if archive.files_dir is not None:
+            self._log_activity(
+                f"Archived {len(archive.files)} task file(s) to {archive.files_dir}{context}",
+                MessageLevel.INFO,
+                task_name,
+            )
+        if notes:
+            self.notify(
+                f"{len(notes)} task file note(s) - see messages",
+                severity="warning",
+                timeout=10,
+            )
 
     def _handle_safe_delete_action(
         self, task: Task, safety_report: TaskSafetyReport, action: str | None
@@ -1615,10 +1647,13 @@ class TaskTreeApp(App):
     def _remove_worktree_worker(self, task: Task, worktree: Worktree, force: bool = False) -> None:
         """Remove a single worktree in a background thread (archive, git, rmtree)."""
         error: str | None = None
-        archive_path: Path | None = None
+        archive: ArchiveResult | None = None
         try:
             try:
-                archive_path = self.task_manager.archive_task(self._worktree_view(task, worktree))
+                # Diff only: the task folder and its files stay in place
+                archive = self.task_manager.archive_task(
+                    self._worktree_view(task, worktree), include_files=False
+                )
             except Exception as e:
                 # Loud but non-blocking, same policy as task deletion
                 detail = f"Archive failed for '{worktree.name}': {type(e).__name__}: {e}"
@@ -1628,7 +1663,7 @@ class TaskTreeApp(App):
         except Exception as e:
             error = f"{type(e).__name__}: {e}"
         self.call_from_thread(
-            self._apply_remove_worktree_result, task.name, worktree.name, force, error, archive_path
+            self._apply_remove_worktree_result, task.name, worktree.name, force, error, archive
         )
 
     def _apply_remove_worktree_result(
@@ -1637,7 +1672,7 @@ class TaskTreeApp(App):
         worktree_name: str,
         force: bool,
         error: str | None,
-        archive_path: Path | None = None,
+        archive: ArchiveResult | None = None,
     ) -> None:
         """Report the worktree removal outcome and reload (main thread)."""
         if error:
@@ -1647,12 +1682,8 @@ class TaskTreeApp(App):
                 MessageLevel.ERROR,
                 task_name,
             )
-            if archive_path is not None:
-                self._log_activity(
-                    f"Archived diff to {archive_path} before the failed delete",
-                    MessageLevel.INFO,
-                    task_name,
-                )
+            if archive is not None:
+                self._log_archive(task_name, archive, " before the failed delete")
         else:
             self.notify(escape(f"Deleted worktree: {worktree_name}"))
             suffix = " (force)" if force else ""
@@ -1661,8 +1692,8 @@ class TaskTreeApp(App):
                 MessageLevel.SUCCESS,
                 task_name,
             )
-            if archive_path is not None:
-                self._log_activity(f"Archived diff to {archive_path}", MessageLevel.INFO, task_name)
+            if archive is not None:
+                self._log_archive(task_name, archive)
         self._load_tasks()
 
     def _open_lazygit_for_task(self, task: Task, safety_report: TaskSafetyReport) -> None:

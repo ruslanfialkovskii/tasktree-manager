@@ -110,7 +110,7 @@ class TestWorktreeCreation:
         assert GitOps.get_task_base(wt, "PREFIXED") == base
         _commit_file(wt.path, "work.txt")
         archive = task_manager.archive_task(task)
-        assert archive is not None and "work.txt" in archive.read_text()
+        assert archive is not None and "work.txt" in archive.patch.read_text()
 
 
 class TestSafetyUsesRecordedBase:

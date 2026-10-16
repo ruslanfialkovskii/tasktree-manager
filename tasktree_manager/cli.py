@@ -16,8 +16,8 @@ from . import __version__
 from .services import forge
 from .services.config import Config, ConfigError
 from .services.git_ops import GitOps
-from .services.models import Task
-from .services.task_manager import TaskManager
+from .services.models import ArchiveResult, Task
+from .services.task_manager import ARCHIVE_NOTES_SHOWN, ArchiveIncompleteError, TaskManager
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -55,7 +55,8 @@ def build_parser() -> argparse.ArgumentParser:
     delete.add_argument(
         "--force",
         action="store_true",
-        help="Delete even with uncommitted, unpushed or unmerged work",
+        help="Delete even with uncommitted, unpushed or unmerged work, or task files "
+        "that could not be archived",
     )
     delete.set_defaults(func=cmd_delete)
 
@@ -66,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_repo.set_defaults(func=cmd_add_repo)
 
     finish = sub.add_parser(
-        "finish", help="Finish a task: safety sweep, archive its diff, then delete"
+        "finish", help="Finish a task: safety sweep, archive its diff and files, then delete"
     )
     finish.add_argument("name", help="Task name")
     finish.add_argument("--push", action="store_true", help="Push unpushed branches first")
@@ -74,12 +75,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-archive",
         action="store_true",
         dest="no_archive",
-        help="Skip writing the diff archive",
+        help="Skip the archive: the diff and the task-folder files are deleted unsaved",
     )
     finish.add_argument(
         "--force",
         action="store_true",
-        help="Finish even with unfinished work (the archive is still written)",
+        help="Finish even with unfinished work or task files that could not be archived "
+        "(the archive is still written)",
     )
     finish.set_defaults(func=cmd_finish)
 
@@ -201,6 +203,50 @@ def cmd_repos(manager: TaskManager, config: Config, args: argparse.Namespace) ->
     return 0
 
 
+def _print_archive(archive: ArchiveResult | None) -> bool:
+    """Report where a task's work was archived; True if anything was saved."""
+    if archive is None:
+        return False
+    notes = [f"not archived: {item}" for item in archive.skipped]
+    notes += [f"could not archive: {item}" for item in archive.failed]
+    for note in notes[:ARCHIVE_NOTES_SHOWN]:
+        print(f"warning: {note}", file=sys.stderr)
+    if len(notes) > ARCHIVE_NOTES_SHOWN:
+        print(f"warning: ... and {len(notes) - ARCHIVE_NOTES_SHOWN} more", file=sys.stderr)
+    if archive.patch is not None:
+        print(f"Archived diff to {archive.patch}")
+    if archive.files_dir is not None:
+        print(f"Archived {len(archive.files)} task file(s) to {archive.files_dir}")
+    return archive.saved
+
+
+def _archive_for_delete(
+    manager: TaskManager, task: Task, force: bool, verb: str, notes: list[str] | None = None
+) -> tuple[bool, bool]:
+    """Archive a task about to be deleted; returns (may delete, anything saved).
+
+    Any archive error stops the delete. Task files that could not be read or
+    copied stop it too unless --force: the task folder is their only copy.
+    """
+    try:
+        archive = manager.archive_task(task, notes=notes)
+    except ArchiveIncompleteError as e:
+        _print_archive(e.result)
+        _error(f"archive failed: {e}")
+        return False, False
+    except Exception as e:
+        _error(f"archive failed: {e}")
+        return False, False
+    saved = _print_archive(archive)
+    if archive is not None and archive.failed and not force:
+        _error(
+            f"{len(archive.failed)} task file(s) could not be archived; "
+            f"use --force to {verb} anyway"
+        )
+        return False, saved
+    return True, saved
+
+
 def cmd_delete(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
     """Delete a task after a safety check (bypass with --force)."""
     task = manager.get_task(args.name)
@@ -215,14 +261,11 @@ def cmd_delete(manager: TaskManager, config: Config, args: argparse.Namespace) -
         print("use --force to delete anyway", file=sys.stderr)
         return 1
 
-    # Same safety net as the TUI: the remaining diff is archived before the
-    # worktrees and branches are removed, --force included
-    try:
-        archive_path = manager.archive_task(task)
-    except Exception as e:
-        return _error(f"archive failed: {e}")
-    if archive_path is not None:
-        print(f"Archived diff to {archive_path}")
+    # Same safety net as the TUI: the remaining diff and the task files are
+    # archived before the worktrees and branches are removed, --force included
+    may_delete, _ = _archive_for_delete(manager, task, args.force, "delete")
+    if not may_delete:
+        return 1
     manager.finish_task(task)
     print(f"Deleted task {args.name}")
     return 0
@@ -262,13 +305,12 @@ def cmd_finish(manager: TaskManager, config: Config, args: argparse.Namespace) -
 
     if not args.no_archive:
         notes = [f"{issue.repo_name}: {issue.details}" for issue in report.merged_via_forge]
-        try:
-            archive_path = manager.archive_task(task, notes=notes or None)
-        except Exception as e:
-            return _error(f"archive failed: {e}")
-        if archive_path is not None:
-            print(f"Archived diff to {archive_path}")
-        else:
+        may_delete, saved = _archive_for_delete(
+            manager, task, args.force, "finish", notes=notes or None
+        )
+        if not may_delete:
+            return 1
+        if not saved:
             print("Nothing to archive")
 
     manager.finish_task(task)

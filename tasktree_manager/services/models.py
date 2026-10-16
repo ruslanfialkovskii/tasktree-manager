@@ -126,6 +126,22 @@ class RepoIssue:
     mr_state: str | None = None  # "open" | "merged" | "closed" | "none"
 
 
+@dataclass(frozen=True)
+class ArchiveResult:
+    """What archive_task saved before a task folder is deleted."""
+
+    patch: Path | None = None  # combined diff of every worktree
+    files_dir: Path | None = None  # copies of task-folder files outside worktrees
+    files: tuple[str, ...] = ()  # archived files, relative to the task folder
+    skipped: tuple[str, ...] = ()  # "name (reason)": left out by policy (caps, keys)
+    failed: tuple[str, ...] = ()  # "name (reason)": could not be read or copied
+
+    @property
+    def saved(self) -> bool:
+        """True when anything was written to the archive directory."""
+        return self.patch is not None or self.files_dir is not None
+
+
 @dataclass
 class TaskSafetyReport:
     """Report of safety issues for a task."""

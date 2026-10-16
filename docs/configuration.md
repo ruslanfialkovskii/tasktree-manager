@@ -86,7 +86,7 @@ repos_dir = "/Users/username/repos"
 # Created automatically if it doesn't exist
 tasks_dir = "/Users/username/tasks"
 
-# Directory for finished-task diff archives
+# Directory for finished-task archives (diffs and task-folder files)
 # Relative paths resolve under tasks_dir (never the current directory)
 # Default: "" (uses <tasks_dir>/.archive)
 archive_dir = ""
@@ -305,7 +305,7 @@ blocklist = [
 |------------|------|-----------|---------------------|------------------------------------------------|
 | `repos_dir` | path | `~/repos` | `REPOS_DIR`         | Directory containing your git repositories     |
 | `tasks_dir` | path | `~/tasks` | `TASKS_DIR`         | Directory where task worktrees will be created |
-| `archive_dir` | path | `""` (`<tasks_dir>/.archive`) | - | Directory for finished-task diff archives |
+| `archive_dir` | path | `""` (`<tasks_dir>/.archive`) | - | Directory for finished-task archives (diffs and task-folder files) |
 
 ### Details
 

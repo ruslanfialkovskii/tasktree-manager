@@ -22,7 +22,7 @@
 - 🛰️ **Agent Dashboard** - Live Claude Code session state per worktree (from `claude agents`), plus one-key background-agent dispatch — the multi-repo agent view Claude Code lacks natively
 - ✻ **Session Recap** - The Info panel shows each task's latest Claude Code session: title, last turn duration, and Claude's own idle recap of what was done and what comes next — read straight from the transcript, no CLI call
 - 🔀 **Forge-Aware Safety** - MR/PR and CI state via `glab`/`gh`; squash- and rebase-merged branches count as merged instead of blocking deletion forever
-- 📦 **Finish Flow with Archives** - Ending a task saves its combined diff (committed-but-unmerged + uncommitted) to an archive before deleting
+- 📦 **Finish Flow with Archives** - Ending a task saves its combined diff (committed-but-unmerged + uncommitted) and the task-folder files outside the worktrees (plans, ADRs, notes) to an archive before deleting
 
 ## 📊 Status Indicators
 
@@ -82,15 +82,23 @@ tasktree-manager list --json     # tasks with repos and state: clean / dirty / e
 tasktree-manager repos           # available repos in REPOS_DIR
 tasktree-manager add-repo DIC-1901-argocd-tls infra
 tasktree-manager status                       # current task inferred from $PWD; also --json / --oneline / --forge
-tasktree-manager finish DIC-1901-argocd-tls   # safety sweep -> archive diff -> delete; --push / --no-archive / --force
-tasktree-manager delete DIC-1901-argocd-tls   # archive diff -> delete; refuses on unfinished work; --force overrides
+tasktree-manager finish DIC-1901-argocd-tls   # safety sweep -> archive diff + task files -> delete; --push / --no-archive / --force
+tasktree-manager delete DIC-1901-argocd-tls   # archive diff + task files -> delete; refuses on unfinished work; --force overrides
 ```
 
 Exit code is 0 on success, 1 on failure with the reason on stderr. `delete` and `finish` run
 the same safety check as the TUI (uncommitted, unpushed, or unmerged work blocks deletion);
 with `glab`/`gh` installed, squash/rebase-merged branches are recognized as merged. If the
 diff cannot be archived for any repo, the CLI stops before deleting and prints the path of
-the partial archive; the TUI warns and deletes anyway.
+the partial archive; the TUI warns and deletes anyway. Files in the task folder outside the
+worktrees are copied to `<task>-<timestamp>.files/` next to the patch:
+
+- Skipped silently: hidden files, symlinks, `node_modules`/`vendor`/`.terraform` folders and
+  an unedited generated `CLAUDE.md`.
+- Left out with a warning: key material (`*.pem`, `*.key`, `id_rsa`, kubeconfigs,
+  `*.tfstate`, `credentials*.json`), files over 10 MB and files past 100 MB in total.
+- A file that cannot be read or copied stops `delete`/`finish` before anything is removed,
+  unless `--force`; the TUI warns and deletes anyway.
 `status --oneline` emits a compact `TASK repoA✓ repoB●2↑1` summary that slots straight into
 a Claude Code statusline or shell prompt.
 

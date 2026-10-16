@@ -95,6 +95,19 @@ def _toml_table(config_data: dict, key: str) -> dict:
     return value
 
 
+# Private keys and certificates: never symlinked into worktrees and never
+# copied into finished-task archives
+KEY_MATERIAL_PATTERNS: list[str] = [
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "*.keystore",
+    "id_rsa",
+    "id_ecdsa",
+    "id_ed25519",
+]
+
 # Default patterns excluded when symlinking gitignored files into worktrees.
 # Caches/build artifacts are excluded as noise; key material is excluded so
 # private keys and certificates never spread beyond the main checkout
@@ -116,14 +129,7 @@ DEFAULT_SYMLINK_BLOCKLIST: list[str] = [
     ".nox",
     "*.so",
     "*.dylib",
-    "*.pem",
-    "*.key",
-    "*.p12",
-    "*.pfx",
-    "*.keystore",
-    "id_rsa",
-    "id_ecdsa",
-    "id_ed25519",
+    *KEY_MATERIAL_PATTERNS,
 ]
 
 
@@ -141,7 +147,8 @@ class Config:
     repos_dir: Path = field(default_factory=lambda: Path.home() / "repos")
     tasks_dir: Path = field(default_factory=lambda: Path.home() / "tasks")
     config_dir: Path = field(default_factory=lambda: Path.home() / ".config" / "tasktree-manager")
-    # Archive directory for finished-task diffs ("" = <tasks_dir>/.archive)
+    # Archive directory for finished-task diffs and task-folder files
+    # ("" = <tasks_dir>/.archive)
     archive_dir: str = ""
 
     # UI settings
@@ -395,7 +402,8 @@ repos_dir = "{self._toml_escape(str(self._persisted("repos_dir")))}"
 # Directory for task worktrees
 tasks_dir = "{self._toml_escape(str(self._persisted("tasks_dir")))}"
 
-# Directory for finished-task diff archives ("" = <tasks_dir>/.archive)
+# Directory for finished-task archives: diffs and task-folder files
+# ("" = <tasks_dir>/.archive)
 archive_dir = "{self._toml_escape(self.archive_dir)}"
 
 # ============================================================================
@@ -544,7 +552,7 @@ cursor_up = "{self._toml_escape(self.keybindings.get("cursor_up", "k"))}"
         self.config_dir.mkdir(parents=True, exist_ok=True)
 
     def get_archive_dir(self) -> Path:
-        """Get the archive directory for finished-task diffs.
+        """Get the archive directory for finished-task diffs and files.
 
         A relative path is anchored under tasks_dir, never $PWD — `finish`
         may run from inside a worktree, and a CWD-relative archive would be

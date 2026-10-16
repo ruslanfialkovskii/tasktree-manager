@@ -687,6 +687,12 @@ d (delete task)
 - ✅ The task's remaining diff (committed-but-unmerged + uncommitted work) is archived to
   `archive_dir` (default `<tasks_dir>/.archive/<task>-<timestamp>.patch`) before anything
   is removed — the messages panel (`m`) shows the archive path
+- ✅ Files in the task folder outside the worktrees (`PLAN.md`, ADRs, notes, scripts) are
+  copied to `<task>-<timestamp>.files/` next to the patch. Hidden files, symlinks,
+  `node_modules`/`vendor`/`.terraform` folders and an unedited generated `CLAUDE.md` are
+  skipped silently. Key material (`*.pem`, `*.key`, `id_rsa`, kubeconfigs, `*.tfstate`,
+  `credentials*.json`), files over 10 MB, files past 100 MB in total and files that cannot
+  be read or copied are listed in the messages panel
 - ✅ Worktrees removed from `TASKS_DIR`
 - ✅ Branches remain on remote (if pushed)
 - ✅ Original repos in `REPOS_DIR` untouched
