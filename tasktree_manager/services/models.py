@@ -1,5 +1,6 @@
 """Data models for tasktree-manager."""
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -125,6 +126,44 @@ class Task:
         if self.is_epic:
             return None
         return value
+
+
+def resolve_epic(task: Task, epics: dict[str, Task]) -> str | None:
+    """The epic in `epics` that the task's marker names, or None.
+
+    A marker spelled in another case matches only when it opens the same
+    folder, as on a case-insensitive disk.
+    """
+    parent = task.epic_name
+    if parent is None or parent in epics:
+        return parent
+    for name, epic in epics.items():
+        if name.casefold() == parent.casefold():
+            try:
+                if os.path.samefile(task.path.parent / parent, epic.path):
+                    return name
+            except OSError:
+                pass
+    return None
+
+
+def group_by_epic(tasks: list[Task]) -> tuple[list[Task], dict[str, list[Task]]]:
+    """Split tasks into top-level rows and the children of each epic.
+
+    A task is a child when its marker names an epic in `tasks`, by the same
+    rule as TaskManager.epic_child_names (the delete guard). Anything else, an
+    orphan included, is top-level. Order within both is kept.
+    """
+    epics = {task.name: task for task in tasks if task.is_epic}
+    children: dict[str, list[Task]] = {name: [] for name in epics}
+    top: list[Task] = []
+    for task in tasks:
+        parent = None if task.name in epics else resolve_epic(task, epics)
+        if parent is None:
+            top.append(task)
+        else:
+            children[parent].append(task)
+    return top, children
 
 
 @dataclass

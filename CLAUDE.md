@@ -58,7 +58,7 @@ Uses Textual's theming system with design tokens (`$panel`, `$surface`, `$border
 ### Widgets Layer (`tasktree_manager/widgets/`)
 
 All widgets extend Textual's `ListView` or `Static`:
-- `task_list.py`: Left panel showing tasks with dirty indicators
+- `task_list.py`: Left panel showing tasks with dirty indicators. Epics render as foldable rows (`enter`/`space`) with their children below; `all_tasks` holds every loaded task, `tasks` only the visible rows (row index = task). Reloads and Claude polls must use `all_tasks`, or folded children drop out
 - `worktree_list.py`: Right panel showing worktrees for selected task
 - `status_panel.py`: Bottom panel showing git status for selected worktree
 - `create_modal.py`: Modal dialogs (all extend `ThemedModalScreen` base class)

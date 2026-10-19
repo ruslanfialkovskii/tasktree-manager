@@ -22,6 +22,7 @@
 - 🛰️ **Agent Dashboard** - Live Claude Code session state per worktree (from `claude agents`), plus one-key background-agent dispatch — the multi-repo agent view Claude Code lacks natively
 - ✻ **Session Recap** - The Info panel shows each task's latest Claude Code session: title, last turn duration, and Claude's own idle recap of what was done and what comes next — read straight from the transcript, no CLI call
 - 🔀 **Forge-Aware Safety** - MR/PR and CI state via `glab`/`gh`; squash- and rebase-merged branches count as merged instead of blocking deletion forever
+- 🗂️ **Epics** - Group related tasks under an epic: a foldable row with rolled-up dirty and Claude state, `E` to attach tasks
 - 📦 **Finish Flow with Archives** - Ending a task saves its combined diff (committed-but-unmerged + uncommitted) and the task-folder files outside the worktrees (plans, ADRs, notes) to an archive before deleting
 
 ## 📊 Status Indicators
@@ -39,6 +40,8 @@
 | `↓N` yellow | N commits behind remote |
 | `○` green / `●` magenta / `×` red | MR open / merged / closed |
 | `◐` yellow / `✔` green / `✘` red | CI running / passed / failed |
+| `▾` / `▸` | Epic, unfolded / folded (`· N` = its task count) |
+| `├` / `└` | Task inside the epic above |
 
 ## 🚀 Quick Start
 
@@ -141,7 +144,8 @@ a Claude Code statusline or shell prompt.
 | `r` | Refresh | `s` | Sort tasks |
 | `S` | Group worktrees | `m` | Messages |
 | `t` | Cycle theme | `Tab` | Next panel |
-| `R` | Rename task | | |
+| `R` | Rename task | `E` | Set epic |
+| `enter` | Fold epic | | |
 | `?` | Show help | `q` | Quit |
 
 **Themes:** The default `tasktree` theme pairs a lazygit-classic ANSI palette with layered panels, numbered title bars, green focus borders, and a keycap footer. Five more design-system palettes ship tuned to the same shape — tokyo-night, catppuccin-mocha, gruvbox, dracula, nord — and every other Textual built-in theme works too (`Ctrl+P` to switch); the whole UI is styled with Textual design tokens, so any theme restyles it consistently.
@@ -223,10 +227,11 @@ For comprehensive troubleshooting, see the [Troubleshooting Guide](docs/troubles
 Recently shipped: agent dashboard (per-worktree Claude session badges + background dispatch),
 forge-aware merged detection (glab/gh, squash/rebase merges), MR/CI status badges,
 guided `finish` flow that archives the diff and the task-folder files, `status` subcommand
-for scripts and statuslines, Claude session recap in the Info panel.
+for scripts and statuslines, Claude session recap in the Info panel, epics in the CLI and
+the task list.
 
-Next: epics, a layer that groups related tasks (for example a Jira epic and its child
-tasks) in the task list.
+Next: an epic context block in each task's CLAUDE.md, and epic support in the `/wtask`
+skill.
 
 See [CHANGELOG.md](CHANGELOG.md) for the release history.
 

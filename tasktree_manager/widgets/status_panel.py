@@ -9,6 +9,13 @@ from ..services.models import GitStatus, Task, Worktree
 # .claude_status values worth a suffix on the recap line
 _LIVE_LABELS = {"running": ("busy", "yellow"), "waiting": ("idle", "green")}
 
+# Claude state markers on the child lines of an epic block
+_CLAUDE_MARKS = {
+    "running": (" ⟳", "magenta"),
+    "waiting": (" !", "yellow"),
+    "ended": (" ✓", "green"),
+}
+
 
 def _style_for_code(status_code: str) -> str:
     """Pick a display style for a git XY status code."""
@@ -38,6 +45,10 @@ class StatusPanel(Static):
         self._claude_recap: ClaudeRecap | None = None
         self._recap_task_name: str | None = None
         self._claude_live: str | None = None
+        # Epic context of the shown task: its children (label, dirty, Claude
+        # state) when it is an epic, its parent epic label when it is a child
+        self._epic_children: list[tuple[str, bool, str | None]] | None = None
+        self._epic_label: str | None = None
 
     def set_claude_recap(
         self, task_name: str, recap: ClaudeRecap | None, live: str | None = None
@@ -57,6 +68,18 @@ class StatusPanel(Static):
         if live != self._claude_live:
             self._claude_live = live
             self._rerender_task_view()
+
+    def set_epic_children(
+        self, task_name: str, children: list[tuple[str, bool, str | None]]
+    ) -> None:
+        """Refresh the epic block (Claude states change between highlights)."""
+        if self._current_task is None or self._current_task.name != task_name:
+            return
+        if self._epic_children is None or children == self._epic_children:
+            return
+        self._epic_children = children
+        if self._mode == "task" and not self._loading:
+            self._update_display()
 
     def _rerender_task_view(self) -> None:
         """Redraw the task summary if the shown task owns the stored recap."""
@@ -79,18 +102,26 @@ class StatusPanel(Static):
         self._update_display()
 
     def update_task_summary(
-        self, task: Task | None, statuses: dict[str, GitStatus] | None = None
+        self,
+        task: Task | None,
+        statuses: dict[str, GitStatus] | None = None,
+        epic_children: list[tuple[str, bool, str | None]] | None = None,
+        epic_label: str | None = None,
     ) -> None:
         """Update the display with a task summary.
 
         Args:
             task: The task to display
             statuses: Optional dict of worktree_name -> GitStatus with file details
+            epic_children: For an epic, one (label, dirty, Claude state) per child
+            epic_label: For a child task, the label of its epic
         """
         self._mode = "task"
         self._loading = False
         self._current_task = task
         self._task_statuses = statuses or {}
+        self._epic_children = epic_children
+        self._epic_label = epic_label
         self._update_display()
 
     def _update_display(self) -> None:
@@ -108,6 +139,14 @@ class StatusPanel(Static):
 
         task = self._current_task
         text = Text()
+
+        if self._epic_label is not None:
+            text.append("Epic: ", style="cyan")
+            text.append(f"{self._epic_label}\n\n")
+        if self._epic_children is not None:
+            self._append_epic_block(text, self._epic_children)
+        if not task.worktrees:
+            text.append("no worktrees\n\n", style="dim")
 
         for wt in task.worktrees:
             # Repo header
@@ -129,6 +168,19 @@ class StatusPanel(Static):
             self._append_claude_recap(text, self._claude_recap)
 
         self.update(text)
+
+    @staticmethod
+    def _append_epic_block(text: Text, children: list[tuple[str, bool, str | None]]) -> None:
+        """Append the "Epic · N tasks" header and one line per child."""
+        text.append(f"Epic · {len(children)} task(s)\n", style="bold")
+        for label, dirty, claude in children:
+            text.append("  ● " if dirty else "  ✓ ", style="red" if dirty else "dim")
+            text.append(label)
+            mark = _CLAUDE_MARKS.get(claude or "")
+            if mark:
+                text.append(*mark)
+            text.append("\n")
+        text.append("\n")
 
     def _append_claude_recap(self, text: Text, recap: ClaudeRecap) -> None:
         """Append the Claude session block: title, turn line, recap or prompt."""
@@ -212,6 +264,8 @@ class StatusPanel(Static):
         self._worktree_name = ""
         self._status = None
         self._current_task = None
+        self._epic_children = None
+        self._epic_label = None
         self._mode = "worktree"
         self._claude_recap = None
         self._recap_task_name = None

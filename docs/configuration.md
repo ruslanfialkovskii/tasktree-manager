@@ -246,6 +246,7 @@ new_task = "n"          # Create new task
 add_repo = "a"          # Add repository to current task
 delete_task = "d"       # Delete/finish task
 rename_task = "R"       # Rename task display label (folder/branch unchanged, shift+r)
+set_epic = "E"          # Set the task's epic, or make the task an epic (shift+e)
 delete_worktree = "D"   # Remove single worktree from task (shift+d)
 
 # Git operations
@@ -592,7 +593,7 @@ blocklist = ["*"]
 
 ## Keybindings Reference
 
-All 22 customizable keybindings with descriptions:
+All 27 customizable keybindings with descriptions:
 
 ### Application Control
 
@@ -610,6 +611,7 @@ All 22 customizable keybindings with descriptions:
 | `add_repo`    | `a`     | Add repository to current task         | `add_repo = "ctrl+a"`      |
 | `delete_task` | `d`     | Delete/finish current task             | `delete_task = "delete"`   |
 | `rename_task` | `R`     | Rename task display label (alias only) | `rename_task = "ctrl+r"`   |
+| `set_epic`    | `E`     | Set the task's epic, or make it an epic | `set_epic = "ctrl+e"`     |
 
 ### Git Operations
 

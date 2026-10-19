@@ -65,6 +65,28 @@ Task: FEAT-123
 - Stored in `TASKS_DIR/task-name/`
 - Each task gets its own set of branches across selected repos
 
+### Epics
+
+An **epic** groups related tasks, for example a Jira epic and its child tasks.
+An epic is a task folder too: it can hold notes, a Claude session and its own
+worktrees, or none. Child tasks keep their own folders; only a marker file
+names their epic, so nothing moves on disk.
+
+```
+▾ ● DIC-2466-pcaps-epic · 3
+├   DIC-2861-pcaps-logs
+├ ● DIC-2862-pcaps-s3
+└   DIC-2865-pcaps-docs
+```
+
+- Press `E` on a task to add it to an epic, move it, remove it, create a new
+  empty epic for it, or turn the task itself into an epic.
+- `n` and `y` preselect the epic of the highlighted row.
+- `enter` or `space` folds an epic. A folded epic row still shows the dirty
+  count and the most urgent Claude state of its tasks.
+- Epics don't nest. An epic that still has tasks can't be deleted.
+- From scripts: `tasktree-manager epic create/add/remove/mark/unmark/list`.
+
 ### Worktrees
 
 A **worktree** is a git working directory for a specific repository within a task.
@@ -186,6 +208,8 @@ Shows all your tasks:
 - **CLAUDE.md indicator** `◆`: Blue diamond — task has a CLAUDE.md file
 - **Claude session status**: `⟳` running (magenta), `!` waiting (yellow), `✓` ended (green)
 - **Sort mode**: Press `s` to cycle through sort modes (name ↑/↓, date ↑/↓, dirty/clean first)
+- **Epics**: `▾`/`▸` marks an epic with its task count; its tasks follow with `├`/`└`.
+  An epic sorts by its newest task and counts as dirty when any task is dirty
 
 **Navigation:**
 - `j/k` or arrow keys: Move up/down
@@ -318,6 +342,8 @@ what is displayed. Press `?` for the full reference at any time.
 | `a` | Add repository   | Add additional repositories to the current task           |
 | `d` | Delete/finish    | Delete current task and remove worktrees                  |
 | `R` | Rename task      | Set a display alias shown in the task list (folder/branch unchanged; empty input reverts) |
+| `E` | Set epic         | Add the task to an epic, move or remove it, or make it an epic |
+| `enter`/`space` | Fold epic | Fold or unfold the highlighted epic (on a task, folds its epic) |
 
 **Task creation workflow:**
 1. Press `n`

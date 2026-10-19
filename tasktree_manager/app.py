@@ -24,7 +24,7 @@ from .services.claude_sessions import ClaudeRecap, read_claude_recap, transcript
 from .services.config import Config, ConfigError
 from .services.forge import Forge, ForgeStatus, get_forge_status
 from .services.git_ops import GitOps
-from .services.models import ArchiveResult, GitStatus, Task, TaskSafetyReport, Worktree
+from .services.models import EPIC_KIND, ArchiveResult, GitStatus, Task, TaskSafetyReport, Worktree
 from .services.task_manager import ARCHIVE_NOTES_SHOWN, TaskManager
 from .themes import ALL_THEMES, THEME_CYCLE
 from .widgets.app_header import AppHeader
@@ -33,7 +33,9 @@ from .widgets.create_modal import (
     ConfirmModal,
     CreateTaskModal,
     DispatchAgentModal,
+    EpicPickerModal,
     HelpModal,
+    NewEpicModal,
     PushResultModal,
     RenameTaskModal,
     SafeDeleteModal,
@@ -199,6 +201,7 @@ class TaskTreeApp(App):
         Binding("y", "clone_task", "Clone", show=False),
         Binding("a", "add_repo", "Add Repo", show=False),
         Binding("d", "delete_task", "Delete", show=False),
+        Binding("E", "set_epic", "Epic", show=False),
         Binding("g", "open_lazygit", "Lazygit", show=False),
         Binding("h", "show_diff", "Diff", show=False),
         Binding("e", "open_editor", "Editor", show=False),
@@ -281,6 +284,7 @@ class TaskTreeApp(App):
             Binding(kb.get("add_repo", "a"), "add_repo", "Add Repo", show=False),
             Binding(kb.get("delete_task", "d"), "delete_task", "Delete", show=False),
             Binding(kb.get("rename_task", "R"), "rename_task", "Rename", show=False),
+            Binding(kb.get("set_epic", "E"), "set_epic", "Epic", show=False),
             Binding(kb.get("open_lazygit", "g"), "open_lazygit", "Lazygit", show=False),
             Binding(kb.get("show_diff", "h"), "show_diff", "Diff", show=False),
             Binding(kb.get("open_editor", "e"), "open_editor", "Editor", show=False),
@@ -347,6 +351,7 @@ class TaskTreeApp(App):
             (kb.get("add_repo", "a"), "add_repo", "Add Repo"),
             (kb.get("delete_task", "d"), "delete_task", "Delete"),
             (kb.get("rename_task", "R"), "rename_task", "Rename"),
+            (kb.get("set_epic", "E"), "set_epic", "Epic"),
             (kb.get("show_diff", "h"), "show_diff", "Diff"),
             (kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude"),
             (kb.get("cycle_sort", "s"), "cycle_sort", "Sort"),
@@ -373,7 +378,12 @@ class TaskTreeApp(App):
                             id="task-panel-title",
                         )
                         yield Static("", classes="panel-counter", id="task-panel-counter")
-                    yield TaskList(id="task-list", context_bindings=task_panel_bindings)
+                    yield TaskList(
+                        id="task-list",
+                        context_bindings=task_panel_bindings,
+                        # A fold key bound to any action in config stays that action
+                        fold_keys=tuple(k for k in ("enter", "space") if k not in kb.values()),
+                    )
                 with Vertical(id="worktree-panel"):
                     with Horizontal(classes="panel-title-bar"):
                         yield Static(
@@ -591,7 +601,7 @@ class TaskTreeApp(App):
         follow-up scan can skip its UI reload when nothing actually changed.
         """
         try:
-            previous = self.query_one("#task-list", TaskList).tasks
+            previous = self.query_one("#task-list", TaskList).all_tasks
         except Exception:
             return
         known = {(task.name, wt.name): wt for task in previous for wt in task.worktrees}
@@ -645,7 +655,8 @@ class TaskTreeApp(App):
             return
 
         statuses: dict[str, str] = {}
-        for task in task_list.tasks:
+        # all_tasks: a folded child still feeds its epic row rollup
+        for task in task_list.all_tasks:
             status_file = task.path / ".claude_status"
             if not status_file.exists():
                 continue
@@ -659,7 +670,9 @@ class TaskTreeApp(App):
                 # Valid JSON but not an object (e.g. "[]") - .get() below
                 # would raise AttributeError and kill the poll interval
                 continue
-            statuses[task.name] = data.get("status", "unknown")
+            status = data.get("status", "unknown")
+            if isinstance(status, str):
+                statuses[task.name] = status
 
         if statuses != self._claude_statuses:
             self._claude_statuses = statuses
@@ -670,6 +683,9 @@ class TaskTreeApp(App):
                 except Exception:
                     return
                 status_panel.set_claude_live_status(statuses.get(self.current_task.name))
+                if self.current_task.is_epic:
+                    children, _ = self._epic_context(self.current_task, task_list)
+                    status_panel.set_epic_children(self.current_task.name, children or [])
 
         # Same tick keeps the recap fresh: a stat per poll, a read only on change
         if self.config.claude_recap and self.current_task and task_list.has_focus:
@@ -719,7 +735,7 @@ class TaskTreeApp(App):
             task_list = self.query_one("#task-list", TaskList)
         except Exception:
             return
-        paths = [str(wt.path) for task in task_list.tasks for wt in task.worktrees]
+        paths = [str(wt.path) for task in task_list.all_tasks for wt in task.worktrees]
         if paths:
             self._run_agent_poll(paths)
 
@@ -850,6 +866,8 @@ class TaskTreeApp(App):
         return tuple(
             (
                 task.name,
+                task.kind,
+                task.epic_name,
                 tuple((wt.name, wt.branch, wt.is_dirty, wt.changed_files) for wt in task.worktrees),
             )
             for task in tasks
@@ -1131,9 +1149,45 @@ class TaskTreeApp(App):
                 status_panel = self.query_one("#status-display", StatusPanel)
                 task_list = self.query_one("#task-list", TaskList)
                 if task_list.has_focus:
-                    status_panel.update_task_summary(task, statuses)
+                    children, parent = self._epic_context(task, task_list)
+                    status_panel.update_task_summary(
+                        task, statuses, epic_children=children, epic_label=parent
+                    )
             except Exception:
                 pass
+
+    def _epic_context(
+        self, task: Task, task_list: TaskList
+    ) -> tuple[list[tuple[str, bool, str | None]] | None, str | None]:
+        """The Info panel epic block (children) or parent line for a task."""
+        if task.is_epic:
+            children = [
+                (child.display_label, child.is_dirty, self._claude_statuses.get(child.name))
+                for child in task_list.epic_children(task.name)
+            ]
+            return children, None
+        epic_name = task_list.epic_of(task.name)
+        if epic_name is None:
+            return None, None
+        parent = next(t for t in task_list.all_tasks if t.name == epic_name)
+        return None, parent.display_label
+
+    def _epic_choices(self) -> list[tuple[str, str]]:
+        """(label, name) of every loaded epic, sorted by label."""
+        try:
+            tasks = self.query_one("#task-list", TaskList).all_tasks
+        except Exception:
+            return []
+        epics = [(task.display_label, task.name) for task in tasks if task.is_epic]
+        return sorted(epics, key=lambda pair: pair[0].lower())
+
+    def _epic_of(self, task: Task | None) -> str | None:
+        """The epic a new task next to `task` should join: itself or its parent."""
+        if task is None:
+            return None
+        if task.is_epic:
+            return task.name
+        return self.query_one("#task-list", TaskList).epic_of(task.name)
 
     def action_quit(self) -> None:
         """Quit the application."""
@@ -1168,16 +1222,23 @@ class TaskTreeApp(App):
 
         def handle_result(result):
             if result and self._begin_mutation("task-list"):
-                name, repos, base_branch = result
-                self._create_task_worker(name, repos, base_branch, verb="created")
+                name, repos, base_branch, epic = result
+                self._create_task_worker(name, repos, base_branch, verb="created", epic=epic)
 
         self.push_screen(
-            CreateTaskModal(available_repos, initial_base_branch=self.config.default_base_branch),
+            CreateTaskModal(
+                available_repos,
+                initial_base_branch=self.config.default_base_branch,
+                epics=self._epic_choices(),
+                initial_epic=self._epic_of(self.current_task),
+            ),
             handle_result,
         )
 
     @work(thread=True, group="task_mutation")
-    def _create_task_worker(self, name: str, repos: list[str], base_branch: str, verb: str) -> None:
+    def _create_task_worker(
+        self, name: str, repos: list[str], base_branch: str, verb: str, epic: str | None = None
+    ) -> None:
         """Create a task in a background thread.
 
         Creation fetches the base branch from origin for every repo, so it
@@ -1186,7 +1247,7 @@ class TaskTreeApp(App):
         """
         error: str | None = None
         try:
-            self.task_manager.create_task(name, repos, base_branch)
+            self.task_manager.create_task(name, repos, base_branch, epic=epic)
         except FileNotFoundError as e:
             error = f"Repository not found: {e}"
         except PermissionError:
@@ -1196,10 +1257,10 @@ class TaskTreeApp(App):
             error = str(e)
         except Exception as e:
             error = f"{type(e).__name__}: {e}"
-        self.call_from_thread(self._apply_create_task_result, name, len(repos), verb, error)
+        self.call_from_thread(self._apply_create_task_result, name, len(repos), verb, error, epic)
 
     def _apply_create_task_result(
-        self, name: str, repo_count: int, verb: str, error: str | None
+        self, name: str, repo_count: int, verb: str, error: str | None, epic: str | None = None
     ) -> None:
         """Report the create/clone outcome and reload (runs on the main thread)."""
         if error:
@@ -1208,8 +1269,11 @@ class TaskTreeApp(App):
             self._load_tasks()
         else:
             self.notify(escape(f"Created task: {name}"))
+            in_epic = f" in epic '{epic}'" if epic else ""
             self._log_activity(
-                f"Task '{name}' {verb} with {repo_count} repo(s)", MessageLevel.SUCCESS, name
+                f"Task '{name}' {verb} with {repo_count} repo(s){in_epic}",
+                MessageLevel.SUCCESS,
+                name,
             )
             self._load_tasks(select_task=name)
 
@@ -1228,8 +1292,8 @@ class TaskTreeApp(App):
 
         def handle_result(result):
             if result and self._begin_mutation("task-list"):
-                name, repos, base_branch = result
-                self._create_task_worker(name, repos, base_branch, verb="cloned")
+                name, repos, base_branch, epic = result
+                self._create_task_worker(name, repos, base_branch, verb="cloned", epic=epic)
 
         self.push_screen(
             CreateTaskModal(
@@ -1237,6 +1301,8 @@ class TaskTreeApp(App):
                 initial_repos=source_repos,
                 initial_base_branch=self.config.default_base_branch,
                 title=f"Clone Task: {self.current_task.name}",
+                epics=self._epic_choices(),
+                initial_epic=self._epic_of(self.current_task),
             ),
             handle_result,
         )
@@ -1375,6 +1441,87 @@ class TaskTreeApp(App):
             self._run_periodic_refresh(force_ui=True)
 
         self.push_screen(RenameTaskModal(task.name, task.display_name), handle_rename)
+
+    def action_set_epic(self) -> None:
+        """Attach the current task to an epic, detach it, or make it an epic."""
+        task = self.current_task
+        if not task:
+            self.notify("No task selected", severity="warning")
+            return
+        if task.is_epic:
+            self.notify("Epics don't nest: an epic can't join another epic", severity="warning")
+            return
+        epics = [(label, name) for label, name in self._epic_choices() if name != task.name]
+
+        def handle_choice(choice: tuple[str, str | None] | None) -> None:
+            if choice is None:
+                return
+            action, epic = choice
+            if action == "new":
+                self.push_screen(
+                    NewEpicModal(task.name),
+                    lambda name: self._apply_epic_choice(task, "new", name) if name else None,
+                )
+            else:
+                self._apply_epic_choice(task, action, epic)
+
+        self.push_screen(
+            EpicPickerModal(
+                task.display_label,
+                epics,
+                self.query_one("#task-list", TaskList).epic_of(task.name),
+                task.epic_name is None,
+            ),
+            handle_choice,
+        )
+
+    def _apply_epic_choice(self, task: Task, action: str, epic: str | None) -> None:
+        """Write the picked epic change; marker writes are local and fast."""
+        if self._mutation_in_flight():
+            # A delete worker may be rmtree-ing the very folders written here
+            self.notify("Another task operation is still running", severity="warning")
+            return
+        previous = task.epic_name
+        try:
+            if action == "new" and epic:
+                self.task_manager.create_task(epic, [], kind=EPIC_KIND)
+                try:
+                    epic = self.task_manager.set_task_epic(task, epic)
+                except (ValueError, OSError) as e:
+                    # The epic exists now; show it and say what did not happen
+                    self.notify(
+                        escape(f"Created epic '{epic}' but could not add '{task.name}': {e}"),
+                        severity="warning",
+                    )
+                    self._load_tasks(select_task=epic)
+                    return
+                message = f"Created epic '{epic}' and added '{task.name}' to it"
+            elif action == "set" and epic:
+                epic = self.task_manager.set_task_epic(task, epic)
+                if previous == epic:
+                    message = f"Task '{task.name}' already in epic '{epic}'"
+                elif previous:
+                    message = f"Moved '{task.name}' from epic '{previous}' to '{epic}'"
+                else:
+                    message = f"Added '{task.name}' to epic '{epic}'"
+            elif action == "none":
+                self.task_manager.set_task_epic(task, None)
+                message = (
+                    f"Removed '{task.name}' from epic '{previous}'"
+                    if previous
+                    else f"Task '{task.name}' is not in an epic"
+                )
+            elif action == "mark":
+                self.task_manager.set_task_kind(task, EPIC_KIND)
+                message = f"Task '{task.name}' is an epic now"
+            else:
+                return
+        except (ValueError, OSError) as e:
+            self.notify(escape(f"Epic change failed: {e}"), severity="error")
+            return
+        self.notify(escape(message))
+        self._log_activity(message, MessageLevel.INFO, task.name)
+        self._load_tasks(select_task=task.name)
 
     def _finish_task(self, task: Task, force: bool = False) -> None:
         """Kick off task deletion in a background thread."""
@@ -1831,6 +1978,9 @@ class TaskTreeApp(App):
             return
 
         task = self.current_task
+        if not task.worktrees:
+            self.notify("Task has no worktrees", severity="information")
+            return
 
         # Building the combined diff is local git work, but it scales with
         # the size of the trees (one add + diff per worktree), so it runs in
@@ -2262,6 +2412,9 @@ class TaskTreeApp(App):
             # that's disappearing under it.
             self.notify("Another task operation is still running", severity="warning")
             return
+        if not self.current_task.worktrees:
+            self.notify("Task has no worktrees", severity="information")
+            return
 
         worktree_list = self.query_one("#worktree-list", WorktreeList)
         worktree_list.loading = True
@@ -2284,6 +2437,9 @@ class TaskTreeApp(App):
             return
         if self._mutation_in_flight():
             self.notify("Another task operation is still running", severity="warning")
+            return
+        if not self.current_task.worktrees:
+            self.notify("Task has no worktrees", severity="information")
             return
 
         worktree_list = self.query_one("#worktree-list", WorktreeList)

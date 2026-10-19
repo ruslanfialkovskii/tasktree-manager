@@ -275,9 +275,7 @@ class TaskManager:
         created_dir = not task_path.exists()
         if not created_dir and (epic is not None or kind == EPIC_KIND):
             # The hierarchy rules for an existing task live in the two setters
-            raise ValueError(
-                f"Task '{name}' already exists; use tasktree-manager epic add or epic mark"
-            )
+            raise ValueError(f"Task '{name}' already exists")
         task_path.mkdir(parents=True, exist_ok=True)
 
         task = Task(name=name, path=task_path)
@@ -640,6 +638,8 @@ class TaskManager:
         real name — clears the file.
         """
         marker = task.path / ".tasktree_name"
+        if marker.is_symlink():
+            marker.unlink()
         name = (display_name or "").strip()
         if name == task.name:
             name = ""
@@ -652,6 +652,9 @@ class TaskManager:
     def _write_marker(task: Task, marker: str, value: str | None) -> None:
         """Write <task>/<marker>, or remove it when value is None."""
         path = task.path / marker
+        if path.is_symlink():
+            # Never write through a planted link to a file outside the task
+            path.unlink()
         if value is not None:
             path.write_text(value + "\n", encoding="utf-8")
         else:

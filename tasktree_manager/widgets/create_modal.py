@@ -3,12 +3,14 @@
 from typing import Any, ClassVar, TypeVar
 
 from rich.markup import escape
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, SelectionList, Static
+from textual.widgets import Button, Input, Label, OptionList, Select, SelectionList, Static
+from textual.widgets.option_list import Option
 from textual.widgets.selection_list import Selection
 
 from ..services.task_manager import validate_branch_name, validate_task_name
@@ -41,6 +43,8 @@ class ThemedModalScreen(ModalScreen[T]):
         width: 70;
         height: auto;
         max-height: 80%;
+        /* Scroll instead of clipping the buttons on a short terminal */
+        overflow-y: auto;
         border: round $border;
         background: $panel;
         padding: 1 2;
@@ -174,10 +178,13 @@ class RepoFilterMixin:
         self.selected_repos = (self.selected_repos - self._visible_repos) | selected_now
 
 
-class CreateTaskModal(RepoFilterMixin, ThemedModalScreen[tuple[str, list[str], str] | None]):
+class CreateTaskModal(
+    RepoFilterMixin, ThemedModalScreen[tuple[str, list[str], str, str | None] | None]
+):
     """Modal for creating a new task.
 
-    Dismisses with: (name, repos, branch) tuple or None if cancelled.
+    Dismisses with: (name, repos, branch, epic or None) tuple or None if cancelled.
+    The epic selector only shows when `epics` (label, name) pairs are given.
     """
 
     class TaskCreated(Message):
@@ -196,10 +203,14 @@ class CreateTaskModal(RepoFilterMixin, ThemedModalScreen[tuple[str, list[str], s
         initial_repos: list[str] | None = None,
         initial_base_branch: str = "main",
         title: str = "Create New Task",
+        epics: list[tuple[str, str]] | None = None,
+        initial_epic: str | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.available_repos = available_repos
+        self.epics = epics or []
+        self.initial_epic = initial_epic if initial_epic in {n for _, n in self.epics} else None
         # Filter to repos still in REPOS_DIR: an initial_repos entry (e.g.
         # from Clone-Task) that no longer exists there would stay selected
         # but never render, silently blocking creation.
@@ -219,6 +230,15 @@ class CreateTaskModal(RepoFilterMixin, ThemedModalScreen[tuple[str, list[str], s
                 placeholder=self.initial_base_branch,
                 id="base-branch",
             )
+            if self.epics:
+                yield Label("Epic:", classes="section-label")
+                yield Select(
+                    [(Text(label), name) for label, name in self.epics],
+                    prompt="No epic",
+                    id="epic-select",
+                    # Select.NULL does not exist in every supported Textual
+                    **({"value": self.initial_epic} if self.initial_epic else {}),
+                )
             yield Label("Search Repositories:", classes="section-label")
             yield Input(placeholder="Type to filter (e.g., ansible, postgres)...", id="repo-search")
             yield Label("Select Repositories:", classes="section-label")
@@ -259,7 +279,11 @@ class CreateTaskModal(RepoFilterMixin, ThemedModalScreen[tuple[str, list[str], s
             self.notify("Select at least one repository", severity="error")
             return
 
-        self.dismiss((name, selected_repos, base_branch))
+        epic = None
+        if self.epics:
+            value = self.query_one("#epic-select", Select).value
+            epic = value if isinstance(value, str) else None
+        self.dismiss((name, selected_repos, base_branch, epic))
 
 
 class AddRepoModal(RepoFilterMixin, ThemedModalScreen[tuple[list[str], str] | None]):
@@ -531,6 +555,125 @@ class RenameTaskModal(ThemedModalScreen[str | None]):
             self.dismiss(None)
 
 
+class EpicPickerModal(ThemedModalScreen[tuple[str, str | None] | None]):
+    """Pick the epic for a task.
+
+    Dismisses with ("set", epic name), ("none", None) to detach, ("new", None)
+    to create an epic, ("mark", None) to turn the task into an epic, or None.
+    """
+
+    CANCEL_RESULT: ClassVar[None] = None
+
+    DEFAULT_CSS = """
+    EpicPickerModal OptionList {
+        height: auto;
+        max-height: 16;
+        background: $surface;
+        border: round $border;
+    }
+    """
+
+    def __init__(
+        self,
+        task_name: str,
+        epics: list[tuple[str, str]],
+        current_epic: str | None,
+        can_become_epic: bool,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.task_name = task_name
+        self.epics = epics
+        self.current_epic = current_epic
+        self.can_become_epic = can_become_epic
+
+    def compose(self) -> ComposeResult:
+        options = [
+            Option(
+                Text.assemble(("● " if name == self.current_epic else "  "), label),
+                id=f"set:{name}",
+            )
+            for label, name in self.epics
+        ]
+        options.append(Option(Text("  No epic", style="dim"), id="none"))
+        options.append(Option(Text("  + New epic…"), id="new"))
+        if self.can_become_epic:
+            options.append(Option(Text("  Make this an epic"), id="mark"))
+        with Container():
+            yield Label("Set Epic", classes="modal-title")
+            # markup=False: escape() leaves "[$var ...]" tags, alias text is untrusted
+            yield Static(f"Task: {self.task_name}", classes="modal-message", markup=False)
+            yield OptionList(*options, id="epic-options")
+            with Horizontal(classes="button-row"):
+                yield Button("Cancel", variant="default", id="cancel-btn")
+
+    def on_mount(self) -> None:
+        super().on_mount()
+        option_list = self.query_one("#epic-options", OptionList)
+        option_list.focus()
+        if self.current_epic:
+            try:
+                option_list.highlighted = option_list.get_option_index(f"set:{self.current_epic}")
+            except Exception:
+                pass
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        option_id = event.option.id or ""
+        if option_id.startswith("set:"):
+            self.dismiss(("set", option_id[len("set:") :]))
+        else:
+            self.dismiss((option_id, None))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel-btn":
+            self.dismiss(None)
+
+
+class NewEpicModal(ThemedModalScreen[str | None]):
+    """Prompt for the name of a new, empty epic. Dismisses with the name or None."""
+
+    CANCEL_RESULT: ClassVar[None] = None
+
+    def __init__(self, task_name: str, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.task_name = task_name
+
+    def compose(self) -> ComposeResult:
+        with Container():
+            yield Label("New Epic", classes="modal-title")
+            yield Static(
+                f"Creates an epic with no repos and adds {self.task_name} to it.",
+                classes="modal-message",
+                markup=False,
+            )
+            yield Input(placeholder="e.g., DIC-2466-pcaps-epic", id="epic-name")
+            with Horizontal(classes="button-row"):
+                yield Button("Create", variant="primary", id="create-btn")
+                yield Button("Cancel", variant="default", id="cancel-btn")
+
+    def on_mount(self) -> None:
+        super().on_mount()
+        self.query_one("#epic-name", Input).focus()
+
+    def _submit(self) -> None:
+        name = self.query_one("#epic-name", Input).value.strip()
+        error = validate_task_name(name)
+        if error:
+            self.notify(error, severity="error")
+            return
+        self.dismiss(name)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._submit()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "create-btn":
+            self._submit()
+        elif event.button.id == "cancel-btn":
+            self.dismiss(None)
+
+
 class DispatchAgentModal(ThemedModalScreen[str | None]):
     """Prompt for dispatching a background Claude agent into a worktree.
 
@@ -742,9 +885,16 @@ class HelpModal(ThemedModalScreen[None]):
         task_section += (
             self._format_binding("delete_task", "d", "Delete/finish current task") + "\n"
         )
-        task_section += self._format_binding(
-            "rename_task", "R", "Rename task display label (folder/branch unchanged)"
+        task_section += (
+            self._format_binding(
+                "rename_task", "R", "Rename task display label (folder/branch unchanged)"
+            )
+            + "\n"
         )
+        task_section += (
+            self._format_binding("set_epic", "E", "Set the task's epic, or make it an epic") + "\n"
+        )
+        task_section += f"  [bold cyan]{'enter/space':<12}[/] Fold or unfold an epic"
         sections.append(task_section)
 
         # Tools section

@@ -26,6 +26,7 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "add_repo": "a",
     "delete_task": "d",
     "rename_task": "R",
+    "set_epic": "E",
     "open_lazygit": "g",
     "show_diff": "h",
     "open_folder": "o",
@@ -509,6 +510,7 @@ clone_task = "{self._toml_escape(self.keybindings.get("clone_task", "y"))}"
 add_repo = "{self._toml_escape(self.keybindings.get("add_repo", "a"))}"
 delete_task = "{self._toml_escape(self.keybindings.get("delete_task", "d"))}"
 rename_task = "{self._toml_escape(self.keybindings.get("rename_task", "R"))}"
+set_epic = "{self._toml_escape(self.keybindings.get("set_epic", "E"))}"
 open_lazygit = "{self._toml_escape(self.keybindings.get("open_lazygit", "g"))}"
 show_diff = "{self._toml_escape(self.keybindings.get("show_diff", "h"))}"
 open_folder = "{self._toml_escape(self.keybindings.get("open_folder", "o"))}"

@@ -428,3 +428,15 @@ class TestReviewFixes:
         assert cli(cli_config, "delete", "epic-1", "--force") == 1
         assert "cannot delete epic EPIC-1" in capsys.readouterr().err
         assert (cli_config.tasks_dir / "EPIC-1").exists()
+
+
+class TestMarkerSymlink:
+    def test_marker_write_does_not_follow_symlink(self, task_manager, epic, tmp_path):
+        outside = tmp_path / "outside.txt"
+        outside.write_text("keep\n")
+        task = task_manager.create_task("T-1", [])
+        (task.path / ".tasktree_epic").symlink_to(outside)
+        task_manager.set_task_epic(task, "EPIC-1")
+        assert outside.read_text() == "keep\n"
+        assert not (task.path / ".tasktree_epic").is_symlink()
+        assert task.epic_name == "EPIC-1"
