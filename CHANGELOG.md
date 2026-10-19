@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.14.0] - 2026-10-19
+
+### Added
+- **epic**: Group tasks under epics from the CLI
+
+
 ## [2.13.3] - 2026-10-16
 
 ### Changed
