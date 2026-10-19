@@ -13,33 +13,16 @@ from . import forge
 from .claude_hooks import ensure_worktree_claude_settings, exclude_from_git
 from .config import KEY_MATERIAL_PATTERNS, Config
 from .git_ops import sanitize_text
-from .models import ArchiveResult, RepoIssue, Task, TaskSafetyReport, Worktree
-
-# Task name validation pattern. No '/': a task is exactly one directory
-# level under TASKS_DIR (list_tasks() only reads that level), and a slashed
-# name would be surfaced as its parent directory with the wrong branch name.
-TASK_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9._\-]+$")
-
-
-def validate_task_name(name: str) -> str | None:
-    """Validate a task name, returning an error message or None if valid.
-
-    Task names become a directory under TASKS_DIR and a git branch name, so
-    they must be a single path segment that cannot traverse ('.', '..') or
-    look like a git option (leading '-').
-    """
-    if not name:
-        return "Task name cannot be empty"
-    if name.startswith("-"):
-        return "Task name cannot start with '-'"
-    if name.startswith("."):
-        # list_tasks() hides dot-dirs (so the task would vanish from the
-        # list), and the archive dir itself lives at TASKS_DIR/.archive
-        return "Task name cannot start with '.'"
-    if not TASK_NAME_PATTERN.match(name):
-        return "Task name can only contain letters, numbers, '.', '_', '-'"
-    return None
-
+from .models import (
+    EPIC_KIND,
+    TASK_KIND,
+    ArchiveResult,
+    RepoIssue,
+    Task,
+    TaskSafetyReport,
+    Worktree,
+    validate_task_name,
+)
 
 # Characters git itself forbids in ref names, plus ':' (which would turn the
 # `git fetch origin <base>` argument into a src:dst refspec that overwrites a
@@ -246,17 +229,55 @@ class TaskManager:
         if not task_path.exists():
             return None
 
-        task = Task(name=name, path=task_path)
+        name = self._on_disk_name(name)
+        task = Task(name=name, path=self.config.tasks_dir / name)
         task.worktrees = self._get_worktrees(task)
         return task
 
-    def create_task(self, name: str, repos: list[str], base_branch: str = "master") -> Task:
-        """Create a new task with worktrees for specified repos."""
+    def _on_disk_name(self, name: str) -> str:
+        """The folder name as spelled on disk, for an existing task `name`.
+
+        On a case-insensitive filesystem `epic-1` opens `EPIC-1`; markers and
+        branches must use the real spelling or the epic checks miss children.
+        """
+        path = self.config.tasks_dir / name
+        if any(item.name == name for item in self.config.tasks_dir.iterdir()):
+            return name
+        for item in self.config.tasks_dir.iterdir():
+            if item.name.casefold() == name.casefold() and os.path.samefile(item, path):
+                return item.name
+        return name
+
+    def create_task(
+        self,
+        name: str,
+        repos: list[str],
+        base_branch: str = "master",
+        *,
+        epic: str | None = None,
+        kind: str = TASK_KIND,
+    ) -> Task:
+        """Create a new task with worktrees for specified repos.
+
+        `epic` attaches the new task to an existing epic; `kind="epic"`
+        creates an epic. Both are checked before anything is written.
+        """
         # Validate task name
         self._validate_task_name(name)
+        if kind not in (TASK_KIND, EPIC_KIND):
+            raise ValueError(f"Unknown task kind: {kind}")
+        if epic is not None:
+            if kind == EPIC_KIND:
+                raise ValueError("An epic cannot belong to another epic")
+            self._require_epic(epic, name)
 
         task_path = self.config.tasks_dir / name
         created_dir = not task_path.exists()
+        if not created_dir and (epic is not None or kind == EPIC_KIND):
+            # The hierarchy rules for an existing task live in the two setters
+            raise ValueError(
+                f"Task '{name}' already exists; use tasktree-manager epic add or epic mark"
+            )
         task_path.mkdir(parents=True, exist_ok=True)
 
         task = Task(name=name, path=task_path)
@@ -268,6 +289,11 @@ class TaskManager:
             for repo_name in repos:
                 if self._create_worktree(task, repo_name, base_branch):
                     branch_created.add(repo_name)
+            if kind == EPIC_KIND:
+                self._write_marker(task, ".tasktree_kind", EPIC_KIND)
+            if epic is not None:
+                # Re-checked: the epic may have changed while worktrees were created
+                self.set_task_epic(task, epic)
         except BaseException:
             # A half-created task (a bad base branch in repo #2, a fetch
             # timeout) must not linger as a ghost: it shows up in the list
@@ -585,6 +611,11 @@ class TaskManager:
         added a worktree that was never safety-checked or archived. Raises
         instead of silently rmtree-ing anything unaccounted for.
         """
+        if task.is_epic:
+            children = self.epic_child_names(task.name)
+            if children:
+                raise ValueError(self._epic_has_children_message(task, children))
+
         current_names = {wt.name for wt in self._get_worktrees(task)}
         known_names = {wt.name for wt in task.worktrees}
         unexpected = sorted(current_names - known_names)
@@ -616,6 +647,115 @@ class TaskManager:
             marker.write_text(name + "\n", encoding="utf-8")
         elif marker.exists():
             marker.unlink()
+
+    @staticmethod
+    def _write_marker(task: Task, marker: str, value: str | None) -> None:
+        """Write <task>/<marker>, or remove it when value is None."""
+        path = task.path / marker
+        if value is not None:
+            path.write_text(value + "\n", encoding="utf-8")
+        else:
+            path.unlink(missing_ok=True)
+
+    def _require_epic(self, epic_name: str, task_name: str) -> str:
+        """Return the epic's name as spelled on disk, or raise ValueError.
+
+        `task_name` is the task about to join it: a task cannot be its own epic.
+        """
+        self._validate_task_name(epic_name)
+        if epic_name == task_name or self._same_task(epic_name, task_name):
+            raise ValueError(f"Task '{task_name}' cannot be its own epic")
+        epic_path = self.config.tasks_dir / epic_name
+        if not epic_path.is_dir():
+            raise ValueError(f"No such epic: {epic_name}")
+        epic_name = self._on_disk_name(epic_name)
+        if not Task(name=epic_name, path=epic_path).is_epic:
+            raise ValueError(
+                f"'{epic_name}' is not an epic (mark it with: tasktree-manager epic mark {epic_name})"
+            )
+        return epic_name
+
+    def epic_child_names(self, epic_name: str) -> list[str]:
+        """Names of the tasks whose .tasktree_epic marker names this epic.
+
+        Reads markers only: list_tasks() walks every task's worktrees.
+        """
+        if not self.config.tasks_dir.exists():
+            return []
+        names = []
+        for item in sorted(self.config.tasks_dir.iterdir()):
+            if item.is_dir() and not item.name.startswith("."):
+                parent = Task(name=item.name, path=item).epic_name
+                if parent == epic_name or (
+                    parent is not None
+                    and parent.casefold() == epic_name.casefold()
+                    and self._same_task(parent, epic_name)
+                ):
+                    names.append(item.name)
+        return names
+
+    def _same_task(self, a: str, b: str) -> bool:
+        """True when two task names open the same folder (case-insensitive disks)."""
+        try:
+            return os.path.samefile(self.config.tasks_dir / a, self.config.tasks_dir / b)
+        except OSError:
+            return False
+
+    def epic_children(self, epic: Task) -> list[Task]:
+        """The tasks attached to an epic, with their worktrees, sorted by name."""
+        children = []
+        for name in self.epic_child_names(epic.name):
+            child = self.get_task(name)
+            if child is not None:
+                children.append(child)
+        return children
+
+    @staticmethod
+    def _epic_has_children_message(epic: Task, children: list[str]) -> str:
+        return (
+            f"Epic '{epic.name}' still has {len(children)} task(s): {', '.join(children)}; "
+            "finish them or detach them with: tasktree-manager epic remove"
+        )
+
+    def set_task_epic(self, task: Task, epic_name: str | None) -> str | None:
+        """Attach a task to an epic, move it to another one, or detach it (None).
+
+        Returns the epic name as written. Epics don't nest: an epic cannot
+        join an epic.
+        """
+        if epic_name is None:
+            self._write_marker(task, ".tasktree_epic", None)
+            return None
+        if task.is_epic:
+            raise ValueError(f"'{task.name}' is an epic; epics cannot belong to another epic")
+        epic_name = self._require_epic(epic_name, task.name)
+        self._write_marker(task, ".tasktree_epic", epic_name)
+        return epic_name
+
+    def set_task_kind(self, task: Task, kind: str) -> None:
+        """Turn a task into an epic or an epic back into a task.
+
+        A task that belongs to an epic cannot become one, and an epic with
+        children cannot become a task.
+        """
+        if kind == EPIC_KIND:
+            if task.epic_name is not None:
+                raise ValueError(
+                    f"'{task.name}' belongs to epic '{task.epic_name}'; "
+                    "detach it first (tasktree-manager epic remove)"
+                )
+            self._write_marker(task, ".tasktree_kind", EPIC_KIND)
+            # An unreadable or self-naming parent marker reads as None; drop it
+            self._write_marker(task, ".tasktree_epic", None)
+        elif kind == TASK_KIND:
+            children = self.epic_child_names(task.name) if task.is_epic else []
+            if children:
+                raise ValueError(self._epic_has_children_message(task, children))
+            self._write_marker(task, ".tasktree_kind", None)
+            # A parent marker the epic carried was hidden; never let it surface
+            self._write_marker(task, ".tasktree_epic", None)
+        else:
+            raise ValueError(f"Unknown task kind: {kind}")
 
     def archive_task(
         self, task: Task, notes: list[str] | None = None, include_files: bool = True

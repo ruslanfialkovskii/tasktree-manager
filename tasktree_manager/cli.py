@@ -16,7 +16,7 @@ from . import __version__
 from .services import forge
 from .services.config import Config, ConfigError
 from .services.git_ops import GitOps
-from .services.models import ArchiveResult, Task
+from .services.models import EPIC_KIND, TASK_KIND, ArchiveResult, Task
 from .services.task_manager import ARCHIVE_NOTES_SHOWN, ArchiveIncompleteError, TaskManager
 
 
@@ -41,7 +41,42 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Base branch for the worktrees (default: git.default_base_branch from config)",
     )
+    create.add_argument("--epic", default=None, help="Attach the new task to this epic")
     create.set_defaults(func=cmd_create)
+
+    epic = sub.add_parser("epic", help="Group tasks under epics")
+    epic_sub = epic.add_subparsers(dest="epic_command", required=True)
+
+    epic_create = epic_sub.add_parser("create", help="Create an epic (repos are optional)")
+    epic_create.add_argument("name", help="Epic name (also the branch name of its worktrees)")
+    epic_create.add_argument(
+        "--repos", default="", help="Comma-separated repo names from REPOS_DIR"
+    )
+    epic_create.add_argument("--base", default=None, help="Base branch for the worktrees")
+    epic_create.set_defaults(func=cmd_epic_create)
+
+    epic_add = epic_sub.add_parser(
+        "add", help="Attach tasks to an epic (moves them from another epic)"
+    )
+    epic_add.add_argument("epic", help="Epic name")
+    epic_add.add_argument("tasks", nargs="+", help="Task names")
+    epic_add.set_defaults(func=cmd_epic_add)
+
+    epic_remove = epic_sub.add_parser("remove", help="Detach tasks from their epic")
+    epic_remove.add_argument("tasks", nargs="+", help="Task names")
+    epic_remove.set_defaults(func=cmd_epic_remove)
+
+    epic_mark = epic_sub.add_parser("mark", help="Turn an existing task into an epic")
+    epic_mark.add_argument("name", help="Task name")
+    epic_mark.set_defaults(func=cmd_epic_mark)
+
+    epic_unmark = epic_sub.add_parser("unmark", help="Turn an epic without tasks back into a task")
+    epic_unmark.add_argument("name", help="Epic name")
+    epic_unmark.set_defaults(func=cmd_epic_unmark)
+
+    epic_list = epic_sub.add_parser("list", help="List epics and their tasks")
+    epic_list.add_argument("--json", action="store_true", dest="as_json", help="Output JSON")
+    epic_list.set_defaults(func=cmd_epic_list)
 
     list_parser = sub.add_parser("list", help="List tasks with their repos and dirty state")
     list_parser.add_argument("--json", action="store_true", dest="as_json", help="Output JSON")
@@ -56,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Delete even with uncommitted, unpushed or unmerged work, or task files "
-        "that could not be archived",
+        "that could not be archived (never an epic that still has tasks)",
     )
     delete.set_defaults(func=cmd_delete)
 
@@ -81,7 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Finish even with unfinished work or task files that could not be archived "
-        "(the archive is still written)",
+        "(the archive is still written; never an epic that still has tasks)",
     )
     finish.set_defaults(func=cmd_finish)
 
@@ -123,19 +158,42 @@ def _unknown_repos_error(config: Config, repos: list[str]) -> str | None:
     return None
 
 
+def _split_repos(value: str) -> list[str]:
+    return [r.strip() for r in value.split(",") if r.strip()]
+
+
 def cmd_create(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
     """Create a task with worktrees for the given repos."""
-    repos = [r.strip() for r in args.repos.split(",") if r.strip()]
+    repos = _split_repos(args.repos)
     if not repos:
         return _error("--repos needs at least one repo name")
-    error = _unknown_repos_error(config, repos)
+    return _create(manager, config, args.name, repos, args.base, epic=args.epic)
+
+
+def cmd_epic_create(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
+    """Create an epic, with or without worktrees."""
+    return _create(manager, config, args.name, _split_repos(args.repos), args.base, kind=EPIC_KIND)
+
+
+def _create(
+    manager: TaskManager,
+    config: Config,
+    name: str,
+    repos: list[str],
+    base: str | None,
+    *,
+    epic: str | None = None,
+    kind: str = TASK_KIND,
+) -> int:
+    """Shared body of `create` and `epic create`."""
+    error = _unknown_repos_error(config, repos) if repos else None
     if error:
         return _error(error)
-    if manager.get_task(args.name):
-        return _error(f"task already exists: {args.name}")
+    if manager.get_task(name):
+        return _error(f"task already exists: {name}")
 
-    base = args.base or config.default_base_branch
-    task = manager.create_task(args.name, repos, base)
+    base = base or config.default_base_branch
+    task = manager.create_task(name, repos, base, epic=epic, kind=kind)
     # CLI-created tasks may never pass through the TUI's lazy Claude prep,
     # so materialize CLAUDE.md files and worktree settings right away. These
     # are best-effort polish on a task that already exists: a failure here
@@ -149,9 +207,136 @@ def cmd_create(manager: TaskManager, config: Config, args: argparse.Namespace) -
         except Exception as e:
             print(f"warning: {step_name} setup failed: {e}", file=sys.stderr)
 
-    repo_list = ", ".join(wt.name for wt in task.worktrees)
-    print(f"Created task {task.name} at {task.path} ({len(task.worktrees)} repo(s): {repo_list})")
+    noun = "epic" if task.is_epic else "task"
+    repo_list = ", ".join(wt.name for wt in task.worktrees) or "none"
+    line = f"Created {noun} {task.name} at {task.path} ({len(task.worktrees)} repo(s): {repo_list})"
+    if task.epic_name is not None:
+        line += f" in epic {task.epic_name}"
+    print(line)
     return 0
+
+
+def _get_tasks(manager: TaskManager, names: list[str]) -> list[Task] | None:
+    """Resolve task names, printing an error for each missing one (None if any)."""
+    tasks = []
+    missing = False
+    for name in names:
+        task = manager.get_task(name)
+        if task is None:
+            _error(f"no such task: {name}")
+            missing = True
+        else:
+            tasks.append(task)
+    return None if missing else tasks
+
+
+def cmd_epic_add(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
+    """Attach tasks to an epic; a task in another epic moves."""
+    tasks = _get_tasks(manager, args.tasks)
+    if tasks is None:
+        return 1
+    code = 0
+    for task in tasks:
+        previous = task.epic_name
+        try:
+            # Always through the setter: it re-checks that the epic still exists
+            epic = manager.set_task_epic(task, args.epic)
+        except ValueError as e:
+            code = _error(str(e))
+            continue
+        if previous == epic:
+            print(f"Task {task.name} already in epic {epic}")
+        elif previous is None:
+            print(f"Added {task.name} to epic {epic}")
+        else:
+            print(f"Moved {task.name} from epic {previous} to epic {epic}")
+    return code
+
+
+def cmd_epic_remove(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
+    """Detach tasks from their epic."""
+    tasks = _get_tasks(manager, args.tasks)
+    if tasks is None:
+        return 1
+    for task in tasks:
+        previous = task.epic_name
+        manager.set_task_epic(task, None)
+        if previous is None:
+            print(f"Task {task.name} is not in an epic")
+        else:
+            print(f"Removed {task.name} from epic {previous}")
+    return 0
+
+
+def cmd_epic_mark(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
+    """Turn an existing task into an epic."""
+    task = manager.get_task(args.name)
+    if not task:
+        return _error(f"no such task: {args.name}")
+    if task.is_epic:
+        print(f"Task {args.name} is already an epic")
+        return 0
+    manager.set_task_kind(task, EPIC_KIND)
+    print(f"Marked {args.name} as an epic")
+    return 0
+
+
+def cmd_epic_unmark(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
+    """Turn an epic without tasks back into a plain task."""
+    task = manager.get_task(args.name)
+    if not task:
+        return _error(f"no such task: {args.name}")
+    if not task.is_epic:
+        print(f"Task {args.name} is not an epic")
+        return 0
+    manager.set_task_kind(task, TASK_KIND)
+    print(f"Unmarked {args.name}: it is a plain task now")
+    return 0
+
+
+def cmd_epic_list(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
+    """List epics and the tasks attached to each (no git calls)."""
+    epics = [task for task in manager.list_tasks() if task.is_epic]
+    children = {epic.name: manager.epic_child_names(epic.name) for epic in epics}
+
+    if args.as_json:
+        payload = [
+            {
+                "name": epic.name,
+                "display_name": epic.display_name,
+                "path": str(epic.path),
+                "repos": [wt.name for wt in epic.worktrees],
+                "tasks": children[epic.name],
+            }
+            for epic in epics
+        ]
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    if not epics:
+        print("No epics")
+        return 0
+    for epic in epics:
+        names = children[epic.name]
+        print(f"{epic.name}\t{len(names)} task(s)\t{', '.join(names) or '(no tasks)'}")
+    return 0
+
+
+def _refuse_epic_with_children(manager: TaskManager, task: Task, verb: str) -> bool:
+    """Print an error and return True if `task` is an epic that still has tasks.
+
+    Checked before the safety sweep: --force covers git state, not hierarchy.
+    """
+    if not task.is_epic:
+        return False
+    children = manager.epic_child_names(task.name)
+    if not children:
+        return False
+    _error(
+        f"cannot {verb} epic {task.name}: it still has {len(children)} task(s): "
+        f"{', '.join(children)}; finish them or run: tasktree-manager epic remove TASK"
+    )
+    return True
 
 
 def cmd_list(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
@@ -171,6 +356,8 @@ def cmd_list(manager: TaskManager, config: Config, args: argparse.Namespace) -> 
             {
                 "name": task.name,
                 "display_name": task.display_name,
+                "kind": task.kind,
+                "epic": task.epic_name,
                 "path": str(task.path),
                 "repos": [wt.name for wt in task.worktrees],
                 "dirty": dirty[task.name],
@@ -252,6 +439,8 @@ def cmd_delete(manager: TaskManager, config: Config, args: argparse.Namespace) -
     task = manager.get_task(args.name)
     if not task:
         return _error(f"no such task: {args.name}")
+    if _refuse_epic_with_children(manager, task, "delete"):
+        return 1
 
     report = manager.check_task_safety(task)
     if not report.is_safe() and not args.force:
@@ -276,6 +465,8 @@ def cmd_finish(manager: TaskManager, config: Config, args: argparse.Namespace) -
     task = manager.get_task(args.name)
     if not task:
         return _error(f"no such task: {args.name}")
+    if _refuse_epic_with_children(manager, task, "finish"):
+        return 1
 
     # Push unconditionally when asked (TUI parity: `git push -u origin HEAD`).
     # Gating on has_unpushed() would skip never-pushed --no-track branches,
@@ -431,6 +622,8 @@ def cmd_status(manager: TaskManager, config: Config, args: argparse.Namespace) -
     if args.as_json:
         payload = {
             "task": task.name,
+            "kind": task.kind,
+            "epic": task.epic_name,
             "path": str(task.path),
             "claude": claude,
             "worktrees": [

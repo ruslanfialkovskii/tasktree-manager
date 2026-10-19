@@ -1,7 +1,45 @@
 """Data models for tasktree-manager."""
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+# Task name validation pattern. No '/': a task is exactly one directory
+# level under TASKS_DIR (list_tasks() only reads that level), and a slashed
+# name would be surfaced as its parent directory with the wrong branch name.
+TASK_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9._\-]+$")
+
+EPIC_KIND = "epic"
+TASK_KIND = "task"
+
+
+def validate_task_name(name: str) -> str | None:
+    """Validate a task name, returning an error message or None if valid.
+
+    Task names become a directory under TASKS_DIR and a git branch name, so
+    they must be a single path segment that cannot traverse ('.', '..') or
+    look like a git option (leading '-').
+    """
+    if not name:
+        return "Task name cannot be empty"
+    if name.startswith("-"):
+        return "Task name cannot start with '-'"
+    if name.startswith("."):
+        # list_tasks() hides dot-dirs (so the task would vanish from the
+        # list), and the archive dir itself lives at TASKS_DIR/.archive
+        return "Task name cannot start with '.'"
+    if not TASK_NAME_PATTERN.fullmatch(name):
+        return "Task name can only contain letters, numbers, '.', '_', '-'"
+    return None
+
+
+def _read_marker(path: Path) -> str | None:
+    """Stripped content of a marker file, or None when missing or empty."""
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return value or None
 
 
 @dataclass
@@ -55,16 +93,38 @@ class Task:
         Read lazily from disk so every Task construction site picks it up
         and a rename is visible on the next render without reloading.
         """
-        try:
-            value = (self.path / ".tasktree_name").read_text(encoding="utf-8").strip()
-        except OSError:
-            return None
-        return value or None
+        return _read_marker(self.path / ".tasktree_name")
 
     @property
     def display_label(self) -> str:
         """What the task list shows: the alias when set, else the real name."""
         return self.display_name or self.name
+
+    @property
+    def kind(self) -> str:
+        """'epic' when <task>/.tasktree_kind says so, else 'task'."""
+        if _read_marker(self.path / ".tasktree_kind") == EPIC_KIND:
+            return EPIC_KIND
+        return TASK_KIND
+
+    @property
+    def is_epic(self) -> bool:
+        """True for an epic: a task folder that groups other tasks."""
+        return self.kind == EPIC_KIND
+
+    @property
+    def epic_name(self) -> str | None:
+        """Parent epic from <task>/.tasktree_epic, or None.
+
+        The marker becomes a path, so a value that is not a valid task name
+        or names the task itself reads as None. Epics never have a parent.
+        """
+        value = _read_marker(self.path / ".tasktree_epic")
+        if value is None or value == self.name or validate_task_name(value):
+            return None
+        if self.is_epic:
+            return None
+        return value
 
 
 @dataclass

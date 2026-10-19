@@ -1300,6 +1300,16 @@ class TaskTreeApp(App):
         if not self.current_task:
             self.notify("No task selected", severity="warning")
             return
+        if self.current_task.is_epic:
+            children = self.task_manager.epic_child_names(self.current_task.name)
+            if children:
+                self.notify(
+                    escape(
+                        f"Epic '{self.current_task.name}' still has tasks: {', '.join(children)}"
+                    ),
+                    severity="warning",
+                )
+                return
 
         # Safety checks hit the network (git fetch per worktree), so run them
         # in a background thread and show the dialog when they complete

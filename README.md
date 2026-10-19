@@ -86,6 +86,23 @@ tasktree-manager finish DIC-1901-argocd-tls   # safety sweep -> archive diff + t
 tasktree-manager delete DIC-1901-argocd-tls   # archive diff + task files -> delete; refuses on unfinished work; --force overrides
 ```
 
+Epics group related tasks, for example a Jira epic and its child tasks. An epic is a task
+folder with a `.tasktree_kind` marker. It can hold its own notes, Claude session and
+worktrees. A child task names its epic in `.tasktree_epic`. Folders never move:
+
+```bash
+tasktree-manager epic create DIC-2466-pcaps-epic             # --repos is optional for an epic
+tasktree-manager create DIC-2861-pcaps-logs --repos infra --epic DIC-2466-pcaps-epic
+tasktree-manager epic add DIC-2466-pcaps-epic DIC-2862-pcaps-s3  # attach or move existing tasks
+tasktree-manager epic remove DIC-2862-pcaps-s3                # detach
+tasktree-manager epic mark DIC-2466-pcaps-epic                # turn an existing task into an epic; unmark reverts
+tasktree-manager epic list                                    # epics and their tasks; also --json
+```
+
+Epics don't nest. `list --json` and `status --json` carry `kind` (`task` or `epic`) and
+`epic` (the parent epic or `null`). `delete` and `finish` refuse an epic that still has
+tasks, even with `--force`.
+
 Exit code is 0 on success, 1 on failure with the reason on stderr. `delete` and `finish` run
 the same safety check as the TUI (uncommitted, unpushed, or unmerged work blocks deletion);
 with `glab`/`gh` installed, squash/rebase-merged branches are recognized as merged. If the
