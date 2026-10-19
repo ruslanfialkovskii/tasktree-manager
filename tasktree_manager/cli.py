@@ -213,7 +213,15 @@ def _create(
     if task.epic_name is not None:
         line += f" in epic {task.epic_name}"
     print(line)
+    _warn_epic_block(manager, task)
     return 0
+
+
+def _warn_epic_block(manager: TaskManager, task: Task) -> None:
+    """Print why the task's CLAUDE.md epic block could not follow a change."""
+    problem = manager.sync_epic_block(task)
+    if problem:
+        print(f"warning: {problem}", file=sys.stderr)
 
 
 def _get_tasks(manager: TaskManager, names: list[str]) -> list[Task] | None:
@@ -250,6 +258,7 @@ def cmd_epic_add(manager: TaskManager, config: Config, args: argparse.Namespace)
             print(f"Added {task.name} to epic {epic}")
         else:
             print(f"Moved {task.name} from epic {previous} to epic {epic}")
+        _warn_epic_block(manager, task)
     return code
 
 
@@ -265,6 +274,7 @@ def cmd_epic_remove(manager: TaskManager, config: Config, args: argparse.Namespa
             print(f"Task {task.name} is not in an epic")
         else:
             print(f"Removed {task.name} from epic {previous}")
+        _warn_epic_block(manager, task)
     return 0
 
 
@@ -278,6 +288,7 @@ def cmd_epic_mark(manager: TaskManager, config: Config, args: argparse.Namespace
         return 0
     manager.set_task_kind(task, EPIC_KIND)
     print(f"Marked {args.name} as an epic")
+    _warn_epic_block(manager, task)
     return 0
 
 
@@ -291,6 +302,7 @@ def cmd_epic_unmark(manager: TaskManager, config: Config, args: argparse.Namespa
         return 0
     manager.set_task_kind(task, TASK_KIND)
     print(f"Unmarked {args.name}: it is a plain task now")
+    _warn_epic_block(manager, task)
     return 0
 
 

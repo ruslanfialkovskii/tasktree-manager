@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -82,6 +83,37 @@ ARCHIVE_SECRET_PATTERNS = [
 # A worktree entry of the generated CLAUDE.md and its optional branch line
 _STUB_ENTRY = re.compile(r"- \*\*(?P<name>[^*]+)\*\*: `(?P<path>[^`]+)`")
 _STUB_BRANCH = re.compile(r"  - Branch: `[^`]+`")
+
+
+# Managed block in a task CLAUDE.md that tells a session about its epic
+EPIC_BLOCK_START = "<!-- tasktree:epic -->"
+EPIC_BLOCK_END = "<!-- /tasktree:epic -->"
+
+
+def _epic_block_span(text: str) -> tuple[int, int] | None:
+    """(start, end) of the one managed epic block, or None.
+
+    Raises ValueError when the markers are unbalanced, repeated or out of
+    order: the file was edited by hand and must be left alone.
+    """
+    starts, ends = text.count(EPIC_BLOCK_START), text.count(EPIC_BLOCK_END)
+    if starts == ends == 0:
+        return None
+    start, end = text.find(EPIC_BLOCK_START), text.find(EPIC_BLOCK_END)
+    if starts != 1 or ends != 1 or end < start:
+        raise ValueError("mismatched tasktree:epic markers")
+    return start, end + len(EPIC_BLOCK_END)
+
+
+def _without_epic_block(text: str) -> str:
+    """CLAUDE.md text with the managed epic block cut out (unchanged if malformed)."""
+    try:
+        span = _epic_block_span(text)
+    except ValueError:
+        return text
+    if span is None:
+        return text
+    return text[: span[0]] + text[span[1] :]
 
 
 def _without_worktree_entries(text: str, task_path: Path) -> list[str]:
@@ -648,9 +680,13 @@ class TaskManager:
         elif marker.exists():
             marker.unlink()
 
-    @staticmethod
-    def _write_marker(task: Task, marker: str, value: str | None) -> None:
-        """Write <task>/<marker>, or remove it when value is None."""
+    def _write_marker(self, task: Task, marker: str, value: str | None) -> None:
+        """Write <task>/<marker>, or remove it when value is None.
+
+        Every epic change passes through here, so the CLAUDE.md epic block
+        follows it. That sync never raises: callers that report problems run
+        sync_epic_block again and show what it returns.
+        """
         path = task.path / marker
         if path.is_symlink():
             # Never write through a planted link to a file outside the task
@@ -659,6 +695,100 @@ class TaskManager:
             path.write_text(value + "\n", encoding="utf-8")
         else:
             path.unlink(missing_ok=True)
+        self.sync_epic_block(task)
+
+    def _render_epic_block(self, task: Task) -> str | None:
+        """The managed CLAUDE.md block for an epic or a child task, else None."""
+        tasks_dir = self.config.tasks_dir.absolute()
+        if task.is_epic:
+            body = [
+                f"This folder is the epic `{task.name}`. Its tasks are the folders in",
+                f"`{tasks_dir}` whose `.tasktree_epic` file names `{task.name}`; list them",
+                "with `tasktree-manager epic list`.",
+            ]
+        elif task.epic_name is not None:
+            epic = task.epic_name
+            body = [
+                f"This task belongs to the epic `{epic}` at `{tasks_dir / epic}`.",
+                "The epic folder holds the shared notes and plans. Its worktrees belong",
+                "to the epic, not to this task: read them for context, change code here.",
+                f"Sibling tasks are the folders in `{tasks_dir}` whose `.tasktree_epic`",
+                f"file names `{epic}`; list them with `tasktree-manager epic list`.",
+            ]
+        else:
+            return None
+        return "\n".join([EPIC_BLOCK_START, "## Epic", "", *body, EPIC_BLOCK_END])
+
+    def sync_epic_block(self, task: Task) -> str | None:
+        """Insert, update or remove the epic block in <task>/CLAUDE.md.
+
+        Returns a problem to show the user, or None; never raises. Text outside
+        the markers keeps its bytes and line endings, and the file is replaced
+        atomically. A missing CLAUDE.md is left for ensure_claude_md_files; a
+        read-only one or one with mismatched markers is not touched.
+        """
+        path = task.path / "CLAUDE.md"
+        if not path.is_file() or path.is_symlink():
+            return None
+        try:
+            # surrogateescape round-trips bytes that are not UTF-8
+            text = path.read_bytes().decode("utf-8", "surrogateescape")
+            span = _epic_block_span(text)
+        except OSError as e:
+            return f"could not read {path}: {e}"
+        except ValueError:
+            return f"{path} has mismatched tasktree:epic markers; the epic block was not updated"
+        new = self._with_epic_block(text, span, self._render_epic_block(task))
+        if new == text:
+            return None
+        if not os.access(path, os.W_OK):
+            return f"{path} is read-only; the epic block was not updated"
+        try:
+            self._replace_file(path, new.encode("utf-8", "surrogateescape"))
+        except OSError as e:
+            return f"could not update the epic block in {path}: {e}"
+        return None
+
+    @staticmethod
+    def _with_epic_block(text: str, span: tuple[int, int] | None, block: str | None) -> str:
+        """`text` with the block inserted, replaced or removed (in the file's line endings)."""
+        nl = "\r\n" if "\r\n" in text else "\n"
+        if block is not None:
+            block = block.replace("\n", nl)
+        if span is not None:
+            before, after = text[: span[0]], text[span[1] :]
+            if block is not None:
+                return before + block + after
+            # Drop the line break after the block and the blank line added before it
+            after = after.removeprefix(nl)
+            if before.endswith(nl + nl):
+                before = before[: -len(nl)]
+            return before + after
+        if block is None:
+            return text
+        if not text:
+            return block + nl
+        sep = "" if text.endswith(nl + nl) else nl if text.endswith(nl) else nl + nl
+        return text + sep + block + nl
+
+    @staticmethod
+    def _replace_file(path: Path, data: bytes) -> None:
+        """Write `data` to `path` via a temp file and an atomic rename.
+
+        A failed write leaves the old file whole; the hidden temp name keeps
+        a leftover out of the archive.
+        """
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            shutil.copymode(path, tmp)
+            os.replace(tmp, path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
 
     def _require_epic(self, epic_name: str, task_name: str) -> str:
         """Return the epic's name as spelled on disk, or raise ValueError.
@@ -754,9 +884,10 @@ class TaskManager:
             children = self.epic_child_names(task.name) if task.is_epic else []
             if children:
                 raise ValueError(self._epic_has_children_message(task, children))
-            self._write_marker(task, ".tasktree_kind", None)
-            # A parent marker the epic carried was hidden; never let it surface
+            # A parent marker the epic carried was hidden; drop it before the
+            # kind, or the CLAUDE.md sync would briefly treat it as real
             self._write_marker(task, ".tasktree_epic", None)
+            self._write_marker(task, ".tasktree_kind", None)
         else:
             raise ValueError(f"Unknown task kind: {kind}")
 
@@ -980,9 +1111,10 @@ class TaskManager:
         except (OSError, UnicodeDecodeError):
             return False
         stub = self._render_task_claude_md(task.name, [])
-        return _without_worktree_entries(text, task.path) == _without_worktree_entries(
-            stub, task.path
-        )
+        # The managed epic block is generated too
+        return _without_worktree_entries(
+            _without_epic_block(text), task.path
+        ) == _without_worktree_entries(stub, task.path)
 
     def _resolve_archive_base(self, worktree: Worktree, recorded_base: str | None) -> str:
         """Pick a base branch for the archive diff that actually resolves.
@@ -1362,6 +1494,7 @@ class TaskManager:
         task_claude_md = task.path / "CLAUDE.md"
         if not task_claude_md.exists():
             self._create_task_claude_md(task)
+        self.sync_epic_block(task)
 
         for worktree in task.worktrees:
             wt_claude_md = worktree.path / "CLAUDE.md"

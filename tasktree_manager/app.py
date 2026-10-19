@@ -1521,6 +1521,10 @@ class TaskTreeApp(App):
             return
         self.notify(escape(message))
         self._log_activity(message, MessageLevel.INFO, task.name)
+        problem = self.task_manager.sync_epic_block(task)
+        if problem:
+            self.notify(escape(problem), severity="warning")
+            self._log_activity(problem, MessageLevel.WARNING, task.name)
         self._load_tasks(select_task=task.name)
 
     def _finish_task(self, task: Task, force: bool = False) -> None:

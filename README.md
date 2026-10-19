@@ -102,7 +102,9 @@ tasktree-manager epic mark DIC-2466-pcaps-epic                # turn an existing
 tasktree-manager epic list                                    # epics and their tasks; also --json
 ```
 
-Epics don't nest. `list --json` and `status --json` carry `kind` (`task` or `epic`) and
+Each task's `CLAUDE.md` gets a managed block naming its epic and how to find sibling
+tasks; it follows every epic change and leaves the rest of the file alone. Epics don't
+nest. `list --json` and `status --json` carry `kind` (`task` or `epic`) and
 `epic` (the parent epic or `null`). `delete` and `finish` refuse an epic that still has
 tasks, even with `--force`.
 
@@ -227,11 +229,10 @@ For comprehensive troubleshooting, see the [Troubleshooting Guide](docs/troubles
 Recently shipped: agent dashboard (per-worktree Claude session badges + background dispatch),
 forge-aware merged detection (glab/gh, squash/rebase merges), MR/CI status badges,
 guided `finish` flow that archives the diff and the task-folder files, `status` subcommand
-for scripts and statuslines, Claude session recap in the Info panel, epics in the CLI and
-the task list.
+for scripts and statuslines, Claude session recap in the Info panel, epics in the CLI, the
+task list and each task's CLAUDE.md.
 
-Next: an epic context block in each task's CLAUDE.md, and epic support in the `/wtask`
-skill.
+Ideas and bugs go to [GitHub Issues](https://github.com/ruslanfialkovskii/tasktree-manager/issues).
 
 See [CHANGELOG.md](CHANGELOG.md) for the release history.
 

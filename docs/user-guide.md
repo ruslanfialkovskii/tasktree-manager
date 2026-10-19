@@ -85,6 +85,10 @@ names their epic, so nothing moves on disk.
 - `enter` or `space` folds an epic. A folded epic row still shows the dirty
   count and the most urgent Claude state of its tasks.
 - Epics don't nest. An epic that still has tasks can't be deleted.
+- Each task's `CLAUDE.md` gets a short block between `<!-- tasktree:epic -->` markers
+  that names the epic folder and how to find sibling tasks, so a Claude session knows
+  the bigger picture. It updates on every epic change; text outside the markers is
+  never touched.
 - From scripts: `tasktree-manager epic create/add/remove/mark/unmark/list`.
 
 ### Worktrees
