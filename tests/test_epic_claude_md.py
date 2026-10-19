@@ -149,10 +149,10 @@ class TestEpicBlockRobustness:
         def full_disk(src, dst):
             raise OSError(28, "No space left on device")
 
+        (task.path / ".tasktree_epic").write_text("E-1\n")
         monkeypatch.setattr(os, "replace", full_disk)
-        tm.set_task_epic(task, "E-1")
-        assert path.read_text() == "notes\n" * 50
         assert "No space left" in tm.sync_epic_block(task)
+        assert path.read_text() == "notes\n" * 50
         assert [p.name for p in task.path.iterdir() if p.name.endswith(".tmp")] == []
 
     def test_unmark_with_planted_parent_marker(self, tm):

@@ -22,6 +22,9 @@ from .models import (
     Task,
     TaskSafetyReport,
     Worktree,
+    on_disk_name,
+    parent_epic_name,
+    same_folder,
     validate_task_name,
 )
 
@@ -272,13 +275,7 @@ class TaskManager:
         On a case-insensitive filesystem `epic-1` opens `EPIC-1`; markers and
         branches must use the real spelling or the epic checks miss children.
         """
-        path = self.config.tasks_dir / name
-        if any(item.name == name for item in self.config.tasks_dir.iterdir()):
-            return name
-        for item in self.config.tasks_dir.iterdir():
-            if item.name.casefold() == name.casefold() and os.path.samefile(item, path):
-                return item.name
-        return name
+        return on_disk_name(self.config.tasks_dir / name)
 
     def create_task(
         self,
@@ -669,16 +666,29 @@ class TaskManager:
         lives in <task>/.tasktree_name. Empty input — or an alias equal to the
         real name — clears the file.
         """
-        marker = task.path / ".tasktree_name"
-        if marker.is_symlink():
-            marker.unlink()
         name = (display_name or "").strip()
         if name == task.name:
             name = ""
-        if name:
-            marker.write_text(name + "\n", encoding="utf-8")
-        elif marker.exists():
-            marker.unlink()
+        self._write_file_marker(task, ".tasktree_name", name or None)
+
+    def _write_file_marker(self, task: Task, marker: str, value: str | None) -> None:
+        """Replace or remove <task>/<marker> without following links.
+
+        A planted symlink or hard link is swapped for a new file, never
+        written through; a task folder outside TASKS_DIR is refused.
+        """
+        self._require_inside(task)
+        path = task.path / marker
+        if value is not None:
+            self._replace_file(path, (value + "\n").encode("utf-8"))
+        elif path.is_symlink() or path.exists():
+            path.unlink()
+
+    def _require_inside(self, task: Task) -> None:
+        """Raise ValueError unless the task folder is a real folder in TASKS_DIR."""
+        tasks_dir = self.config.tasks_dir.resolve()
+        if task.path.is_symlink() or task.path.resolve().parent != tasks_dir:
+            raise ValueError(f"'{task.name}' is not a task folder inside {tasks_dir}")
 
     def _write_marker(self, task: Task, marker: str, value: str | None) -> None:
         """Write <task>/<marker>, or remove it when value is None.
@@ -687,14 +697,7 @@ class TaskManager:
         follows it. That sync never raises: callers that report problems run
         sync_epic_block again and show what it returns.
         """
-        path = task.path / marker
-        if path.is_symlink():
-            # Never write through a planted link to a file outside the task
-            path.unlink()
-        if value is not None:
-            path.write_text(value + "\n", encoding="utf-8")
-        else:
-            path.unlink(missing_ok=True)
+        self._write_file_marker(task, marker, value)
         self.sync_epic_block(task)
 
     def _render_epic_block(self, task: Task) -> str | None:
@@ -706,8 +709,7 @@ class TaskManager:
                 f"`{tasks_dir}` whose `.tasktree_epic` file names `{task.name}`; list them",
                 "with `tasktree-manager epic list`.",
             ]
-        elif task.epic_name is not None:
-            epic = task.epic_name
+        elif (epic := parent_epic_name(task)) is not None:
             body = [
                 f"This task belongs to the epic `{epic}` at `{tasks_dir / epic}`.",
                 "The epic folder holds the shared notes and plans. Its worktrees belong",
@@ -784,7 +786,10 @@ class TaskManager:
                 f.write(data)
                 f.flush()
                 os.fsync(f.fileno())
-            shutil.copymode(path, tmp)
+            if path.is_file() and not path.is_symlink():
+                shutil.copymode(path, tmp)
+            else:
+                os.chmod(tmp, 0o644)
             os.replace(tmp, path)
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
@@ -801,6 +806,9 @@ class TaskManager:
         epic_path = self.config.tasks_dir / epic_name
         if not epic_path.is_dir():
             raise ValueError(f"No such epic: {epic_name}")
+        if epic_path.is_symlink():
+            # An alias would let delete/finish miss the children of the real epic
+            raise ValueError(f"'{epic_name}' is a symlink, not an epic folder")
         epic_name = self._on_disk_name(epic_name)
         if not Task(name=epic_name, path=epic_path).is_epic:
             raise ValueError(
@@ -811,37 +819,28 @@ class TaskManager:
     def epic_child_names(self, epic_name: str) -> list[str]:
         """Names of the tasks whose .tasktree_epic marker names this epic.
 
-        Reads markers only: list_tasks() walks every task's worktrees.
+        Reads markers only: list_tasks() walks every task's worktrees. A child
+        counts when its parent (parent_epic_name) is the same folder as
+        `epic_name`, so a case variant or symlink alias of the epic still
+        finds every child.
         """
         if not self.config.tasks_dir.exists():
             return []
         names = []
+        listing = set(os.listdir(self.config.tasks_dir))
+        # Symlinked task folders count too: the CLI and TUI show them as children
         for item in sorted(self.config.tasks_dir.iterdir()):
             if item.is_dir() and not item.name.startswith("."):
-                parent = Task(name=item.name, path=item).epic_name
-                if parent == epic_name or (
-                    parent is not None
-                    and parent.casefold() == epic_name.casefold()
-                    and self._same_task(parent, epic_name)
+                parent = parent_epic_name(Task(name=item.name, path=item), listing)
+                if parent is not None and (
+                    parent == epic_name or self._same_task(parent, epic_name)
                 ):
                     names.append(item.name)
         return names
 
     def _same_task(self, a: str, b: str) -> bool:
-        """True when two task names open the same folder (case-insensitive disks)."""
-        try:
-            return os.path.samefile(self.config.tasks_dir / a, self.config.tasks_dir / b)
-        except OSError:
-            return False
-
-    def epic_children(self, epic: Task) -> list[Task]:
-        """The tasks attached to an epic, with their worktrees, sorted by name."""
-        children = []
-        for name in self.epic_child_names(epic.name):
-            child = self.get_task(name)
-            if child is not None:
-                children.append(child)
-        return children
+        """True when two task names open the same folder."""
+        return same_folder(self.config.tasks_dir / a, self.config.tasks_dir / b)
 
     @staticmethod
     def _epic_has_children_message(epic: Task, children: list[str]) -> str:
@@ -856,6 +855,7 @@ class TaskManager:
         Returns the epic name as written. Epics don't nest: an epic cannot
         join an epic.
         """
+        self._require_inside(task)
         if epic_name is None:
             self._write_marker(task, ".tasktree_epic", None)
             return None
@@ -871,17 +871,22 @@ class TaskManager:
         A task that belongs to an epic cannot become one, and an epic with
         children cannot become a task.
         """
+        self._require_inside(task)
         if kind == EPIC_KIND:
-            if task.epic_name is not None:
+            parent = parent_epic_name(task)
+            if parent is not None:
                 raise ValueError(
-                    f"'{task.name}' belongs to epic '{task.epic_name}'; "
+                    f"'{task.name}' belongs to epic '{parent}'; "
                     "detach it first (tasktree-manager epic remove)"
                 )
             self._write_marker(task, ".tasktree_kind", EPIC_KIND)
             # An unreadable or self-naming parent marker reads as None; drop it
             self._write_marker(task, ".tasktree_epic", None)
         elif kind == TASK_KIND:
-            children = self.epic_child_names(task.name) if task.is_epic else []
+            if not task.is_epic:
+                # A plain task stays as it is; its parent marker is not ours to drop
+                return
+            children = self.epic_child_names(task.name)
             if children:
                 raise ValueError(self._epic_has_children_message(task, children))
             # A parent marker the epic carried was hidden; drop it before the
@@ -1480,7 +1485,7 @@ class TaskManager:
             if repo_path.exists() and worktree.path.exists():
                 ensure_worktree_claude_settings(worktree.path, repo_path, status_file)
 
-    def ensure_claude_md_files(self, task: Task) -> None:
+    def ensure_claude_md_files(self, task: Task) -> str | None:
         """Create the task CLAUDE.md and backfill worktree ones from the repo.
 
         The task-level file is generated (the task dir is not a git repo).
@@ -1490,16 +1495,20 @@ class TaskManager:
 
         Args:
             task: The task to create CLAUDE.md files for
+
+        Returns:
+            Why the epic block could not be synced, or None
         """
         task_claude_md = task.path / "CLAUDE.md"
         if not task_claude_md.exists():
             self._create_task_claude_md(task)
-        self.sync_epic_block(task)
+        problem = self.sync_epic_block(task)
 
         for worktree in task.worktrees:
             wt_claude_md = worktree.path / "CLAUDE.md"
             if not wt_claude_md.exists():
                 self._copy_repo_claude_md(worktree)
+        return problem
 
     def _create_task_claude_md(self, task: Task) -> None:
         """Generate task CLAUDE.md with task name + worktree paths.

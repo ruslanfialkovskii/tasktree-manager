@@ -8,6 +8,7 @@ errors on stderr, exit code 0 on success and 1 on failure.
 
 import argparse
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -16,7 +17,7 @@ from . import __version__
 from .services import forge
 from .services.config import Config, ConfigError
 from .services.git_ops import GitOps
-from .services.models import EPIC_KIND, TASK_KIND, ArchiveResult, Task
+from .services.models import EPIC_KIND, TASK_KIND, ArchiveResult, Task, parent_epic_name
 from .services.task_manager import ARCHIVE_NOTES_SHOWN, ArchiveIncompleteError, TaskManager
 
 
@@ -354,6 +355,8 @@ def _refuse_epic_with_children(manager: TaskManager, task: Task, verb: str) -> b
 def cmd_list(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
     """List tasks with their repos and dirty state."""
     tasks = manager.list_tasks()
+    # One TASKS_DIR listing for every parent_epic_name lookup below
+    listing = set(os.listdir(config.tasks_dir)) if config.tasks_dir.is_dir() else set()
     dirty: dict[str, bool] = {}
     errored: dict[str, bool] = {}
     for task in tasks:
@@ -369,7 +372,7 @@ def cmd_list(manager: TaskManager, config: Config, args: argparse.Namespace) -> 
                 "name": task.name,
                 "display_name": task.display_name,
                 "kind": task.kind,
-                "epic": task.epic_name,
+                "epic": parent_epic_name(task, listing),
                 "path": str(task.path),
                 "repos": [wt.name for wt in task.worktrees],
                 "dirty": dirty[task.name],
@@ -635,7 +638,7 @@ def cmd_status(manager: TaskManager, config: Config, args: argparse.Namespace) -
         payload = {
             "task": task.name,
             "kind": task.kind,
-            "epic": task.epic_name,
+            "epic": parent_epic_name(task),
             "path": str(task.path),
             "claude": claude,
             "worktrees": [

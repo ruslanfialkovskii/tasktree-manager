@@ -366,6 +366,9 @@ class TaskTreeApp(App):
             (kb.get("delete_worktree", "D"), "delete_worktree", "Del WT"),
         ]
 
+        # Every key a configured action uses ("s,space" binds two keys)
+        claimed_keys = {key.strip() for keys in kb.values() for key in keys.split(",")}
+
         yield AppHeader()
         with Horizontal(id="main-container"):
             # Left column: Tasks (top) and Worktrees (bottom)
@@ -382,7 +385,7 @@ class TaskTreeApp(App):
                         id="task-list",
                         context_bindings=task_panel_bindings,
                         # A fold key bound to any action in config stays that action
-                        fold_keys=tuple(k for k in ("enter", "space") if k not in kb.values()),
+                        fold_keys=tuple(k for k in ("enter", "space") if k not in claimed_keys),
                     )
                 with Vertical(id="worktree-panel"):
                     with Horizontal(classes="panel-title-bar"):
@@ -1302,7 +1305,8 @@ class TaskTreeApp(App):
                 initial_base_branch=self.config.default_base_branch,
                 title=f"Clone Task: {self.current_task.name}",
                 epics=self._epic_choices(),
-                initial_epic=self._epic_of(self.current_task),
+                # A clone joins the source task's epic; a clone of an epic joins none
+                initial_epic=self.query_one("#task-list", TaskList).epic_of(self.current_task.name),
             ),
             handle_result,
         )
@@ -1432,7 +1436,7 @@ class TaskTreeApp(App):
                 return
             try:
                 self.task_manager.set_task_display_name(task, new_name)
-            except OSError as e:
+            except (OSError, ValueError) as e:
                 self.notify(escape(f"Rename failed: {e}"), severity="error")
                 return
             label = task.display_label
@@ -1452,6 +1456,7 @@ class TaskTreeApp(App):
             self.notify("Epics don't nest: an epic can't join another epic", severity="warning")
             return
         epics = [(label, name) for label, name in self._epic_choices() if name != task.name]
+        parent = self.query_one("#task-list", TaskList).epic_of(task.name)
 
         def handle_choice(choice: tuple[str, str | None] | None) -> None:
             if choice is None:
@@ -1469,8 +1474,8 @@ class TaskTreeApp(App):
             EpicPickerModal(
                 task.display_label,
                 epics,
-                self.query_one("#task-list", TaskList).epic_of(task.name),
-                task.epic_name is None,
+                parent,
+                parent is None,
             ),
             handle_choice,
         )
@@ -2084,7 +2089,9 @@ class TaskTreeApp(App):
         """
         fresh_task = self.task_manager.get_task(task.name)
         if fresh_task:
-            self.task_manager.ensure_claude_md_files(fresh_task)
+            problem = self.task_manager.ensure_claude_md_files(fresh_task)
+            if problem:
+                self.call_from_thread(self.notify, escape(problem), severity="warning")
             self.task_manager.ensure_worktree_settings(fresh_task)
         ensure_claude_hooks(task.path, self.config.claude_memory_dir)
 
