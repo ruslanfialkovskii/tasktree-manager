@@ -31,7 +31,8 @@ jobs:
         run: ruff format --check tasktree_manager tests
 
   test:
-    name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    # Linux jobs keep the names branch protection requires
+    name: ${{ matrix.os == 'macos-latest' && format('Test (macOS, Python {0})', matrix.python-version) || format('Test (Python {0})', matrix.python-version) }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
