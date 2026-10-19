@@ -84,7 +84,7 @@ class TaskList(OptionList):
             self._bindings.bind(key, f"app.{action}", description, show=True)
         # Enter folds an epic instead of OptionList's select (a click still
         # selects); a fold key the user bound to an action stays theirs
-        claimed = {key for key, _, _ in context_bindings or []}
+        claimed = {key.strip() for keys, _, _ in context_bindings or [] for key in keys.split(",")}
         for i, key in enumerate(k for k in fold_keys if k not in claimed):
             self._bindings.key_to_bindings.pop(key, None)
             self._bindings.bind(key, "toggle_epic", "Fold", show=i == 0)
@@ -308,7 +308,10 @@ class TaskList(OptionList):
 
     @staticmethod
     def _mtime(task: Task) -> float:
-        return task.path.stat().st_mtime if task.path.exists() else 0
+        try:
+            return task.path.stat().st_mtime
+        except OSError:  # deleted or unreadable since it was listed
+            return 0
 
     def _sort_tasks(self, tasks: list[Task]) -> list[Task]:
         """Sort tasks according to current sort mode.

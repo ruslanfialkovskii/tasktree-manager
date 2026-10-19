@@ -611,7 +611,8 @@ All 27 customizable keybindings with descriptions:
 | `add_repo`    | `a`     | Add repository to current task         | `add_repo = "ctrl+a"`      |
 | `delete_task` | `d`     | Delete/finish current task             | `delete_task = "delete"`   |
 | `rename_task` | `R`     | Rename task display label (alias only) | `rename_task = "ctrl+r"`   |
-| `set_epic`    | `E`     | Set the task's epic, or make it an epic | `set_epic = "ctrl+e"`     |
+| `set_epic`    | `E`     | Set the task's epic, or make it an epic | `set_epic = "ctrl+shift+e"` |
+| `delete_worktree` | `D` | Remove the selected worktree (the task stays) | `delete_worktree = "ctrl+d"` |
 
 ### Git Operations
 
@@ -632,6 +633,7 @@ All 27 customizable keybindings with descriptions:
 | `open_claude_resume`  | `c`     | Open Claude CLI (resume if session exists, else new) | `open_claude_resume = "ctrl+c"`      |
 | `open_claude_gui_code`| `C`     | Open Claude desktop on Code page in task folder      | `open_claude_gui_code = "ctrl+shift+c"` |
 | `toggle_messages`     | `m`     | Show/hide activity messages panel                    | `toggle_messages = "ctrl+m"`         |
+| `dispatch_agent`      | `b`     | Dispatch a background Claude agent into the worktree | `dispatch_agent = "ctrl+b"`          |
 
 ### Navigation
 

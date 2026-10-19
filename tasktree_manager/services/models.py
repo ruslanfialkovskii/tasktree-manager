@@ -2,6 +2,7 @@
 
 import os
 import re
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -128,23 +129,60 @@ class Task:
         return value
 
 
-def resolve_epic(task: Task, epics: dict[str, Task]) -> str | None:
-    """The epic in `epics` that the task's marker names, or None.
+def on_disk_name(path: Path, names: Collection[str] | None = None) -> str:
+    """The last path segment as spelled on disk, for an existing path.
 
-    A marker spelled in another case matches only when it opens the same
-    folder, as on a case-insensitive disk.
+    On a case-insensitive disk `epic-1` opens `EPIC-1`; markers, branches and
+    the epic checks must all use the real spelling. `names` is the listing of
+    path.parent when the caller already has it (one listing per scan).
     """
-    parent = task.epic_name
-    if parent is None or parent in epics:
-        return parent
-    for name, epic in epics.items():
-        if name.casefold() == parent.casefold():
-            try:
-                if os.path.samefile(task.path.parent / parent, epic.path):
-                    return name
-            except OSError:
-                pass
-    return None
+    if names is None:
+        try:
+            names = set(os.listdir(path.parent))
+        except OSError:
+            return path.name
+    if path.name in names:
+        return path.name
+    for name in names:
+        if name.casefold() == path.name.casefold() and same_folder(path.parent / name, path):
+            return name
+    return path.name
+
+
+def same_folder(a: Path, b: Path) -> bool:
+    """True when two paths open the same file or folder."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def parent_epic_name(task: Task, names: Collection[str] | None = None) -> str | None:
+    """The epic a task belongs to, spelled as on disk, or None.
+
+    The one membership rule for the CLI, the TUI, the delete guard and the
+    CLAUDE.md block: the marker must name a real epic folder next to the
+    task. A symlink alias, a missing folder or a plain task makes it an orphan.
+    `names` is the TASKS_DIR listing, passed by callers that resolve many tasks.
+    """
+    marker = task.epic_name
+    if marker is None:
+        return None
+    path = task.path.parent / marker
+    if path.is_symlink() or not path.is_dir():
+        return None
+    name = on_disk_name(path, names)
+    if not Task(name=name, path=path.parent / name).is_epic:
+        return None
+    return name
+
+
+def resolve_epic(
+    task: Task, epics: dict[str, Task], names: Collection[str] | None = None
+) -> str | None:
+    """The epic in `epics` the task belongs to (see parent_epic_name), or None."""
+    parent = parent_epic_name(task, names)
+    return parent if parent in epics else None
 
 
 def group_by_epic(tasks: list[Task]) -> tuple[list[Task], dict[str, list[Task]]]:
@@ -154,11 +192,20 @@ def group_by_epic(tasks: list[Task]) -> tuple[list[Task], dict[str, list[Task]]]
     rule as TaskManager.epic_child_names (the delete guard). Anything else, an
     orphan included, is top-level. Order within both is kept.
     """
-    epics = {task.name: task for task in tasks if task.is_epic}
+    # A symlinked folder never counts as an epic: it would alias a real one
+    epics = {task.name: task for task in tasks if task.is_epic and not task.path.is_symlink()}
     children: dict[str, list[Task]] = {name: [] for name in epics}
     top: list[Task] = []
+    listings: dict[Path, set[str]] = {}
     for task in tasks:
-        parent = None if task.name in epics else resolve_epic(task, epics)
+        folder = task.path.parent
+        if folder not in listings:
+            try:
+                listings[folder] = set(os.listdir(folder))
+            except OSError:
+                listings[folder] = set()
+        names = listings[folder]
+        parent = None if task.name in epics else resolve_epic(task, epics, names)
         if parent is None:
             top.append(task)
         else:

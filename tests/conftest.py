@@ -120,8 +120,14 @@ def sample_repos(temp_dirs):
 
 
 @pytest.fixture
-def app(config):
+def app(config, tmp_path, monkeypatch):
     """Create app with test config."""
+    # TaskTreeApp() loads the real config first: keep it (and the default
+    # ~/tasks it would create) inside the test's temp dir
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "home" / ".config"))
+    for var in ("TASKS_DIR", "REPOS_DIR"):
+        monkeypatch.delenv(var, raising=False)
     config.ensure_dirs()
     # Keep TUI tests hermetic: never poll the real `claude` CLI from on_mount.
     # Badge/dispatch tests drive the poll/apply methods directly instead.

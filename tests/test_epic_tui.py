@@ -468,3 +468,28 @@ class TestReviewFixesTui:
             await pilot.press("h")
             await pilot.pause()
             assert started == []
+
+
+class TestCumulativeReviewTui:
+    async def test_comma_separated_binding_keeps_space(self, app, epic_tasks):
+        app.config.keybindings["cycle_sort"] = "s,space"
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            task_list = app.query_one("#task-list", TaskList)
+            task_list.focus()
+            await select(pilot, task_list, "E-1")
+            await pilot.press("space")
+            await pilot.pause()
+            assert task_list._sort_mode is SortMode.NAME_DESC
+
+    @pytest.mark.parametrize(("row", "expected"), [("E-1", None), ("T-1", "E-1")])
+    async def test_clone_preselects_source_parent(
+        self, app, epic_tasks, sample_repos, row, expected
+    ):
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await select(pilot, app.query_one("#task-list", TaskList), row)
+            await pilot.press("y")
+            await pilot.pause()
+            assert isinstance(app.screen, CreateTaskModal)
+            assert app.screen.initial_epic == expected

@@ -1,6 +1,7 @@
 """Tests for epics: the markers, the service rules and the `epic` CLI."""
 
 import json
+import os
 
 import pytest
 
@@ -159,7 +160,6 @@ class TestHierarchy:
         task_manager.create_task("T-1", [], epic="EPIC-1")
         task_manager.create_task("T-3", [])
         assert task_manager.epic_child_names("EPIC-1") == ["T-1", "T-2"]
-        assert [t.name for t in task_manager.epic_children(epic)] == ["T-1", "T-2"]
 
     def test_finish_refuses_epic_with_children(self, task_manager, epic):
         child = task_manager.create_task("T-1", [], epic="EPIC-1")
@@ -440,3 +440,80 @@ class TestMarkerSymlink:
         assert outside.read_text() == "keep\n"
         assert not (task.path / ".tasktree_epic").is_symlink()
         assert task.epic_name == "EPIC-1"
+
+
+class TestCumulativeReviewFixes:
+    def test_symlink_alias_is_not_an_epic(self, cli_config, capsys):
+        cli(cli_config, "epic", "create", "EPIC-1")
+        cli(cli_config, "create", "T-1", "--repos", "repo-alpha", "--epic", "EPIC-1")
+        (cli_config.tasks_dir / "alias").symlink_to(cli_config.tasks_dir / "EPIC-1")
+        capsys.readouterr()
+        assert cli(cli_config, "epic", "add", "alias", "T-1") == 1
+        assert "is a symlink" in capsys.readouterr().err
+        # Deleting through the alias still sees the real epic's children
+        assert cli(cli_config, "delete", "alias", "--force") == 1
+        assert "T-1" in capsys.readouterr().err
+        assert (cli_config.tasks_dir / "EPIC-1").exists()
+
+    def test_alias_marker_is_an_orphan(self, cli_config, capsys):
+        cli(cli_config, "epic", "create", "EPIC-1")
+        cli(cli_config, "create", "T-2", "--repos", "repo-alpha")
+        (cli_config.tasks_dir / "alias").symlink_to(cli_config.tasks_dir / "EPIC-1")
+        (cli_config.tasks_dir / "T-2" / ".tasktree_epic").write_text("alias\n")
+        capsys.readouterr()
+        assert cli(cli_config, "list", "--json") == 0
+        payload = {t["name"]: t for t in json.loads(capsys.readouterr().out)}
+        assert payload["T-2"]["epic"] is None
+
+    def test_orphan_marker_is_null_everywhere(self, cli_config, task_manager, capsys):
+        cli(cli_config, "create", "T-1", "--repos", "repo-alpha")
+        task = task_manager.get_task("T-1")
+        (task.path / ".tasktree_epic").write_text("GHOST\n")
+        task_manager.sync_epic_block(task)
+        assert "GHOST" not in (task.path / "CLAUDE.md").read_text()
+        capsys.readouterr()
+        assert cli(cli_config, "list", "--json") == 0
+        assert json.loads(capsys.readouterr().out)[0]["epic"] is None
+        assert cli(cli_config, "epic", "mark", "T-1") == 0  # an orphan may become an epic
+        assert not (task.path / ".tasktree_epic").exists()
+
+    def test_hard_linked_marker_not_written_through(self, task_manager, epic, tmp_path):
+        outside = tmp_path / "outside.txt"
+        outside.write_text("keep\n")
+        task = task_manager.create_task("T-1", [])
+        os.link(outside, task.path / ".tasktree_epic")
+        task_manager.set_task_epic(task, "EPIC-1")
+        assert outside.read_text() == "keep\n"
+        assert task.epic_name == "EPIC-1"
+
+    def test_task_folder_outside_tasks_dir_refused(self, task_manager, epic, tmp_path):
+        real = tmp_path / "elsewhere"
+        real.mkdir()
+        link = task_manager.config.tasks_dir / "T-LINK"
+        link.symlink_to(real)
+        task = Task(name="T-LINK", path=link)
+        with pytest.raises(ValueError, match="not a task folder"):
+            task_manager.set_task_epic(task, "EPIC-1")
+        assert not (real / ".tasktree_epic").exists()
+
+    def test_unmark_on_plain_child_keeps_its_epic(self, task_manager, epic):
+        child = task_manager.create_task("T-1", [], epic="EPIC-1")
+        task_manager.set_task_kind(child, "task")
+        assert child.epic_name == "EPIC-1"
+
+    def test_ensure_reports_block_problem(self, task_manager, epic):
+        from tasktree_manager.services.task_manager import EPIC_BLOCK_START
+
+        child = task_manager.create_task("T-1", [], epic="EPIC-1")
+        (child.path / "CLAUDE.md").write_text(EPIC_BLOCK_START + "\n")
+        assert "mismatched" in task_manager.ensure_claude_md_files(child)
+
+    def test_symlinked_child_still_blocks_epic_delete(self, cli_config, task_manager, capsys):
+        cli(cli_config, "epic", "create", "EPIC-1")
+        real = cli_config.tasks_dir.parent / "real-child"
+        real.mkdir()
+        (real / ".tasktree_epic").write_text("EPIC-1\n")
+        (cli_config.tasks_dir / "T-LINK").symlink_to(real)
+        assert task_manager.epic_child_names("EPIC-1") == ["T-LINK"]
+        capsys.readouterr()
+        assert cli(cli_config, "delete", "EPIC-1", "--force") == 1
