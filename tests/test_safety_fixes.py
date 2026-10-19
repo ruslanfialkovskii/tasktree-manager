@@ -272,7 +272,10 @@ class TestDeleteWorktreeSafety:
             await pilot.pause()
             modal = app.screen_stack[-1]
             assert isinstance(modal, ConfirmModal)
-            modal.dismiss(True)
+            await modal.dismiss(True)
+            # The confirm callback starts the worker on a later message, so
+            # let it run before waiting, or the wait returns with no worker.
+            await pilot.pause()
             await app.workers.wait_for_complete()
             await pilot.pause()
             assert not wt.path.exists()
