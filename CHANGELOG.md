@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.16.0] - 2026-10-19
+
+### Added
+- **epic**: Add a managed epic block to task CLAUDE.md files
+
+
 ## [2.15.0] - 2026-10-19
 
 ### Added
