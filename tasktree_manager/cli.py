@@ -9,16 +9,35 @@ errors on stderr, exit code 0 on success and 1 on failure.
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
+from datetime import timezone
 from pathlib import Path
 
 from . import __version__
 from .services import forge
 from .services.config import Config, ConfigError
+from .services.epic_log import (
+    EPIC_ROLE,
+    FORMER_ROLE,
+    EpicLogEntry,
+    read_epic_log,
+    resolve_log_target,
+)
 from .services.git_ops import GitOps
-from .services.models import EPIC_KIND, TASK_KIND, ArchiveResult, Task, parent_epic_name
+from .services.models import (
+    EPIC_KIND,
+    TASK_KIND,
+    ArchiveResult,
+    Task,
+    parent_epic_name,
+    same_folder,
+)
 from .services.task_manager import ARCHIVE_NOTES_SHOWN, ArchiveIncompleteError, TaskManager
+
+# C0/C1 controls except tab; notes are split on newlines before this runs
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0a-\x1f\x7f-\x9f]")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -78,6 +97,31 @@ def build_parser() -> argparse.ArgumentParser:
     epic_list = epic_sub.add_parser("list", help="List epics and their tasks")
     epic_list.add_argument("--json", action="store_true", dest="as_json", help="Output JSON")
     epic_list.set_defaults(func=cmd_epic_list)
+
+    epic_note = epic_sub.add_parser("note", help="Add a note to this task's file in the epic log")
+    epic_note.add_argument("text", help='Note text ("-" reads it from stdin)')
+    epic_note.add_argument(
+        "--task", default=None, help="Task that writes the note (default: inferred from $PWD)"
+    )
+    epic_note.set_defaults(func=cmd_epic_note)
+
+    epic_log = epic_sub.add_parser(
+        "log", help="Show the notes and latest session recap of tasks in an epic"
+    )
+    epic_log.add_argument(
+        "task",
+        nargs="?",
+        default=None,
+        help="One task of the epic (default: the epic of $PWD and all its tasks)",
+    )
+    epic_log.add_argument("--json", action="store_true", dest="as_json", help="Output JSON")
+    epic_log.set_defaults(func=cmd_epic_log)
+
+    epic_sync = epic_sub.add_parser(
+        "sync", help="Refresh the epic block in the CLAUDE.md of epics and their tasks"
+    )
+    epic_sync.add_argument("name", nargs="?", default=None, help="Epic name (default: all)")
+    epic_sync.set_defaults(func=cmd_epic_sync)
 
     list_parser = sub.add_parser("list", help="List tasks with their repos and dirty state")
     list_parser.add_argument("--json", action="store_true", dest="as_json", help="Output JSON")
@@ -335,6 +379,142 @@ def cmd_epic_list(manager: TaskManager, config: Config, args: argparse.Namespace
     return 0
 
 
+def cmd_epic_note(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
+    """Append a note to the task's file in its epic log.
+
+    Inside a task folder a session writes only its own notes; from outside
+    any task, `--task` writes and the heading records that.
+    """
+    caller = _find_task_by_cwd(manager)
+    source = None
+    if args.task:
+        task = manager.get_task(args.task)
+        if task is None:
+            return _error(f"no such task: {args.task}")
+        if caller is None:
+            source = "written outside the task folder"
+        elif not same_folder(caller.path, task.path):
+            return _error(f"inside task {caller.name}: notes go to its own file, not {task.name}")
+    elif caller is None:
+        return _error("not inside a task directory; pass --task")
+    else:
+        task = caller
+    text = sys.stdin.read() if args.text == "-" else args.text
+    path = manager.append_epic_note(task, text, source=source)
+    print(f"Noted in {path}")
+    return 0
+
+
+def cmd_epic_log(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
+    """Show notes and the latest session recap of one task or a whole epic."""
+    epic, only = resolve_log_target(manager, _find_task_by_cwd(manager), args.task)
+    entries = read_epic_log(manager, epic, only)
+    for entry in entries:
+        if entry.problem:
+            print(f"warning: {entry.task}: {entry.problem}", file=sys.stderr)
+    if args.as_json:
+        print(json.dumps([_epic_log_json(entry) for entry in entries], indent=2))
+        return 0
+    for index, entry in enumerate(entries):
+        if index:
+            print()
+        _print_epic_log_entry(entry)
+    return 0
+
+
+def _epic_log_json(entry: EpicLogEntry) -> dict:
+    session = None
+    if entry.session is not None:
+        recap = entry.recap
+        session = {
+            "id": entry.session.session_id,
+            "cwd": str(entry.session.cwd),
+            "title": recap.title if recap else None,
+            "finished_at": recap.finished_at.isoformat() if recap and recap.finished_at else None,
+            "summary": recap.summary if recap else None,
+            # The typed prompt only stands in for a missing recap, as in the TUI
+            "last_prompt": recap.last_prompt if recap and not recap.summary else None,
+        }
+    return {
+        "task": entry.task,
+        "role": entry.role,
+        "notes_path": str(entry.notes_path),
+        "notes": entry.notes,
+        "notes_truncated": entry.notes_truncated,
+        "session": session,
+        "problem": entry.problem,
+    }
+
+
+def _print_epic_log_entry(entry: EpicLogEntry) -> None:
+    role = {EPIC_ROLE: " (epic)", FORMER_ROLE: " (no longer in the epic)"}.get(entry.role, "")
+    print(f"== {entry.task}{role} ==")
+    recap = entry.recap
+    if entry.role == FORMER_ROLE:
+        pass
+    elif recap is None:
+        print("Last session: none recorded")
+    else:
+        when = "time unknown"
+        if recap.finished_at:
+            when = recap.finished_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        print(f"Last session: {recap.title} ({when})")
+        if recap.summary:
+            print(f"  Recap: {recap.summary}")
+        elif recap.last_prompt:
+            print(f"  Last prompt: {recap.last_prompt}")
+    if not entry.notes:
+        print("Notes: none yet")
+        return
+    cut = ", older notes cut" if entry.notes_truncated else ""
+    print(f"Notes ({entry.notes_path}{cut}):")
+    # Indented, so a note cannot forge a "== task ==" line; controls dropped
+    for line in _safe_lines(entry.notes.rstrip()):
+        print(f"  {line}" if line else "")
+
+
+def _safe_lines(text: str) -> list[str]:
+    return [_CONTROL_CHARS.sub("", line) for line in text.split("\n")]
+
+
+def cmd_epic_sync(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
+    """Refresh the CLAUDE.md epic block of epics and their tasks."""
+    if args.name:
+        epic = manager.get_task(args.name)
+        if epic is None:
+            return _error(f"no such epic: {args.name}")
+        if manager.epic_of(epic) != epic.name:
+            return _error(f"{epic.name} is not an epic")
+        epics = [epic.name]
+    else:
+        epics = [task.name for task in manager.list_tasks() if manager.epic_of(task) == task.name]
+    synced = missing = failed = 0
+    for name in epics:
+        for member in [name, *manager.epic_child_names(name)]:
+            try:
+                task = manager.get_task(member)
+            except (OSError, ValueError) as e:
+                print(f"warning: {member}: {e}", file=sys.stderr)
+                failed += 1
+                continue
+            if task is None:
+                continue
+            if not (task.path / "CLAUDE.md").is_file():
+                missing += 1
+                continue
+            problem = manager.sync_epic_block(task)
+            if problem:
+                print(f"warning: {problem}", file=sys.stderr)
+                failed += 1
+            else:
+                synced += 1
+    print(
+        f"Synced {synced} folder(s); {missing} without CLAUDE.md "
+        f"(written when a Claude session starts there from the TUI); {failed} failed"
+    )
+    return 1 if failed else 0
+
+
 def _refuse_epic_with_children(manager: TaskManager, task: Task, verb: str) -> bool:
     """Print an error and return True if `task` is an epic that still has tasks.
 
@@ -545,7 +725,8 @@ def cmd_add_repo(manager: TaskManager, config: Config, args: argparse.Namespace)
 def _find_task_by_cwd(manager: TaskManager) -> Task | None:
     """Find the task whose directory contains the current working directory."""
     cwd = Path.cwd().resolve()
-    for task in manager.list_tasks():
+    # A symlink alias resolves to the same folder: the real folder wins
+    for task in sorted(manager.list_tasks(), key=lambda task: task.path.is_symlink()):
         task_path = task.path.resolve()
         if cwd == task_path or cwd.is_relative_to(task_path):
             return task

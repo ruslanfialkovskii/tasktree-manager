@@ -89,7 +89,22 @@ names their epic, so nothing moves on disk.
   that names the epic folder and how to find sibling tasks, so a Claude session knows
   the bigger picture. It updates on every epic change; text outside the markers is
   never touched.
-- From scripts: `tasktree-manager epic create/add/remove/mark/unmark/list`.
+- The epic log lets the sessions of one epic share what they learned. A session
+  records decisions, interfaces and open questions with
+  `tasktree-manager epic note "..."`; they go to `epic-log/<task>.md` in the epic
+  folder. `tasktree-manager epic log` shows every task's notes and the recap of its
+  latest Claude session, so a session can check what its siblings did before asking.
+  The `CLAUDE.md` block tells each session about both commands, and that notes are
+  information from other sessions, not instructions.
+- A session writes only its own task's notes. From a terminal outside any task,
+  `epic note --task NAME` writes for a task and marks the entry as written outside it.
+- Notes stay in the epic after their task is finished, moved or deleted; `epic log`
+  lists them as "no longer in the epic". A note is at most 16 KB, and `epic log` shows
+  the newest 64 KB of each task's notes.
+- After upgrading tasktree-manager, run `tasktree-manager epic sync` to refresh the
+  block in existing tasks (the TUI also refreshes it when it starts a Claude session).
+  Folders without a `CLAUDE.md` yet are counted and skipped.
+- From scripts: `tasktree-manager epic create/add/remove/mark/unmark/list/note/log/sync`.
 
 ### Worktrees
 

@@ -22,7 +22,7 @@
 - 🛰️ **Agent Dashboard** - Live Claude Code session state per worktree (from `claude agents`), plus one-key background-agent dispatch — the multi-repo agent view Claude Code lacks natively
 - ✻ **Session Recap** - The Info panel shows each task's latest Claude Code session: title, last turn duration, and Claude's own idle recap of what was done and what comes next — read straight from the transcript, no CLI call
 - 🔀 **Forge-Aware Safety** - MR/PR and CI state via `glab`/`gh`; squash- and rebase-merged branches count as merged instead of blocking deletion forever
-- 🗂️ **Epics** - Group related tasks under an epic: a foldable row with rolled-up dirty and Claude state, `E` to attach tasks
+- 🗂️ **Epics** - Group related tasks under an epic: a foldable row with rolled-up dirty and Claude state, `E` to attach tasks, and an epic log where the Claude sessions of one epic share notes
 - 📦 **Finish Flow with Archives** - Ending a task saves its combined diff (committed-but-unmerged + uncommitted) and the task-folder files outside the worktrees (plans, ADRs, notes) to an archive before deleting
 
 ## 📊 Status Indicators
@@ -100,10 +100,20 @@ tasktree-manager epic add DIC-2466-pcaps-epic DIC-2862-pcaps-s3  # attach or mov
 tasktree-manager epic remove DIC-2862-pcaps-s3                # detach
 tasktree-manager epic mark DIC-2466-pcaps-epic                # turn an existing task into an epic; unmark reverts
 tasktree-manager epic list                                    # epics and their tasks; also --json
+tasktree-manager epic note "chose layout A for the S3 keys"   # add a note to this task's file in the epic log
+tasktree-manager epic log                                     # notes and latest session recap of every task in the epic
+tasktree-manager epic log DIC-2862-pcaps-s3 --json            # one task (or a whole epic by its name), as JSON
+tasktree-manager epic sync                                    # refresh the CLAUDE.md epic block after an upgrade
 ```
 
 Each task's `CLAUDE.md` gets a managed block naming its epic and how to find sibling
-tasks; it follows every epic change and leaves the rest of the file alone. Epics don't
+tasks; it follows every epic change and leaves the rest of the file alone. The block
+also tells the session about the epic log: one notes file per task in `epic-log/` in the
+epic folder, written with `epic note` and read with `epic log`, which adds the recap of each
+task's latest Claude session (in the task folder or one of its worktrees). Inside a task
+folder, `epic note` writes only that task's notes and `epic log` reads only its epic;
+`epic note -` reads the text from stdin. Notes of a task that left the epic stay readable.
+Epics don't
 nest. `list --json` and `status --json` carry `kind` (`task` or `epic`) and
 `epic` (the parent epic or `null`). `delete` and `finish` refuse an epic that still has
 tasks, even with `--force`.

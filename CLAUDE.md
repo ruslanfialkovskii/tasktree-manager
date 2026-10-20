@@ -31,7 +31,7 @@ pytest tests/test_app.py::TestTaskTreeApp::test_app_starts -v
 ### Core Data Model
 
 - **Task**: A named task (e.g., "DIC-1813") containing multiple worktrees, stored as a directory in `TASKS_DIR` (~/.wtasks)
-- **Epic**: A task folder marked `.tasktree_kind` = `epic` that groups other tasks; a child task names its epic in `.tasktree_epic`. Read lazily by `Task.kind`/`is_epic`/`epic_name` (an invalid or self-naming marker reads as no epic); `models.parent_epic_name` is the one membership rule (marker must name a real, non-symlink epic folder) for the CLI JSON, the TUI tree, the delete guard and the CLAUDE.md block. No nesting, folders never move; `set_task_epic`/`set_task_kind` enforce the rules (`create_task` writes markers only into a folder it creates), and `finish_task` refuses an epic that still has children. `_write_marker` re-syncs the managed `<!-- tasktree:epic -->` block in the task CLAUDE.md (`sync_epic_block`; also run by `ensure_claude_md_files`), and the archive stub check ignores that block
+- **Epic**: A task folder marked `.tasktree_kind` = `epic` that groups other tasks; a child task names its epic in `.tasktree_epic`. Read lazily by `Task.kind`/`is_epic`/`epic_name` (an invalid or self-naming marker reads as no epic); `models.parent_epic_name` is the one membership rule (marker must name a real, non-symlink epic folder) for the CLI JSON, the TUI tree, the delete guard and the CLAUDE.md block. No nesting, folders never move; `set_task_epic`/`set_task_kind` enforce the rules (`create_task` writes markers only into a folder it creates), and `finish_task` refuses an epic that still has children. `_write_marker` re-syncs the managed `<!-- tasktree:epic -->` block in the task CLAUDE.md (`sync_epic_block`; also run by `ensure_claude_md_files`), and the archive stub check ignores that block. The epic log is `<epic>/epic-log/<task>.md`, one append-only notes file per task (`append_epic_note`, O_APPEND, never through a symlink); `services/epic_log.py` owns the scope rule (`resolve_log_target`) and joins the notes with the recap of the task's newest session across its folder and worktrees (`claude_sessions.latest_session`, which checks the transcript's recorded cwd because Claude project dir names collide: `X/1` = `X-1`)
 - **Worktree**: A git worktree within a task, created from a repo in `REPOS_DIR` (~/repos). Branch name matches task name.
 - **GitStatus**: Status info for a worktree (branch, staged/modified/untracked files, ahead/behind counts)
 
@@ -50,6 +50,7 @@ the same `check_task_safety` gate as the TUI unless `--force`, and always archiv
 diff and the task-folder files outside the worktrees first. Task names are a single path
 segment (no `/`, no leading `.`); `get_task` validates names because its result is rmtree'd.
 `delete`/`finish` refuse an epic with children before the safety sweep, even with `--force`.
+`epic note`/`epic log` infer the task from `$PWD`; inside a task, `epic note` writes only its own notes and `epic log` refuses tasks of another epic.
 
 ### Theming
 

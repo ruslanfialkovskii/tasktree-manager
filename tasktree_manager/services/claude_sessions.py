@@ -14,6 +14,7 @@ costs one bounded read regardless of its length.
 import json
 import os
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
@@ -23,6 +24,8 @@ from .claude_hooks import project_dir_candidates
 RECAP_SUFFIX = "(disable recaps in /config)"
 TAIL_WINDOW = 1 << 20
 TAIL_WINDOW_RETRY = 4 << 20
+# Most a session-folder lookup reads from the start of a transcript
+HEAD_BUDGET = 16 << 20
 # Turns that span a laptop sleep report days of "duration"; anything above
 # an hour is noise rather than work time
 DURATION_CAP_MS = 3_600_000
@@ -56,13 +59,22 @@ class ClaudeRecap:
     last_prompt: str | None
 
 
-def transcript_key(folder: Path) -> tuple[Path, int, int] | None:
-    """Return ``(path, mtime_ns, size)`` of the newest transcript for a folder.
+@dataclass(frozen=True)
+class SessionRef:
+    """A transcript and the folder its session was started in."""
 
-    One ``scandir`` per candidate project dir and no file reads, so callers
-    can poll it to detect changes cheaply.
-    """
-    newest: tuple[int, int, Path] | None = None
+    path: Path
+    cwd: Path
+    mtime_ns: int
+
+    @property
+    def session_id(self) -> str:
+        return self.path.stem
+
+
+def _transcripts(folder: Path) -> list[tuple[int, int, Path]]:
+    """``(mtime_ns, size, path)`` of every transcript in a folder's project dirs."""
+    found = []
     for project_dir in project_dir_candidates(folder):
         try:
             entries = list(os.scandir(project_dir))
@@ -77,13 +89,74 @@ def transcript_key(folder: Path) -> tuple[Path, int, int] | None:
                 # Claude prunes old transcripts at startup; one can vanish
                 # between the scandir and the stat
                 continue
-            candidate = (stat.st_mtime_ns, stat.st_size, Path(entry.path))
-            if newest is None or candidate[0] > newest[0]:
-                newest = candidate
+            found.append((stat.st_mtime_ns, stat.st_size, Path(entry.path)))
+    return found
+
+
+def transcript_key(folder: Path) -> tuple[Path, int, int] | None:
+    """Return ``(path, mtime_ns, size)`` of the newest transcript for a folder.
+
+    One ``scandir`` per candidate project dir and no file reads, so callers
+    can poll it to detect changes cheaply.
+    """
+    newest = max(_transcripts(folder), key=lambda found: found[0], default=None)
     if newest is None:
         return None
     mtime_ns, size, path = newest
     return path, mtime_ns, size
+
+
+def transcript_cwd(path: Path) -> Path | None:
+    """The folder a session started in: the first ``cwd`` in its transcript.
+
+    Whole records are read, since ``cwd`` follows the message body; a first
+    prompt bigger than HEAD_BUDGET leaves the cwd unknown.
+    """
+    try:
+        with open(path, "rb") as f:
+            budget = HEAD_BUDGET
+            while budget > 0:
+                line = f.readline(budget)
+                if not line:
+                    return None
+                budget -= len(line)
+                if b'"cwd"' not in line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                cwd = record.get("cwd") if isinstance(record, dict) else None
+                if isinstance(cwd, str) and cwd:
+                    return Path(cwd)
+    except OSError:
+        return None
+    return None
+
+
+def latest_session(folders: Iterable[Path]) -> SessionRef | None:
+    """The newest session started in one of `folders` (a task and its worktrees).
+
+    Project dir names fold every non-alphanumeric character, so `X/1` and `X-1`
+    share one dir; a transcript counts only when its recorded cwd is the folder.
+    """
+    candidates = [
+        (mtime_ns, str(path), path, folder)
+        for folder in folders
+        for mtime_ns, _size, path in _transcripts(folder)
+    ]
+    for mtime_ns, _key, path, folder in sorted(candidates, reverse=True):
+        cwd = transcript_cwd(path)
+        if cwd is not None and _same_dir(cwd, folder):
+            return SessionRef(path=path, cwd=folder, mtime_ns=mtime_ns)
+    return None
+
+
+def _same_dir(a: Path, b: Path) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return os.path.realpath(a) == os.path.realpath(b)
 
 
 def read_claude_recap(path: Path) -> ClaudeRecap | None:
