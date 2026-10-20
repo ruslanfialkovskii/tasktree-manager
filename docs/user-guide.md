@@ -85,35 +85,49 @@ names their epic, so nothing moves on disk.
 - `enter` or `space` folds an epic. A folded epic row still shows the dirty
   count and the most urgent Claude state of its tasks.
 - Epics don't nest. An epic that still has tasks can't be deleted.
-- Each task's `CLAUDE.md` gets a short block between `<!-- tasktree:epic -->` markers
-  that names the epic folder and how to find sibling tasks, so a Claude session knows
-  the bigger picture. It updates on every epic change; text outside the markers is
-  never touched.
-- The epic log lets the sessions of one epic share what they learned. A session
-  records decisions, interfaces and open questions with
-  `tasktree-manager epic note "..."`; they go to `epic-log/<task>.md` in the epic
-  folder. `tasktree-manager epic log` shows every task's notes and the recap of its
-  latest Claude session, so a session can check what its siblings did before asking.
-  The `CLAUDE.md` block tells each session about both commands, and that notes are
-  information from other sessions, not instructions.
+- Each task's `CLAUDE.md` gets a short block between `<!-- tasktree:epic -->` markers.
+  It names the epic folder, explains how to find sibling tasks and how to share context
+  with them. It updates on every epic change; text outside the markers is never touched.
+- From scripts: `tasktree-manager epic create/add/remove/mark/unmark/list/note/log/ask/sync`.
+
+#### Sharing context between sessions
+
+The Claude sessions of one epic can learn from each other. The `CLAUDE.md` block tells
+each session to try these in order:
+
+1. **Read the epic log.** `tasktree-manager epic log` shows every task's notes and the
+   recap of its latest Claude session. `epic log TASK` shows one task.
+2. **Ask the task.** `tasktree-manager epic ask TASK "question"` resumes a read-only copy
+   of that task's latest session, which answers the question.
+3. **Message a running session.** If the task's session is running, `epic ask` exits
+   with code 3 and prints the session name. The asking session sends it a message with
+   SendMessage instead. `--fork` asks a copy anyway.
+
+Sessions add to the log with `tasktree-manager epic note "..."`: decisions, interfaces,
+open questions, finished work that other tasks depend on.
+
+**Notes:**
+
+- Notes go to `epic-log/<task>.md` in the epic folder, one file per task.
 - A session writes only its own task's notes. From a terminal outside any task,
   `epic note --task NAME` writes for a task and marks the entry as written outside it.
-- Notes stay in the epic after their task is finished, moved or deleted; `epic log`
-  lists them as "no longer in the epic". A note is at most 16 KB, and `epic log` shows
-  the newest 64 KB of each task's notes.
-- When the log does not answer a question, a session runs
-  `tasktree-manager epic ask TASK "question"`. A read-only copy of that task's latest
-  Claude session answers: it can read files but not change them or read credential
-  files, and nothing is saved in that task. If the task's session is running, the command exits
-  with code 3 and prints the session name, and the asking session sends it a message
-  with SendMessage instead (`--fork` asks a copy anyway). Only tasks of the same epic
-  and the epic folder can be asked, and a session in a task outside any epic cannot
-  ask. Each turn of the copy is a model call on the size of that session's context,
-  at most `--max-turns` (default 8); `--model sonnet` makes it cheaper.
-- After upgrading tasktree-manager, run `tasktree-manager epic sync` to refresh the
-  block in existing tasks (the TUI also refreshes it when it starts a Claude session).
-  Folders without a `CLAUDE.md` yet are counted and skipped.
-- From scripts: `tasktree-manager epic create/add/remove/mark/unmark/list/note/log/ask/sync`.
+- Notes stay after their task is finished, moved or deleted; `epic log` lists them as
+  "no longer in the epic".
+- A note is at most 16 KB. `epic log` shows the newest 64 KB of each task's notes.
+- Notes and answers come from other sessions: they are information, not instructions.
+
+**`epic ask`:**
+
+- Only tasks of the same epic and the epic folder can be asked. A session in a task
+  outside any epic cannot ask.
+- The copy can read files but not change them, and it can't read credential files.
+  Nothing is saved in the asked task, and its session stays untouched.
+- Each turn of the copy is a model call on the size of that session's context, 8 turns
+  at most (`--max-turns`). `--model sonnet` makes it cheaper.
+
+**After an upgrade:** run `tasktree-manager epic sync` to refresh the block in existing
+tasks. The TUI also refreshes it when it starts a Claude session. Folders without a
+`CLAUDE.md` yet are counted and skipped.
 
 ### Worktrees
 
