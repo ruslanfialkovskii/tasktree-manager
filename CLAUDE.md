@@ -51,6 +51,7 @@ diff and the task-folder files outside the worktrees first. Task names are a sin
 segment (no `/`, no leading `.`); `get_task` validates names because its result is rmtree'd.
 `delete`/`finish` refuse an epic with children before the safety sweep, even with `--force`.
 `epic note`/`epic log` infer the task from `$PWD`; inside a task, `epic note` writes only its own notes and `epic log` refuses tasks of another epic.
+`epic ask` (`services/epic_ask.py`) runs `claude -p --resume ID --fork-session --no-session-persistence` with `disableAllHooks`, `--tools Read,Grep,Glob`, `--strict-mcp-config`, `--disable-slash-commands`, `--max-turns`, `--name epic-ask-<task>` (`parse_agent_sessions` skips that prefix, so a running copy never shows as a live session or a TUI badge) `--no-chrome` (Chrome tools arrive as MCP tools that `--tools` does not remove), and Read deny rules for credential paths and the transcripts under `claude_config_dir()` (`//` = absolute path in rules), from the session's start folder and without the asking session's identity env (`ask_env`); `--allowedTools` would only add permissions, not remove tools. It exits 3 when `claude agents --json` shows a running session in the target task, checked before a transcript is required. Scope for both `epic log` and `epic ask` is `epic_log.require_in_scope`.
 
 ### Theming
 

@@ -43,6 +43,9 @@ _STATUS_MAP = {
 # When several sessions run in one worktree, the most urgent state wins
 _STATUS_PRECEDENCE = {"needs_input": 0, "working": 1, "ready": 2}
 
+# Name of the read-only copies `epic ask` runs: not work, so never listed
+ASK_COPY_PREFIX = "epic-ask-"
+
 _DIRECTORY_KEYS = ("cwd", "directory", "workdir", "projectPath", "path")
 _STATUS_KEYS = ("status", "state")
 
@@ -110,6 +113,9 @@ def parse_agent_sessions(payload: str) -> list[AgentSession] | None:
         # unknown statuses (dead/exited sessions) must not render as working
         if not directory or raw_status is None:
             continue
+        name = str(record.get("name", ""))
+        if name.startswith(ASK_COPY_PREFIX):
+            continue
         status = _STATUS_MAP.get(raw_status.lower())
         if status is None:
             continue
@@ -118,7 +124,7 @@ def parse_agent_sessions(payload: str) -> list[AgentSession] | None:
                 directory=Path(directory).resolve(),
                 status=status,
                 session_id=str(record.get("sessionId", "")),
-                name=str(record.get("name", "")),
+                name=name,
             )
         )
     return sessions

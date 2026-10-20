@@ -152,6 +152,18 @@ def latest_session(folders: Iterable[Path]) -> SessionRef | None:
     return None
 
 
+def find_session(folders: Iterable[Path], session_id: str) -> SessionRef | None:
+    """The session `session_id` if it was started in one of `folders`."""
+    for folder in folders:
+        for mtime_ns, _size, path in _transcripts(folder):
+            if path.stem != session_id:
+                continue
+            cwd = transcript_cwd(path)
+            if cwd is not None and _same_dir(cwd, folder):
+                return SessionRef(path=path, cwd=folder, mtime_ns=mtime_ns)
+    return None
+
+
 def _same_dir(a: Path, b: Path) -> bool:
     try:
         return os.path.samefile(a, b)

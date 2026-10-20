@@ -3,7 +3,8 @@
 Running ``tasktree-manager`` with no arguments starts the TUI; any argument
 routes here instead. Built for scripts and automation (e.g. Claude skills
 that create a task and then work in its worktrees): plain text on stdout,
-errors on stderr, exit code 0 on success and 1 on failure.
+errors on stderr, exit code 0 on success and 1 on failure (`epic ask` also uses 3:
+the task's session is running, message it instead).
 """
 
 import argparse
@@ -17,7 +18,22 @@ from pathlib import Path
 
 from . import __version__
 from .services import forge
+from .services.agent_sessions import AgentSession, list_agent_sessions
 from .services.config import Config, ConfigError
+from .services.epic_ask import (
+    ASK_MAX_TURNS,
+    ASK_QUESTION_MAX_BYTES,
+    ASK_TIMEOUT,
+    ASK_TIMEOUT_MAX,
+    LOOP_GUARD_ENV,
+    AskError,
+    AskTarget,
+    build_ask_command,
+    live_sessions,
+    pick_session,
+    resolve_ask_task,
+    run_ask,
+)
 from .services.epic_log import (
     EPIC_ROLE,
     FORMER_ROLE,
@@ -116,6 +132,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     epic_log.add_argument("--json", action="store_true", dest="as_json", help="Output JSON")
     epic_log.set_defaults(func=cmd_epic_log)
+
+    epic_ask = epic_sub.add_parser(
+        "ask", help="Ask another task of the epic: a read-only copy of its latest session answers"
+    )
+    epic_ask.add_argument("task", help="Task (or the epic) to ask")
+    epic_ask.add_argument("question", help='Question ("-" reads it from stdin)')
+    epic_ask.add_argument("--session", default=None, help="Session id to ask (default: the newest)")
+    epic_ask.add_argument(
+        "--fork",
+        action="store_true",
+        help="Ask a copy even when the task's session is running (default: exit 3)",
+    )
+    epic_ask.add_argument("--model", default=None, help="Model for the answer (default: Claude's)")
+    epic_ask.add_argument(
+        "--timeout",
+        type=_ask_timeout,
+        default=ASK_TIMEOUT,
+        help=f"Seconds to wait for the answer (default {ASK_TIMEOUT})",
+    )
+    epic_ask.add_argument(
+        "--max-turns",
+        type=_ask_max_turns,
+        default=ASK_MAX_TURNS,
+        help=f"Turns the copy may take; each is a model call (default {ASK_MAX_TURNS})",
+    )
+    epic_ask.add_argument("--json", action="store_true", dest="as_json", help="Output JSON")
+    epic_ask.set_defaults(func=cmd_epic_ask)
 
     epic_sync = epic_sub.add_parser(
         "sync", help="Refresh the epic block in the CLAUDE.md of epics and their tasks"
@@ -475,6 +518,105 @@ def _print_epic_log_entry(entry: EpicLogEntry) -> None:
 
 def _safe_lines(text: str) -> list[str]:
     return [_CONTROL_CHARS.sub("", line) for line in text.split("\n")]
+
+
+def cmd_epic_ask(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
+    """Ask another task of the epic; exit 3 when its session is running.
+
+    A running session is asked with SendMessage by the calling agent: only
+    a fork is asked here, unless --fork.
+    """
+    if os.environ.get(LOOP_GUARD_ENV):
+        return _error("epic ask cannot run inside another epic ask")
+    question = (sys.stdin.read() if args.question == "-" else args.question).strip()
+    if not question:
+        return _error("the question is empty")
+    size = len(question.encode())
+    if size > ASK_QUESTION_MAX_BYTES:
+        return _error(f"the question is {size} bytes; the limit is {ASK_QUESTION_MAX_BYTES}")
+    caller = _find_task_by_cwd(manager)
+    epic, task = resolve_ask_task(manager, caller, args.task)
+
+    # Before the session lookup: a running session may not have a transcript yet
+    if not args.fork:
+        sessions = list_agent_sessions(config.claude_path)
+        if sessions is None:
+            print("warning: could not list running Claude sessions", file=sys.stderr)
+        live = live_sessions(task, sessions or [])
+        if live:
+            _print_live_sessions(task, live, args.as_json)
+            return 3
+
+    target = AskTarget(epic=epic, task=task, session=pick_session(task, args.session))
+    command = build_ask_command(
+        config.claude_path,
+        target,
+        question,
+        caller.name if caller else None,
+        args.model,
+        args.max_turns,
+    )
+    try:
+        answer = run_ask(command, target.session.cwd, args.timeout)
+    except AskError as e:
+        return _error(_CONTROL_CHARS.sub(" ", f"{task.name} did not answer: {e}"))
+    if args.as_json:
+        payload = {
+            "task": task.name,
+            "status": "answered",
+            "session_id": target.session.session_id,
+            "cwd": str(target.session.cwd),
+            "answer": answer.text,
+            "usage": answer.usage,
+        }
+        print(json.dumps(payload, indent=2))
+        return 0
+    print(f"== {task.name} (copy of session {target.session.session_id}) ==")
+    for line in _safe_lines(answer.text.rstrip()):
+        print(line)
+    return 0
+
+
+def _print_live_sessions(task: Task, live: list[AgentSession], as_json: bool) -> None:
+    if as_json:
+        rows = [
+            {
+                "name": s.name,
+                "session_id": s.session_id,
+                "status": s.status,
+                "cwd": str(s.directory),
+            }
+            for s in live
+        ]
+        print(json.dumps({"task": task.name, "status": "running", "sessions": rows}, indent=2))
+        return
+    # SendMessage addresses a session by name; an unnamed one only by its id
+    names = ", ".join(
+        f'"{_CONTROL_CHARS.sub("", s.name or s.session_id)}" ({s.status})' for s in live
+    )
+    print(f"{task.name} has a running Claude session: {names}.")
+    print("Message it with SendMessage (to: that name); the answer arrives later as a message.")
+    print("If the message is held or refused, pass --fork to ask a read-only copy instead.")
+
+
+def _ask_timeout(value: str) -> float:
+    try:
+        seconds = float(value)
+    except ValueError:
+        seconds = float("nan")
+    if not 1 <= seconds <= ASK_TIMEOUT_MAX:
+        raise argparse.ArgumentTypeError(f"must be between 1 and {ASK_TIMEOUT_MAX} seconds")
+    return seconds
+
+
+def _ask_max_turns(value: str) -> int:
+    try:
+        turns = int(value)
+    except ValueError:
+        turns = 0
+    if not 1 <= turns <= 50:
+        raise argparse.ArgumentTypeError("must be between 1 and 50")
+    return turns
 
 
 def cmd_epic_sync(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:

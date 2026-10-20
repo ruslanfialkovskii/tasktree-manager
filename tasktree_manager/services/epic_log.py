@@ -59,11 +59,30 @@ def resolve_log_target(
     if scope is not None and epic != scope and target.name in manager.epic_note_names(scope):
         # It left the caller's epic: its notes there are still readable
         return scope, target.name
+    epic = require_in_scope(manager, caller, target)
+    return epic, None if target.is_epic else target.name
+
+
+def require_in_scope(manager: TaskManager, caller: Task | None, target: Task) -> str:
+    """The target's epic, if the caller may reach it; ValueError says why not.
+
+    From inside a task folder only the same epic is reachable, and only when
+    that task is in an epic; from outside every task folder, any epic.
+    """
+    epic = manager.epic_of(target)
     if epic is None:
         raise ValueError(f"task {target.name} is not in an epic")
-    if scope is not None and epic != scope:
+    if caller is None:
+        return epic
+    scope = caller_epic(manager, caller)
+    if scope is None:
+        raise ValueError(
+            f"task {caller.name} is not in an epic; run this from a task of {epic} "
+            "or from outside the task folders"
+        )
+    if epic != scope:
         raise ValueError(f"task {target.name} is in epic {epic}, not in {scope}")
-    return epic, None if target.is_epic else target.name
+    return epic
 
 
 def task_session(task: Task) -> SessionRef | None:
