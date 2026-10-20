@@ -101,10 +101,19 @@ names their epic, so nothing moves on disk.
 - Notes stay in the epic after their task is finished, moved or deleted; `epic log`
   lists them as "no longer in the epic". A note is at most 16 KB, and `epic log` shows
   the newest 64 KB of each task's notes.
+- When the log does not answer a question, a session runs
+  `tasktree-manager epic ask TASK "question"`. A read-only copy of that task's latest
+  Claude session answers: it can read files but not change them or read credential
+  files, and nothing is saved in that task. If the task's session is running, the command exits
+  with code 3 and prints the session name, and the asking session sends it a message
+  with SendMessage instead (`--fork` asks a copy anyway). Only tasks of the same epic
+  and the epic folder can be asked, and a session in a task outside any epic cannot
+  ask. Each turn of the copy is a model call on the size of that session's context,
+  at most `--max-turns` (default 8); `--model sonnet` makes it cheaper.
 - After upgrading tasktree-manager, run `tasktree-manager epic sync` to refresh the
   block in existing tasks (the TUI also refreshes it when it starts a Claude session).
   Folders without a `CLAUDE.md` yet are counted and skipped.
-- From scripts: `tasktree-manager epic create/add/remove/mark/unmark/list/note/log/sync`.
+- From scripts: `tasktree-manager epic create/add/remove/mark/unmark/list/note/log/ask/sync`.
 
 ### Worktrees
 

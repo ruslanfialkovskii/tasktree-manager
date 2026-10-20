@@ -22,7 +22,7 @@
 - 🛰️ **Agent Dashboard** - Live Claude Code session state per worktree (from `claude agents`), plus one-key background-agent dispatch — the multi-repo agent view Claude Code lacks natively
 - ✻ **Session Recap** - The Info panel shows each task's latest Claude Code session: title, last turn duration, and Claude's own idle recap of what was done and what comes next — read straight from the transcript, no CLI call
 - 🔀 **Forge-Aware Safety** - MR/PR and CI state via `glab`/`gh`; squash- and rebase-merged branches count as merged instead of blocking deletion forever
-- 🗂️ **Epics** - Group related tasks under an epic: a foldable row with rolled-up dirty and Claude state, `E` to attach tasks, and an epic log where the Claude sessions of one epic share notes
+- 🗂️ **Epics** - Group related tasks under an epic: a foldable row with rolled-up dirty and Claude state, `E` to attach tasks, and an epic log and `epic ask` so the Claude sessions of one epic share what they know
 - 📦 **Finish Flow with Archives** - Ending a task saves its combined diff (committed-but-unmerged + uncommitted) and the task-folder files outside the worktrees (plans, ADRs, notes) to an archive before deleting
 
 ## 📊 Status Indicators
@@ -103,6 +103,7 @@ tasktree-manager epic list                                    # epics and their 
 tasktree-manager epic note "chose layout A for the S3 keys"   # add a note to this task's file in the epic log
 tasktree-manager epic log                                     # notes and latest session recap of every task in the epic
 tasktree-manager epic log DIC-2862-pcaps-s3 --json            # one task (or a whole epic by its name), as JSON
+tasktree-manager epic ask DIC-2862-pcaps-s3 "which bucket?"    # a read-only copy of that task's latest session answers
 tasktree-manager epic sync                                    # refresh the CLAUDE.md epic block after an upgrade
 ```
 
@@ -113,12 +114,20 @@ epic folder, written with `epic note` and read with `epic log`, which adds the r
 task's latest Claude session (in the task folder or one of its worktrees). Inside a task
 folder, `epic note` writes only that task's notes and `epic log` reads only its epic;
 `epic note -` reads the text from stdin. Notes of a task that left the epic stay readable.
+`epic ask TASK "question"` resumes a copy of that task's latest Claude session to answer:
+forked and not saved, hooks off, only the Read/Grep/Glob tools, no MCP servers, so the
+task's own session and status stay untouched; credential files (`~/.ssh`, `~/.aws`, `.env`
+and similar) are denied to it. It exits 3 without asking when the task's session is
+running; the calling session then messages it with SendMessage (`--fork` asks a copy
+anyway). Each turn of the copy is a model call on that session's context, at most
+`--max-turns` (default 8); `--model sonnet` makes it cheaper.
 Epics don't
 nest. `list --json` and `status --json` carry `kind` (`task` or `epic`) and
 `epic` (the parent epic or `null`). `delete` and `finish` refuse an epic that still has
 tasks, even with `--force`.
 
-Exit code is 0 on success, 1 on failure with the reason on stderr. `delete` and `finish` run
+Exit code is 0 on success, 1 on failure with the reason on stderr, and 3 from `epic ask`
+when the task's session is running (its name goes to stdout). `delete` and `finish` run
 the same safety check as the TUI (uncommitted, unpushed, or unmerged work blocks deletion);
 with `glab`/`gh` installed, squash/rebase-merged branches are recognized as merged. If the
 diff cannot be archived for any repo, the CLI stops before deleting and prints the path of
