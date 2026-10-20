@@ -76,72 +76,92 @@ For detailed workflows and examples, see the [User Guide](docs/user-guide.md).
 
 ### Headless CLI
 
-Running `tasktree-manager` with arguments skips the TUI — useful for scripts and AI-agent
-workflows (e.g. a skill that creates a Jira ticket and then the matching task):
+Running `tasktree-manager` with arguments skips the TUI. Use it from scripts and AI agents,
+for example a skill that creates a Jira ticket and then the matching task.
+
+#### Tasks
 
 ```bash
-tasktree-manager create DIC-1901-argocd-tls --repos backend,frontend  # --base overrides the default base branch
-tasktree-manager list --json     # tasks with repos and state: clean / dirty / error (plain text without --json)
-tasktree-manager repos           # available repos in REPOS_DIR
+tasktree-manager create DIC-1901-argocd-tls --repos backend,frontend  # --base sets the base branch
 tasktree-manager add-repo DIC-1901-argocd-tls infra
-tasktree-manager status                       # current task inferred from $PWD; also --json / --oneline / --forge
-tasktree-manager finish DIC-1901-argocd-tls   # safety sweep -> archive diff + task files -> delete; --push / --no-archive / --force
-tasktree-manager delete DIC-1901-argocd-tls   # archive diff + task files -> delete; refuses on unfinished work; --force overrides
+tasktree-manager list --json        # tasks, repos and state: clean / dirty / error
+tasktree-manager repos              # repos available in REPOS_DIR
+tasktree-manager status             # task of the current folder; --json, --oneline, --forge
+tasktree-manager finish DIC-1901-argocd-tls   # safety check, archive, delete; --push, --no-archive
+tasktree-manager delete DIC-1901-argocd-tls   # archive, delete; refuses unfinished work
 ```
 
-Epics group related tasks, for example a Jira epic and its child tasks. An epic is a task
-folder with a `.tasktree_kind` marker. It can hold its own notes, Claude session and
-worktrees. A child task names its epic in `.tasktree_epic`. Folders never move:
+`status --oneline` prints a compact `TASK repoA✓ repoB●2↑1` line for a Claude Code
+statusline or a shell prompt.
+
+#### Epics
+
+An epic groups related tasks, for example a Jira epic and its child tasks. It is a task
+folder too, so it can hold notes, a Claude session and worktrees. Tasks stay in their own
+folders; a marker file names their epic. Epics don't nest.
 
 ```bash
-tasktree-manager epic create DIC-2466-pcaps-epic             # --repos is optional for an epic
+tasktree-manager epic create DIC-2466-pcaps-epic     # repos are optional for an epic
 tasktree-manager create DIC-2861-pcaps-logs --repos infra --epic DIC-2466-pcaps-epic
-tasktree-manager epic add DIC-2466-pcaps-epic DIC-2862-pcaps-s3  # attach or move existing tasks
-tasktree-manager epic remove DIC-2862-pcaps-s3                # detach
-tasktree-manager epic mark DIC-2466-pcaps-epic                # turn an existing task into an epic; unmark reverts
-tasktree-manager epic list                                    # epics and their tasks; also --json
-tasktree-manager epic note "chose layout A for the S3 keys"   # add a note to this task's file in the epic log
-tasktree-manager epic log                                     # notes and latest session recap of every task in the epic
-tasktree-manager epic log DIC-2862-pcaps-s3 --json            # one task (or a whole epic by its name), as JSON
-tasktree-manager epic ask DIC-2862-pcaps-s3 "which bucket?"    # a read-only copy of that task's latest session answers
-tasktree-manager epic sync                                    # refresh the CLAUDE.md epic block after an upgrade
+tasktree-manager epic add DIC-2466-pcaps-epic DIC-2862-pcaps-s3   # attach or move tasks
+tasktree-manager epic remove DIC-2862-pcaps-s3      # detach
+tasktree-manager epic mark DIC-2466-pcaps-epic      # make an existing task an epic; unmark reverts
+tasktree-manager epic list                          # epics and their tasks; --json
 ```
 
-Each task's `CLAUDE.md` gets a managed block naming its epic and how to find sibling
-tasks; it follows every epic change and leaves the rest of the file alone. The block
-also tells the session about the epic log: one notes file per task in `epic-log/` in the
-epic folder, written with `epic note` and read with `epic log`, which adds the recap of each
-task's latest Claude session (in the task folder or one of its worktrees). Inside a task
-folder, `epic note` writes only that task's notes and `epic log` reads only its epic;
-`epic note -` reads the text from stdin. Notes of a task that left the epic stay readable.
-`epic ask TASK "question"` resumes a copy of that task's latest Claude session to answer:
-forked and not saved, hooks off, only the Read/Grep/Glob tools, no MCP servers, so the
-task's own session and status stay untouched; credential files (`~/.ssh`, `~/.aws`, `.env`
-and similar) are denied to it. It exits 3 without asking when the task's session is
-running; the calling session then messages it with SendMessage (`--fork` asks a copy
-anyway). Each turn of the copy is a model call on that session's context, at most
-`--max-turns` (default 8); `--model sonnet` makes it cheaper.
-Epics don't
-nest. `list --json` and `status --json` carry `kind` (`task` or `epic`) and
-`epic` (the parent epic or `null`). `delete` and `finish` refuse an epic that still has
-tasks, even with `--force`.
+`list --json` and `status --json` show each task's `kind` (`task` or `epic`) and its `epic`.
+`delete` and `finish` refuse an epic that still has tasks, even with `--force`.
 
-Exit code is 0 on success, 1 on failure with the reason on stderr, and 3 from `epic ask`
-when the task's session is running (its name goes to stdout). `delete` and `finish` run
-the same safety check as the TUI (uncommitted, unpushed, or unmerged work blocks deletion);
-with `glab`/`gh` installed, squash/rebase-merged branches are recognized as merged. If the
-diff cannot be archived for any repo, the CLI stops before deleting and prints the path of
-the partial archive; the TUI warns and deletes anyway. Files in the task folder outside the
-worktrees are copied to `<task>-<timestamp>.files/` next to the patch:
+#### Sharing context inside an epic
 
-- Skipped silently: hidden files, symlinks, `node_modules`/`vendor`/`.terraform` folders and
-  an unedited generated `CLAUDE.md`.
-- Left out with a warning: key material (`*.pem`, `*.key`, `id_rsa`, kubeconfigs,
-  `*.tfstate`, `credentials*.json`), files over 10 MB and files past 100 MB in total.
-- A file that cannot be read or copied stops `delete`/`finish` before anything is removed,
-  unless `--force`; the TUI warns and deletes anyway.
-`status --oneline` emits a compact `TASK repoA✓ repoB●2↑1` summary that slots straight into
-a Claude Code statusline or shell prompt.
+The Claude sessions of one epic can learn from each other:
+
+| Command | What it does |
+| --- | --- |
+| `epic note "text"` | Adds a note to this task's file in the epic log (`-` reads stdin) |
+| `epic log [TASK]` | Shows each task's notes and the recap of its latest Claude session; `--json` |
+| `epic ask TASK "question"` | A read-only copy of that task's latest session answers |
+| `epic sync` | Refreshes the epic block in existing tasks' `CLAUDE.md` after an upgrade |
+
+Each task's `CLAUDE.md` gets a managed block that explains these commands to its session.
+
+- **Scope:** inside a task folder, the commands reach only that task's epic.
+- **Running sessions:** `epic ask` exits with code 3 when the task's session is running and
+  prints its name; the asking session then sends it a message with SendMessage.
+- **Read-only:** the copy that answers can read files but not change them, can't read
+  credential files, and leaves the asked task's session untouched.
+- **Cost:** each turn of the copy is a model call on that session's context, 8 turns at
+  most (`--max-turns`); `--model sonnet` makes it cheaper.
+
+The [User Guide](docs/user-guide.md#epics) has the details.
+
+#### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Success |
+| 1 | Failure; the reason is on stderr |
+| 3 | `epic ask` only: the task's session is running; its name is on stdout |
+
+#### Safe delete and archive
+
+`delete` and `finish` run the same safety check as the TUI: uncommitted, unpushed or
+unmerged work blocks deletion unless `--force`. With `glab` or `gh` installed, squash and
+rebase merges count as merged.
+
+Before deleting, the CLI archives the task's remaining diff as a patch and copies the files
+in the task folder outside the worktrees to `<task>-<timestamp>.files/` next to it
+(`finish --no-archive` skips both):
+
+- **Skipped:** hidden files, symlinks, `node_modules`, `vendor` and `.terraform` folders,
+  and an unedited generated `CLAUDE.md`.
+- **Left out with a warning:** key material (`*.pem`, `*.key`, `id_rsa`, kubeconfigs,
+  `*.tfstate`, `credentials*.json`), files over 10 MB, and files past 100 MB in total.
+- **Always stops the delete:** a diff that cannot be archived; the CLI prints the partial
+  archive's path.
+- **Stops the delete unless `--force`:** a task file that cannot be read or copied.
+
+In both cases the TUI warns and deletes anyway.
 
 ## 📖 Documentation
 
