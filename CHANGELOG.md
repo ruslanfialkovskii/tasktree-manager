@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.18.0] - 2026-10-20
+
+### Added
+- **epic**: Ask another task's session with epic ask (#14)
+
+
 ## [2.17.0] - 2026-10-20
 
 ### Added
