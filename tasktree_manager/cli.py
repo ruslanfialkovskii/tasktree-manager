@@ -10,7 +10,6 @@ the task's session is running, message it instead).
 import argparse
 import json
 import os
-import re
 import shutil
 import sys
 from datetime import timezone
@@ -43,17 +42,16 @@ from .services.epic_log import (
 )
 from .services.git_ops import GitOps
 from .services.models import (
+    CONTROL_CHARS,
     EPIC_KIND,
     TASK_KIND,
     ArchiveResult,
     Task,
+    group_by_epic,
     parent_epic_name,
     same_folder,
 )
 from .services.task_manager import ARCHIVE_NOTES_SHOWN, ArchiveIncompleteError, TaskManager
-
-# C0/C1 controls except tab; notes are split on newlines before this runs
-_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0a-\x1f\x7f-\x9f]")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -355,15 +353,20 @@ def cmd_epic_remove(manager: TaskManager, config: Config, args: argparse.Namespa
     tasks = _get_tasks(manager, args.tasks)
     if tasks is None:
         return 1
+    code = 0
     for task in tasks:
         previous = task.epic_name
-        manager.set_task_epic(task, None)
+        try:
+            manager.set_task_epic(task, None)
+        except ValueError as e:
+            code = _error(str(e))
+            continue
         if previous is None:
             print(f"Task {task.name} is not in an epic")
         else:
             print(f"Removed {task.name} from epic {previous}")
         _warn_epic_block(manager, task)
-    return 0
+    return code
 
 
 def cmd_epic_mark(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
@@ -396,8 +399,11 @@ def cmd_epic_unmark(manager: TaskManager, config: Config, args: argparse.Namespa
 
 def cmd_epic_list(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
     """List epics and the tasks attached to each (no git calls)."""
-    epics = [task for task in manager.list_tasks() if task.is_epic]
-    children = {epic.name: manager.epic_child_names(epic.name) for epic in epics}
+    tasks = manager.list_tasks()
+    # One pass by the TUI tree's rule: a symlink alias is never an epic of its own
+    _, members = group_by_epic(tasks)
+    epics = [task for task in tasks if task.name in members]
+    children = {name: [task.name for task in group] for name, group in members.items()}
 
     if args.as_json:
         payload = [
@@ -517,7 +523,11 @@ def _print_epic_log_entry(entry: EpicLogEntry) -> None:
 
 
 def _safe_lines(text: str) -> list[str]:
-    return [_CONTROL_CHARS.sub("", line) for line in text.split("\n")]
+    return [CONTROL_CHARS.sub("", line) for line in text.split("\n")]
+
+
+def _one_line(text: str) -> str:
+    return " ".join(_safe_lines(text))
 
 
 def cmd_epic_ask(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
@@ -559,7 +569,7 @@ def cmd_epic_ask(manager: TaskManager, config: Config, args: argparse.Namespace)
     try:
         answer = run_ask(command, target.session.cwd, args.timeout)
     except AskError as e:
-        return _error(_CONTROL_CHARS.sub(" ", f"{task.name} did not answer: {e}"))
+        return _error(_one_line(f"{task.name} did not answer: {e}"))
     if args.as_json:
         payload = {
             "task": task.name,
@@ -572,8 +582,9 @@ def cmd_epic_ask(manager: TaskManager, config: Config, args: argparse.Namespace)
         print(json.dumps(payload, indent=2))
         return 0
     print(f"== {task.name} (copy of session {target.session.session_id}) ==")
+    # Indented like notes, so the answer cannot forge a "== task ==" line
     for line in _safe_lines(answer.text.rstrip()):
-        print(line)
+        print(f"  {line}" if line else "")
     return 0
 
 
@@ -591,9 +602,7 @@ def _print_live_sessions(task: Task, live: list[AgentSession], as_json: bool) ->
         print(json.dumps({"task": task.name, "status": "running", "sessions": rows}, indent=2))
         return
     # SendMessage addresses a session by name; an unnamed one only by its id
-    names = ", ".join(
-        f'"{_CONTROL_CHARS.sub("", s.name or s.session_id)}" ({s.status})' for s in live
-    )
+    names = ", ".join(f'"{_one_line(s.name or s.session_id)}" ({s.status})' for s in live)
     print(f"{task.name} has a running Claude session: {names}.")
     print("Message it with SendMessage (to: that name); the answer arrives later as a message.")
     print("If the message is held or refused, pass --fork to ask a read-only copy instead.")
@@ -866,13 +875,7 @@ def cmd_add_repo(manager: TaskManager, config: Config, args: argparse.Namespace)
 
 def _find_task_by_cwd(manager: TaskManager) -> Task | None:
     """Find the task whose directory contains the current working directory."""
-    cwd = Path.cwd().resolve()
-    # A symlink alias resolves to the same folder: the real folder wins
-    for task in sorted(manager.list_tasks(), key=lambda task: task.path.is_symlink()):
-        task_path = task.path.resolve()
-        if cwd == task_path or cwd.is_relative_to(task_path):
-            return task
-    return None
+    return manager.task_containing(Path.cwd())
 
 
 def _read_claude_status(task: Task) -> dict | None:

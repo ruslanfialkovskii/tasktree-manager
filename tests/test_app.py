@@ -763,6 +763,7 @@ class TestClaudeRecapPanel:
         project = project_dir_candidates(task_path)[0]
         project.mkdir(parents=True)
         records = [
+            {"type": "user", "cwd": str(task_path), "entrypoint": "cli"},
             {"type": "custom-title", "customTitle": "recap-session"},
             {
                 "type": "system",

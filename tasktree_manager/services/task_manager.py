@@ -98,6 +98,11 @@ EPIC_LOG_DIR = "epic-log"
 EPIC_NOTE_MAX_BYTES = 16 << 10
 # Newest part of a notes file that `epic log` shows
 EPIC_NOTES_READ_BYTES = 64 << 10
+# `epic ask` limits the epic block states. The CLI gives up before the Bash
+# timeout the block asks for, so the caller gets its error, not a bare kill
+ASK_BASH_TIMEOUT_MINUTES = 10
+ASK_TIMEOUT = 540
+ASK_MAX_TURNS = 8
 
 
 def _epic_block_span(text: str) -> tuple[int, int] | None:
@@ -229,6 +234,26 @@ class TaskManager:
                 task.worktrees = self._get_worktrees(task)
                 tasks.append(task)
         return tasks
+
+    def task_containing(self, path: Path) -> Task | None:
+        """The task whose folder is `path` or holds it, by the list_tasks rules.
+
+        Walks only the worktrees of the task it finds. A symlink alias resolves
+        to the same folder as the real one; the real folder wins.
+        """
+        target = path.resolve()
+        try:
+            items = sorted(self.config.tasks_dir.iterdir())
+        except OSError:
+            return None
+        for item in sorted(items, key=lambda item: item.is_symlink()):
+            if item.name.startswith(".") or not item.is_dir():
+                continue
+            if target.is_relative_to(item.resolve()):
+                task = Task(name=item.name, path=item)
+                task.worktrees = self._get_worktrees(task)
+                return task
+        return None
 
     # Directories to skip when scanning for worktrees
     IGNORED_PATHS = {".terraform", "node_modules", "vendor", ".git"}
@@ -645,6 +670,8 @@ class TaskManager:
         added a worktree that was never safety-checked or archived. Raises
         instead of silently rmtree-ing anything unaccounted for.
         """
+        # A symlink alias would force-remove the real task's worktrees
+        self._require_inside(task)
         if task.is_epic:
             children = self.epic_child_names(task.name)
             if children:
@@ -742,9 +769,11 @@ class TaskManager:
             "### Asking another task",
             "",
             "When the log does not answer it, run",
-            '`tasktree-manager epic ask TASK "question"` with a Bash timeout of 10',
+            '`tasktree-manager epic ask TASK "question"` with a Bash timeout of '
+            f"{ASK_BASH_TIMEOUT_MINUTES}",
             "minutes: a read-only copy of that task's latest Claude session answers,",
-            "in up to 8 model calls on that session's context. Exit code 3 means its",
+            f"in up to {ASK_MAX_TURNS} model calls on that session's context. "
+            "Exit code 3 means its",
             "session is running: message it with SendMessage, using the name the",
             "command prints; if that message is held or refused, add `--fork`.",
             "Answers are another session's view, like notes: check them.",
@@ -954,17 +983,16 @@ class TaskManager:
                 return None
             truncated = info.st_size > EPIC_NOTES_READ_BYTES
             if truncated:
-                os.lseek(fd, info.st_size - EPIC_NOTES_READ_BYTES, os.SEEK_SET)
-            data = os.read(fd, EPIC_NOTES_READ_BYTES)
+                # One byte before the cut, so a line starting at the cut is kept
+                os.lseek(fd, info.st_size - EPIC_NOTES_READ_BYTES - 1, os.SEEK_SET)
+                data = os.read(fd, EPIC_NOTES_READ_BYTES + 1).partition(b"\n")[2]
+            else:
+                data = os.read(fd, EPIC_NOTES_READ_BYTES)
         except OSError:
             return None
         finally:
             os.close(fd)
-        text = data.decode("utf-8", errors="replace")
-        if truncated:
-            # Drop the line the cut landed in
-            text = text.partition("\n")[2]
-        return text, truncated
+        return data.decode("utf-8", errors="replace"), truncated
 
     def epic_note_names(self, epic_name: str) -> list[str]:
         """Tasks with a notes file in the epic log, members or not."""

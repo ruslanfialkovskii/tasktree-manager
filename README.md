@@ -161,7 +161,8 @@ in the task folder outside the worktrees to `<task>-<timestamp>.files/` next to 
   archive's path.
 - **Stops the delete unless `--force`:** a task file that cannot be read or copied.
 
-In both cases the TUI warns and deletes anyway.
+In both cases the TUI stops too, names what was left out in the messages panel, and asks
+again before it deletes.
 
 ## 📖 Documentation
 

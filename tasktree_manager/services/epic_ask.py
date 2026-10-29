@@ -15,17 +15,15 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .agent_sessions import ASK_COPY_PREFIX, AgentSession
+from .agent_sessions import ASK_COPY_PREFIX, AgentSession, runs_in
 from .claude_hooks import claude_config_dir
 from .claude_sessions import SessionRef, find_session
 from .epic_log import require_in_scope, task_session
 from .models import Task, same_folder
-from .task_manager import TaskManager
+from .task_manager import ARCHIVE_SECRET_PATTERNS, ASK_MAX_TURNS, ASK_TIMEOUT, TaskManager
 
 ASK_TOOLS = "Read,Grep,Glob"
-ASK_TIMEOUT = 600
 ASK_TIMEOUT_MAX = 3600
-ASK_MAX_TURNS = 8
 ASK_QUESTION_MAX_BYTES = 16 << 10
 # Set for the copy's process; `epic ask` refuses to run under it
 LOOP_GUARD_ENV = "TASKTREE_EPIC_ASK"
@@ -38,7 +36,8 @@ _SESSION_ENV = (
     "CLAUDE_PID",
     "CLAUDE_EFFORT",
 )
-# Credentials the copy must not read on a question's say-so
+# Credentials the copy must not read on a question's say-so. `//` starts an
+# absolute path, so `//**/x` matches anywhere, not only below the copy's cwd
 ASK_DENY_READ = (
     "~/.ssh/**",
     "~/.aws/**",
@@ -46,13 +45,20 @@ ASK_DENY_READ = (
     "~/.kube/**",
     "~/.docker/config.json",
     "~/.config/gh/**",
+    "~/.config/glab-cli/**",
+    "~/Library/Application Support/glab-cli/**",
+    "~/.terraform.d/credentials.tfrc.json",
     "~/.git-credentials",
     "~/.netrc",
     "~/.vault-token",
-    "**/.env",
-    "**/.env.*",
+    "~/.claude.json",
+    "//**/.env",
+    "//**/.env.*",
+    # Key material, kubeconfigs and state files: the archive refuses them too
+    *(f"//**/{pattern}" for pattern in ARCHIVE_SECRET_PATTERNS),
 )
 _SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+_QUESTION_TAG = re.compile(r"<(/?question\b)", re.IGNORECASE)
 _ERROR_DETAIL_MAX = 300
 
 _PROMPT = """\
@@ -123,7 +129,7 @@ def pick_session(task: Task, session_id: str | None = None) -> SessionRef:
 def live_sessions(task: Task, sessions: list[AgentSession]) -> list[AgentSession]:
     """Running sessions in the task folder or one of its worktrees."""
     root = task.path.resolve()
-    return [s for s in sessions if s.directory == root or s.directory.is_relative_to(root)]
+    return [s for s in sessions if runs_in(s, root)]
 
 
 def build_ask_command(
@@ -136,6 +142,8 @@ def build_ask_command(
 ) -> list[str]:
     """The `claude` command that makes the read-only copy answer."""
     who = f"working on task {asker} in epic {target.epic}" if asker else "outside the task folders"
+    # A question must not close its own <question> block early
+    question = _QUESTION_TAG.sub(r"&lt;\1", question)
     prompt = _PROMPT.format(asker=who, target=target.task.name, question=question)
     settings = {
         "disableAllHooks": True,
@@ -173,10 +181,15 @@ def ask_deny_paths() -> list[str]:
     """Paths the copy may not read: credentials and every session transcript.
 
     `//` starts an absolute path in Claude permission rules; the transcripts
-    live wherever CLAUDE_CONFIG_DIR puts them.
+    and Claude's own credentials live wherever CLAUDE_CONFIG_DIR puts them.
     """
-    projects = (claude_config_dir() / "projects").absolute()
-    return [*ASK_DENY_READ, f"/{projects}/**"]
+    config_dir = claude_config_dir().absolute()
+    return [
+        *ASK_DENY_READ,
+        f"/{config_dir}/projects/**",
+        f"/{config_dir}/.credentials.json",
+        f"/{config_dir}/.claude.json",
+    ]
 
 
 def ask_env() -> dict[str, str]:

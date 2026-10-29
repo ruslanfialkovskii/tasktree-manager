@@ -17,7 +17,7 @@ _AHEAD_BEHIND_RE = re.compile(r"\[(?:ahead (\d+))?(?:, )?(?:behind (\d+))?\]")
 # Control characters (incl. ESC) that must never reach the terminal from a
 # filename or git message: a crafted name could otherwise emit OSC/CSI
 # sequences (clipboard writes, screen clears) through the status panel
-_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 # Hash of git's empty tree: the diff base for a repo without commits
 _EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"

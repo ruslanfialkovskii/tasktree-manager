@@ -120,7 +120,8 @@ open questions, finished work that other tasks depend on.
 
 - Only tasks of the same epic and the epic folder can be asked. A session in a task
   outside any epic cannot ask.
-- The copy can read files but not change them, and it can't read credential files.
+- The copy can read files but not change them. It can't read credential files (forge CLI
+  tokens, `.env` files anywhere, the key material the archive leaves out).
   Nothing is saved in the asked task, and its session stays untouched.
 - Each turn of the copy is a model call on the size of that session's context, 8 turns
   at most (`--max-turns`). `--model sonnet` makes it cheaper.
@@ -300,6 +301,8 @@ terraform edits sit unstaged. Next, decide whether to hand-create the group.
 - **Title**: the session name (`/rename`), else Claude's own title, else the session slug
 - **Turn line**: duration of the last turn and when it finished; `busy`/`idle` mirrors the task's Claude status indicator
 - **Recap**: the summary Claude writes a few minutes after a turn when the session idles. Until one exists, the dim `last prompt:` line shows what was asked last
+- The session is the newest one started in the task folder or one of its worktrees, as in
+  `epic log`. Headless `claude -p` runs, such as commit-message helpers, are skipped
 - Nothing is shown for tasks without a session. The block refreshes as you move the cursor and every 5 seconds while a transcript changes. Disable with `claude_recap = false` under `[tools]` in `config.toml`
 
 **Git status codes:**

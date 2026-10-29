@@ -20,7 +20,12 @@ from . import __version__
 from .commands import TaskTreeCommands
 from .services.agent_sessions import list_agent_sessions, map_sessions_to_worktrees
 from .services.claude_hooks import ensure_claude_hooks, has_claude_session
-from .services.claude_sessions import ClaudeRecap, read_claude_recap, transcript_key
+from .services.claude_sessions import (
+    ClaudeRecap,
+    latest_session,
+    read_claude_recap,
+    transcript_key,
+)
 from .services.config import Config, ConfigError
 from .services.forge import Forge, ForgeStatus, get_forge_status
 from .services.git_ops import GitOps
@@ -699,12 +704,15 @@ class TaskTreeApp(App):
         """Read the task's latest Claude transcript tail when it changed.
 
         ``known_key`` is passed in from the main thread so the worker never
-        reads mutable app state.
+        reads mutable app state. The session is picked like `epic log` picks
+        it: newest across the task folder and its worktrees, by recorded cwd.
         """
-        key = transcript_key(task.path)
+        folders = [task.path, *(wt.path for wt in task.worktrees)]
+        key = transcript_key(*folders)
         if key == known_key:
             return
-        recap = read_claude_recap(key[0]) if key else None
+        session = latest_session(folders) if key else None
+        recap = read_claude_recap(session.path) if session else None
         if get_current_worker().is_cancelled:
             return
         self.call_from_thread(self._apply_claude_recap, task, key, recap)
@@ -1181,7 +1189,12 @@ class TaskTreeApp(App):
             tasks = self.query_one("#task-list", TaskList).all_tasks
         except Exception:
             return []
-        epics = [(task.display_label, task.name) for task in tasks if task.is_epic]
+        # A symlink alias is not an epic of its own: set_task_epic refuses it
+        epics = [
+            (task.display_label, task.name)
+            for task in tasks
+            if task.is_epic and not task.path.is_symlink()
+        ]
         return sorted(epics, key=lambda pair: pair[0].lower())
 
     def _epic_of(self, task: Task | None) -> str | None:
@@ -1189,7 +1202,7 @@ class TaskTreeApp(App):
         if task is None:
             return None
         if task.is_epic:
-            return task.name
+            return None if task.path.is_symlink() else task.name
         return self.query_one("#task-list", TaskList).epic_of(task.name)
 
     def action_quit(self) -> None:
@@ -1532,37 +1545,45 @@ class TaskTreeApp(App):
             self._log_activity(problem, MessageLevel.WARNING, task.name)
         self._load_tasks(select_task=task.name)
 
-    def _finish_task(self, task: Task, force: bool = False) -> None:
+    def _finish_task(self, task: Task, force: bool = False, skip_archive: bool = False) -> None:
         """Kick off task deletion in a background thread."""
         if not self._begin_mutation("task-list"):
             return
-        self._finish_task_worker(task, force)
+        self._finish_task_worker(task, force, skip_archive)
 
     @work(thread=True, group="task_mutation")
-    def _finish_task_worker(self, task: Task, force: bool) -> None:
+    def _finish_task_worker(self, task: Task, force: bool, skip_archive: bool = False) -> None:
         """Delete the task in a background thread.
 
         Removing worktrees runs git per repo and rmtree over trees that can
         be huge (node_modules etc.) - never block the UI thread on it.
         The task's remaining diff (committed-but-unmerged + uncommitted) and
         its task-folder files are archived first — finish_task rmtrees the
-        task directory.
+        task directory. An incomplete archive stops the delete and asks
+        again, as the CLI refuses without --force; `skip_archive` is the
+        confirmed second pass.
         """
         error: str | None = None
         archive: ArchiveResult | None = None
-        try:
+        if not skip_archive:
+            problem: str | None = None
             try:
                 archive = self.task_manager.archive_task(task)
             except Exception as e:
-                # A failed archive must not block deletion, but it must be
-                # loud — the archive is the safety net for the work the
-                # delete below is about to destroy (ArchiveIncompleteError's
-                # message names the partial archive, if one was written)
-                detail = f"Archive failed for '{task.name}': {type(e).__name__}: {e}"
-                self.call_from_thread(self.notify, escape(detail), severity="warning", timeout=10)
-                self.call_from_thread(self._log_activity, detail, MessageLevel.ERROR, task.name)
-                # Still report the files that were saved and the ones left out
+                # ArchiveIncompleteError's message names the partial archive,
+                # and its result the files saved and left out
+                problem = f"Archive failed for '{task.name}': {type(e).__name__}: {e}"
                 archive = getattr(e, "result", None)
+            if problem is None and archive is not None and archive.failed:
+                problem = (
+                    f"{len(archive.failed)} task file(s) of '{task.name}' could not be archived"
+                )
+            if problem is not None:
+                self.call_from_thread(
+                    self._confirm_delete_after_archive_problem, task, force, problem, archive
+                )
+                return
+        try:
             self.task_manager.finish_task(task)
         except ValueError as e:
             # finish_task raises ValueError (nothing removed) when worktrees
@@ -1572,6 +1593,27 @@ class TaskTreeApp(App):
         except Exception as e:
             error = f"{type(e).__name__}: {e}"
         self.call_from_thread(self._apply_finish_task_result, task.name, force, error, archive)
+
+    def _confirm_delete_after_archive_problem(
+        self, task: Task, force: bool, problem: str, archive: ArchiveResult | None
+    ) -> None:
+        """Report an incomplete archive and ask before deleting (main thread)."""
+        self.query_one("#task-list", TaskList).loading = False
+        self.notify(escape(problem), severity="warning", timeout=10)
+        self._log_activity(problem, MessageLevel.ERROR, task.name)
+        if archive is not None:
+            self._log_archive(task.name, archive)
+        message = (
+            escape(problem)
+            + "\n\nThe task folder may hold the only copy of what was not archived"
+            + " (see messages). Delete anyway?"
+        )
+
+        def handle_confirm(confirmed):
+            if confirmed:
+                self._finish_task(task, force=force, skip_archive=True)
+
+        self.push_screen(ConfirmModal("Archive Incomplete", message), handle_confirm)
 
     def _apply_finish_task_result(
         self,
