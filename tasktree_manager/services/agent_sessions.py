@@ -38,6 +38,9 @@ _STATUS_MAP = {
     "done": "ready",
     "completed": "ready",
     "finished": "ready",
+    # Background sessions after `claude stop` or a crash: still attachable
+    "stopped": "ready",
+    "failed": "ready",
 }
 
 # When several sessions run in one worktree, the most urgent state wins
@@ -47,7 +50,9 @@ _STATUS_PRECEDENCE = {"needs_input": 0, "working": 1, "ready": 2}
 ASK_COPY_PREFIX = "epic-ask-"
 
 _DIRECTORY_KEYS = ("cwd", "directory", "workdir", "projectPath", "path")
-_STATUS_KEYS = ("status", "state")
+# A background record carries both, and its `status` stays "idle" while
+# `state` goes blocked -> working -> done; interactive records have `status` only
+_STATUS_KEYS = ("state", "status")
 
 
 @dataclass
@@ -105,19 +110,21 @@ def parse_agent_sessions(payload: str) -> list[AgentSession] | None:
             (record[key] for key in _DIRECTORY_KEYS if isinstance(record.get(key), str)),
             None,
         )
-        raw_status = next(
-            (record[key] for key in _STATUS_KEYS if isinstance(record.get(key), str)),
+        # An unknown `state` falls back to `status`
+        status = next(
+            (
+                _STATUS_MAP[record[key].lower()]
+                for key in _STATUS_KEYS
+                if isinstance(record.get(key), str) and record[key].lower() in _STATUS_MAP
+            ),
             None,
         )
         # Empty cwd would resolve to our own CWD and pin a phantom badge;
         # unknown statuses (dead/exited sessions) must not render as working
-        if not directory or raw_status is None:
+        if not directory or status is None:
             continue
         name = str(record.get("name", ""))
         if name.startswith(ASK_COPY_PREFIX):
-            continue
-        status = _STATUS_MAP.get(raw_status.lower())
-        if status is None:
             continue
         sessions.append(
             AgentSession(
