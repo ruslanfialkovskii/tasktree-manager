@@ -37,6 +37,11 @@ APP_COMMANDS: list[tuple[str, str, str]] = [
         "Run a background Claude session in the selected worktree",
     ),
     (
+        "close_claude_tab",
+        "Close Claude Tab",
+        "Close the zellij tab of a background Claude session; Claude keeps running",
+    ),
+    (
         "open_claude_gui_code",
         "Open Claude Desktop",
         "Open the Claude desktop app on the Code page",

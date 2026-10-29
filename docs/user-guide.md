@@ -451,13 +451,29 @@ Useful when you're spinning up several similar tasks that share the same set of 
 
 | Key     | Action                  | Description                                                |
 |---------|-------------------------|------------------------------------------------------------|
-| `c`     | Open Claude CLI         | Resume the task's Claude Code session if one exists, otherwise start a new one |
+| `c`     | Open Claude CLI         | Open the task's Claude session in a tab: reattach, resume the last one, or start a new one |
+| `x`     | Close Claude tab        | Close the Claude tab (zellij only); Claude keeps working in the background |
 | `C`     | Open Claude desktop     | Open the Claude desktop app on the Code page at the task folder |
 | `b`     | Dispatch agent          | Run a background Claude agent (`claude --bg`) in the selected worktree |
 
 **How it works:**
-- `c` opens Claude Code CLI in a new terminal tab at the task directory (a zellij tab inside zellij, see [zellij](#zellij)).
-  - If `~/.claude/projects/<task-folder>/` already has session transcripts, runs `claude -r` to pick from them; otherwise runs `claude` to start fresh.
+- `c` runs Claude as a background session (`claude --bg`) in the task folder and opens a
+  terminal tab that only shows it (`claude attach`). A zellij tab inside zellij, else a
+  Ghostty tab; see [zellij](#zellij). Closing a zellij tab leaves Claude working; the
+  same with a Ghostty tab is not tested yet.
+  - A background session already in the task folder is attached, also a finished one.
+  - Otherwise the folder's last session is resumed in the background (`claude --bg
+    --resume`), or a new one starts. It waits for your first message; nothing runs before.
+  - With the worktree panel focused, `c` opens the agent `b` dispatched to that worktree,
+    if one exists.
+  - Claude already open in the task folder in another terminal is left alone.
+  - When `claude agents` or `claude --bg` fails (for example in an untrusted folder),
+    or with `claude_background = false`, Claude runs inside the tab: `claude -r` when
+    the folder has transcripts, else `claude`.
+- Deleting a task asks first while a background session in it is working or waiting for
+  you, then stops and removes its sessions (`claude stop`, `claude rm`) before the
+  archive. Transcripts stay, so cancelling the delete later still lets `c` resume. A
+  session that will not stop keeps the task (the CLI goes on with `--force`).
 - `C` opens the Claude desktop app via the `claude://code/new?folder=<task-folder>` URL scheme.
 - The CLI variant (`c`) generates a task-level `CLAUDE.md` with task/worktree context, copies each repo's own `CLAUDE.md` into worktrees whose branch predates it (never generating stub content), and installs hooks that report session status back to tasktree-manager.
 - Session status (`⟳` running, `!` waiting, `✓` ended) appears next to the task name
@@ -918,6 +934,19 @@ After a terminal restart, run `tasktree-manager` (with autostart) or
 `zellij attach tasktree`. Either brings back the TUI and every tab it opened, Claude
 sessions included. The command after `--` runs only when the session is created, so a
 second `tasktree-manager` in another terminal tab shows the same session.
+
+**Too many tabs.** The `c` tab only shows a background Claude session, so it can close
+while Claude keeps working:
+
+1. Close the tab with `x` in tasktree-manager, or with zellij's own close-tab key.
+2. The task row keeps its Claude status (`⟳` running, `!` waiting). When a turn finishes
+   while the tab is closed, a notice says so.
+3. Press `c` on the task again: the tab reopens on the same conversation.
+
+`x` closes only a tab whose panes run `claude attach` (zellij's pane list shows each
+pane's launch command). A tab that runs Claude itself
+(`claude_background = false`, or a tab from an older version) stays open, since closing
+it would stop Claude.
 
 - A tab that runs a command (`e`, `c`) closes when the command exits.
 - The zellij tab runs the command with `sh -c`, so `editor` and `claude_path` must name

@@ -38,6 +38,9 @@ _STATUS_MAP = {
     "done": "ready",
     "completed": "ready",
     "finished": "ready",
+    # Background sessions after `claude stop` or a crash: still attachable
+    "stopped": "ready",
+    "failed": "ready",
 }
 
 # When several sessions run in one worktree, the most urgent state wins
@@ -47,7 +50,9 @@ _STATUS_PRECEDENCE = {"needs_input": 0, "working": 1, "ready": 2}
 ASK_COPY_PREFIX = "epic-ask-"
 
 _DIRECTORY_KEYS = ("cwd", "directory", "workdir", "projectPath", "path")
-_STATUS_KEYS = ("status", "state")
+# A background record carries both, and its `status` stays "idle" while
+# `state` goes blocked -> working -> done; interactive records have `status` only
+_STATUS_KEYS = ("state", "status")
 
 
 @dataclass
@@ -58,13 +63,18 @@ class AgentSession:
     status: str  # normalized: "working" | "needs_input" | "ready"
     session_id: str = ""
     name: str = ""
+    kind: str = ""  # "interactive" | "background"
+    agent_id: str = ""  # short id `claude attach` takes; background sessions only
+    started_at: int = 0
 
 
-def run_claude_agents(claude_path: str, timeout: float = 5.0) -> str | None:
+def run_claude_agents(
+    claude_path: str, timeout: float = 5.0, include_done: bool = False
+) -> str | None:
     """Run `claude agents --json`; stdout on success, None on any failure."""
     try:
         result = subprocess.run(
-            [claude_path, "agents", "--json"],
+            [claude_path, "agents", "--json", *(["--all"] if include_done else [])],
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
@@ -105,34 +115,46 @@ def parse_agent_sessions(payload: str) -> list[AgentSession] | None:
             (record[key] for key in _DIRECTORY_KEYS if isinstance(record.get(key), str)),
             None,
         )
-        raw_status = next(
-            (record[key] for key in _STATUS_KEYS if isinstance(record.get(key), str)),
+        # An unknown `state` falls back to `status`
+        status = next(
+            (
+                _STATUS_MAP[record[key].lower()]
+                for key in _STATUS_KEYS
+                if isinstance(record.get(key), str) and record[key].lower() in _STATUS_MAP
+            ),
             None,
         )
         # Empty cwd would resolve to our own CWD and pin a phantom badge;
         # unknown statuses (dead/exited sessions) must not render as working
-        if not directory or raw_status is None:
+        if not directory or status is None:
             continue
         name = str(record.get("name", ""))
         if name.startswith(ASK_COPY_PREFIX):
             continue
-        status = _STATUS_MAP.get(raw_status.lower())
-        if status is None:
-            continue
+        started_at = record.get("startedAt")
         sessions.append(
             AgentSession(
                 directory=Path(directory).resolve(),
                 status=status,
                 session_id=str(record.get("sessionId", "")),
                 name=name,
+                kind=str(record.get("kind", "")),
+                agent_id=str(record.get("id", "")),
+                started_at=started_at if isinstance(started_at, int) else 0,
             )
         )
     return sessions
 
 
-def list_agent_sessions(claude_path: str = "claude") -> list[AgentSession] | None:
-    """Fetch and parse the current sessions; None = source unavailable."""
-    payload = run_claude_agents(claude_path)
+def list_agent_sessions(
+    claude_path: str = "claude", include_done: bool = False
+) -> list[AgentSession] | None:
+    """Fetch and parse the sessions; None = source unavailable.
+
+    `include_done` adds finished and stopped background sessions, which
+    `claude attach` can still reopen.
+    """
+    payload = run_claude_agents(claude_path, include_done=include_done)
     if payload is None:
         return None
     return parse_agent_sessions(payload)

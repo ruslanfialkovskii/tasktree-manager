@@ -24,6 +24,7 @@
 - 🔀 **Forge-Aware Safety** - MR/PR and CI state via `glab`/`gh`; squash- and rebase-merged branches count as merged instead of blocking deletion forever
 - 🗂️ **Epics** - Group related tasks under an epic: a foldable row with rolled-up dirty and Claude state, `E` to attach tasks, and an epic log and `epic ask` so the Claude sessions of one epic share what they know
 - 🧷 **zellij Tabs** - Run the TUI inside zellij (or set `zellij_autostart`) and `o`/`e`/`c` open zellij tabs that keep running across a terminal restart; pressing the key again jumps to the open tab ([details](docs/user-guide.md#zellij))
+- 💤 **Background Claude** - `c` runs Claude as a background session and the tab only shows it: close the tab (`x`) and Claude keeps working, press `c` to come back to the same conversation
 - 📦 **Finish Flow with Archives** - Ending a task saves its combined diff (committed-but-unmerged + uncommitted) and the task-folder files outside the worktrees (plans, ADRs, notes) to an archive before deleting
 
 ## 📊 Status Indicators
@@ -183,6 +184,7 @@ again before it deletes.
 | `p` | Push all | `o` | Open folder |
 | `P` | Pull all | `y` | Clone task |
 | `c` | Claude (resume) | `C` | Claude (new) |
+| `x` | Close Claude tab | | |
 | `b` | Dispatch agent | `D` | Delete worktree |
 | `r` | Refresh | `s` | Sort tasks |
 | `S` | Group worktrees | `m` | Messages |

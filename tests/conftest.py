@@ -85,6 +85,8 @@ def config(temp_dirs):
         repos_dir=repos_dir,
         tasks_dir=tasks_dir,
         config_dir=repos_dir.parent / ".config" / "tasktree-manager",
+        # Never the real CLI: tests that need Claude use fake_claude_cli
+        claude_path=str(repos_dir.parent / "no-claude"),
     )
 
 
@@ -308,7 +310,10 @@ def fake_claude_cli(tmp_path):
 
     - `claude agents --json` cats <stub_dir>/agents.json, or exits 1 when the
       file is absent (tests rewrite that file to simulate state transitions).
-    - `claude --bg ...` appends "$PWD|<args>" to <stub_dir>/dispatch.log.
+    - `claude --bg ...` appends "$PWD|<args>" to <stub_dir>/dispatch.log and
+      prints the `claude attach 0a1b2c3d` hint the real CLI prints.
+    - `claude stop|rm ID` appends "<command> ID" to <stub_dir>/control.log;
+      `rm` exits 1 when <stub_dir>/rm-fails exists.
 
     Returns the stub directory; the binary is <stub_dir>/claude.
     """
@@ -327,6 +332,14 @@ fi
 case "$1" in
   --bg|--background)
     printf '%s|%s\\n' "$PWD" "$*" >> "{stub_dir}/dispatch.log"
+    printf '  claude attach 0a1b2c3d    open in this terminal\\n'
+    exit 0
+    ;;
+  stop|rm)
+    printf '%s %s\\n' "$1" "$2" >> "{stub_dir}/control.log"
+    if [ "$1" = rm ] && [ -f "{stub_dir}/rm-fails" ]; then
+      exit 1
+    fi
     exit 0
     ;;
 esac

@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from tasktree_manager.services.agent_sessions import (
     list_agent_sessions,
     map_sessions_to_worktrees,
@@ -32,6 +34,24 @@ REAL_PAYLOAD = [
 
 
 class TestParseAgentSessions:
+    @pytest.mark.parametrize(
+        ("state", "expected"),
+        [
+            ("working", "working"),
+            ("blocked", "needs_input"),
+            ("done", "ready"),
+            ("stopped", "ready"),
+            ("failed", "ready"),
+            ("some-new-state", "ready"),  # unknown state: falls back to status idle
+        ],
+    )
+    def test_background_state_wins_over_its_idle_status(self, state, expected):
+        # Seen live: a working background session reports status idle, state working
+        row = {"cwd": "/tmp/x", "kind": "background", "status": "idle", "state": state}
+
+        [session] = parse_agent_sessions(json.dumps([row]))
+        assert session.status == expected
+
     def test_real_payload(self):
         sessions = parse_agent_sessions(json.dumps(REAL_PAYLOAD))
         assert sessions is not None

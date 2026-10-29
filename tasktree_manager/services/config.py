@@ -34,6 +34,7 @@ DEFAULT_KEYBINDINGS: dict[str, str] = {
     "open_editor": "e",
     "open_claude_resume": "c",
     "open_claude_gui_code": "C",
+    "close_claude_tab": "x",
     "push_all": "p",
     "pull_all": "P",
     "refresh": "r",
@@ -176,6 +177,7 @@ class Config:
     claude_memory_dir: str = "~/.claude/tasktree-memory"
     claude_repo_memory: bool = True
     claude_recap: bool = True
+    claude_background: bool = True
     glab_path: str = "glab"
     gh_path: str = "gh"
     zellij_path: str = "zellij"
@@ -257,6 +259,9 @@ class Config:
             tools_config, "claude_repo_memory", True, path="tools.claude_repo_memory"
         )
         claude_recap = _toml_bool(tools_config, "claude_recap", True, path="tools.claude_recap")
+        claude_background = _toml_bool(
+            tools_config, "claude_background", True, path="tools.claude_background"
+        )
         glab_path = os.path.expanduser(str(tools_config.get("glab_path", "glab")))
         gh_path = os.path.expanduser(str(tools_config.get("gh_path", "gh")))
         zellij_path = os.path.expanduser(str(tools_config.get("zellij_path", "zellij")))
@@ -335,6 +340,7 @@ class Config:
             claude_memory_dir=claude_memory_dir,
             claude_repo_memory=claude_repo_memory,
             claude_recap=claude_recap,
+            claude_background=claude_background,
             glab_path=glab_path,
             gh_path=gh_path,
             zellij_path=zellij_path,
@@ -494,6 +500,11 @@ claude_repo_memory = {str(self.claude_repo_memory).lower()}
 # session transcript; no CLI call. Set to false to disable.
 claude_recap = {str(self.claude_recap).lower()}
 
+# Run the `c` key's Claude as a background session (`claude --bg`) and show
+# it in a tab running `claude attach`: closing the tab leaves Claude working,
+# and `c` again reopens it. Set to false to run Claude inside the tab.
+claude_background = {str(self.claude_background).lower()}
+
 # Path to glab executable (GitLab CLI, used for MR/CI status)
 glab_path = "{self._toml_escape(self.glab_path)}"
 
@@ -539,6 +550,7 @@ open_folder = "{self._toml_escape(self.keybindings.get("open_folder", "o"))}"
 open_editor = "{self._toml_escape(self.keybindings.get("open_editor", "e"))}"
 open_claude_resume = "{self._toml_escape(self.keybindings.get("open_claude_resume", "c"))}"
 open_claude_gui_code = "{self._toml_escape(self.keybindings.get("open_claude_gui_code", "C"))}"
+close_claude_tab = "{self._toml_escape(self.keybindings.get("close_claude_tab", "x"))}"
 push_all = "{self._toml_escape(self.keybindings.get("push_all", "p"))}"
 pull_all = "{self._toml_escape(self.keybindings.get("pull_all", "P"))}"
 refresh = "{self._toml_escape(self.keybindings.get("refresh", "r"))}"

@@ -18,6 +18,7 @@ from pathlib import Path
 from . import __version__
 from .services import forge
 from .services.agent_sessions import AgentSession, list_agent_sessions
+from .services.claude_bg import background_sessions, busy, end_sessions
 from .services.config import Config, ConfigError
 from .services.epic_ask import (
     ASK_MAX_TURNS,
@@ -780,6 +781,38 @@ def _archive_for_delete(
     return True, saved
 
 
+def _claude_sessions_to_end(
+    config: Config, task: Task, force: bool, verb: str
+) -> list[AgentSession] | None:
+    """The task's background Claude sessions; None (after an error) when busy without --force."""
+    found = list_agent_sessions(config.claude_path, include_done=True)
+    if found is None and shutil.which(config.claude_path):
+        print(f"warning: could not check Claude sessions of task {task.name}", file=sys.stderr)
+    sessions = background_sessions(found or [], task.path)
+    working = busy(sessions)
+    if working and not force:
+        ids = ", ".join(session.agent_id for session in working)
+        print(
+            f"error: Claude is still active (working or waiting for you) in task {task.name}: {ids}",
+            file=sys.stderr,
+        )
+        print(f"use --force to stop it and {verb} anyway", file=sys.stderr)
+        return None
+    return sessions
+
+
+def _end_claude_sessions(config: Config, sessions: list[AgentSession], force: bool) -> bool:
+    """Stop and remove sessions; one that will not stop keeps the task unless --force."""
+    failed = end_sessions(config.claude_path, sessions)
+    for agent_id in failed:
+        level = "warning" if force else "error"
+        print(f"{level}: could not stop Claude session {agent_id}", file=sys.stderr)
+    if failed and not force:
+        print("stop it with `claude stop ID`, or use --force", file=sys.stderr)
+        return False
+    return True
+
+
 def cmd_delete(manager: TaskManager, config: Config, args: argparse.Namespace) -> int:
     """Delete a task after a safety check (bypass with --force)."""
     task = manager.get_task(args.name)
@@ -794,6 +827,9 @@ def cmd_delete(manager: TaskManager, config: Config, args: argparse.Namespace) -
         for issue in report.errors + report.dirty + report.unpushed + report.unmerged:
             print(f"  {issue.repo_name}: {issue.details}", file=sys.stderr)
         print("use --force to delete anyway", file=sys.stderr)
+        return 1
+    sessions = _claude_sessions_to_end(config, task, args.force, "delete")
+    if sessions is None or not _end_claude_sessions(config, sessions, args.force):
         return 1
 
     # Same safety net as the TUI: the remaining diff and the task files are
@@ -812,6 +848,10 @@ def cmd_finish(manager: TaskManager, config: Config, args: argparse.Namespace) -
     if not task:
         return _error(f"no such task: {args.name}")
     if _refuse_epic_with_children(manager, task, "finish"):
+        return 1
+    # Before --push: a busy Claude refuses the finish without touching the remote
+    sessions = _claude_sessions_to_end(config, task, args.force, "finish")
+    if sessions is None:
         return 1
 
     # Push unconditionally when asked (TUI parity: `git push -u origin HEAD`).
@@ -838,6 +878,8 @@ def cmd_finish(manager: TaskManager, config: Config, args: argparse.Namespace) -
         if not args.push and (report.has_unpushed() or report.has_unmerged()):
             print("use --push to push branches first", file=sys.stderr)
         print("use --force to finish anyway", file=sys.stderr)
+        return 1
+    if not _end_claude_sessions(config, sessions, args.force):
         return 1
 
     if not args.no_archive:
