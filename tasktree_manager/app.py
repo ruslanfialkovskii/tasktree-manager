@@ -1,6 +1,8 @@
 """Main application for tasktree-manager."""
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -20,7 +22,12 @@ from . import __version__
 from .commands import TaskTreeCommands
 from .services.agent_sessions import list_agent_sessions, map_sessions_to_worktrees
 from .services.claude_hooks import ensure_claude_hooks, has_claude_session
-from .services.claude_sessions import ClaudeRecap, read_claude_recap, transcript_key
+from .services.claude_sessions import (
+    ClaudeRecap,
+    latest_session,
+    read_claude_recap,
+    transcript_key,
+)
 from .services.config import Config, ConfigError
 from .services.forge import Forge, ForgeStatus, get_forge_status
 from .services.git_ops import GitOps
@@ -263,6 +270,8 @@ class TaskTreeApp(App):
         self._last_tasks_fingerprint: tuple | None = None
         # Serializes the Ghostty clipboard/keystroke sequence across workers
         self._ghostty_lock = threading.Lock()
+        # Serializes the zellij tab lookup and open across workers
+        self._zellij_lock = threading.Lock()
         # App-lifetime pool for forge lookups (a fresh executor per poll
         # would rebuild threads every tick)
         self._forge_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="forge")
@@ -699,12 +708,15 @@ class TaskTreeApp(App):
         """Read the task's latest Claude transcript tail when it changed.
 
         ``known_key`` is passed in from the main thread so the worker never
-        reads mutable app state.
+        reads mutable app state. The session is picked like `epic log` picks
+        it: newest across the task folder and its worktrees, by recorded cwd.
         """
-        key = transcript_key(task.path)
+        folders = [task.path, *(wt.path for wt in task.worktrees)]
+        key = transcript_key(*folders)
         if key == known_key:
             return
-        recap = read_claude_recap(key[0]) if key else None
+        session = latest_session(folders) if key else None
+        recap = read_claude_recap(session.path) if session else None
         if get_current_worker().is_cancelled:
             return
         self.call_from_thread(self._apply_claude_recap, task, key, recap)
@@ -1181,7 +1193,12 @@ class TaskTreeApp(App):
             tasks = self.query_one("#task-list", TaskList).all_tasks
         except Exception:
             return []
-        epics = [(task.display_label, task.name) for task in tasks if task.is_epic]
+        # A symlink alias is not an epic of its own: set_task_epic refuses it
+        epics = [
+            (task.display_label, task.name)
+            for task in tasks
+            if task.is_epic and not task.path.is_symlink()
+        ]
         return sorted(epics, key=lambda pair: pair[0].lower())
 
     def _epic_of(self, task: Task | None) -> str | None:
@@ -1189,7 +1206,7 @@ class TaskTreeApp(App):
         if task is None:
             return None
         if task.is_epic:
-            return task.name
+            return None if task.path.is_symlink() else task.name
         return self.query_one("#task-list", TaskList).epic_of(task.name)
 
     def action_quit(self) -> None:
@@ -1532,37 +1549,45 @@ class TaskTreeApp(App):
             self._log_activity(problem, MessageLevel.WARNING, task.name)
         self._load_tasks(select_task=task.name)
 
-    def _finish_task(self, task: Task, force: bool = False) -> None:
+    def _finish_task(self, task: Task, force: bool = False, skip_archive: bool = False) -> None:
         """Kick off task deletion in a background thread."""
         if not self._begin_mutation("task-list"):
             return
-        self._finish_task_worker(task, force)
+        self._finish_task_worker(task, force, skip_archive)
 
     @work(thread=True, group="task_mutation")
-    def _finish_task_worker(self, task: Task, force: bool) -> None:
+    def _finish_task_worker(self, task: Task, force: bool, skip_archive: bool = False) -> None:
         """Delete the task in a background thread.
 
         Removing worktrees runs git per repo and rmtree over trees that can
         be huge (node_modules etc.) - never block the UI thread on it.
         The task's remaining diff (committed-but-unmerged + uncommitted) and
         its task-folder files are archived first — finish_task rmtrees the
-        task directory.
+        task directory. An incomplete archive stops the delete and asks
+        again, as the CLI refuses without --force; `skip_archive` is the
+        confirmed second pass.
         """
         error: str | None = None
         archive: ArchiveResult | None = None
-        try:
+        if not skip_archive:
+            problem: str | None = None
             try:
                 archive = self.task_manager.archive_task(task)
             except Exception as e:
-                # A failed archive must not block deletion, but it must be
-                # loud — the archive is the safety net for the work the
-                # delete below is about to destroy (ArchiveIncompleteError's
-                # message names the partial archive, if one was written)
-                detail = f"Archive failed for '{task.name}': {type(e).__name__}: {e}"
-                self.call_from_thread(self.notify, escape(detail), severity="warning", timeout=10)
-                self.call_from_thread(self._log_activity, detail, MessageLevel.ERROR, task.name)
-                # Still report the files that were saved and the ones left out
+                # ArchiveIncompleteError's message names the partial archive,
+                # and its result the files saved and left out
+                problem = f"Archive failed for '{task.name}': {type(e).__name__}: {e}"
                 archive = getattr(e, "result", None)
+            if problem is None and archive is not None and archive.failed:
+                problem = (
+                    f"{len(archive.failed)} task file(s) of '{task.name}' could not be archived"
+                )
+            if problem is not None:
+                self.call_from_thread(
+                    self._confirm_delete_after_archive_problem, task, force, problem, archive
+                )
+                return
+        try:
             self.task_manager.finish_task(task)
         except ValueError as e:
             # finish_task raises ValueError (nothing removed) when worktrees
@@ -1572,6 +1597,27 @@ class TaskTreeApp(App):
         except Exception as e:
             error = f"{type(e).__name__}: {e}"
         self.call_from_thread(self._apply_finish_task_result, task.name, force, error, archive)
+
+    def _confirm_delete_after_archive_problem(
+        self, task: Task, force: bool, problem: str, archive: ArchiveResult | None
+    ) -> None:
+        """Report an incomplete archive and ask before deleting (main thread)."""
+        self.query_one("#task-list", TaskList).loading = False
+        self.notify(escape(problem), severity="warning", timeout=10)
+        self._log_activity(problem, MessageLevel.ERROR, task.name)
+        if archive is not None:
+            self._log_archive(task.name, archive)
+        message = (
+            escape(problem)
+            + "\n\nThe task folder may hold the only copy of what was not archived"
+            + " (see messages). Delete anyway?"
+        )
+
+        def handle_confirm(confirmed):
+            if confirmed:
+                self._finish_task(task, force=force, skip_archive=True)
+
+        self.push_screen(ConfirmModal("Archive Incomplete", message), handle_confirm)
 
     def _apply_finish_task_result(
         self,
@@ -2013,7 +2059,6 @@ class TaskTreeApp(App):
 
     def _open_task_diff(self, task: Task, diff: str) -> None:
         """Write the patch to a temp file and open hunk on it (main thread)."""
-        import os
         import tempfile
 
         if not diff.strip():
@@ -2075,8 +2120,9 @@ class TaskTreeApp(App):
             return
 
         editor = self.config.get_editor()
-        self._open_ghostty_tab(folder_path, command=f"{editor} .")
-        self.notify(escape(f"Opened {editor} in new tab"))
+        self._open_terminal_tab(
+            folder_path, command=f"{editor} .", kind="editor", notice=f"Opened {editor} in new tab"
+        )
 
     def _prepare_claude_session(self, task: Task) -> None:
         """Refresh CLAUDE.md files, worktree settings, and hooks before launching Claude.
@@ -2096,7 +2142,7 @@ class TaskTreeApp(App):
         ensure_claude_hooks(task.path, self.config.claude_memory_dir)
 
     def action_open_claude_resume(self) -> None:
-        """Open Claude Code in a new Ghostty tab.
+        """Open Claude Code in a new terminal tab.
 
         Resumes an existing session for the task folder if one exists,
         otherwise starts a fresh session.
@@ -2114,7 +2160,7 @@ class TaskTreeApp(App):
 
     @work(thread=True, group="claude_prep")
     def _open_claude_resume_worker(self, task: Task) -> None:
-        """Prepare the session off the UI thread, then open the Ghostty tab.
+        """Prepare the session off the UI thread, then open the terminal tab.
 
         A prep failure is reported but does not block the launch - stale
         CLAUDE.md content is not worth failing the session over.
@@ -2133,13 +2179,21 @@ class TaskTreeApp(App):
         self.call_from_thread(self._open_claude_resume_tab, task.path, resume)
 
     def _open_claude_resume_tab(self, task_path: Path, resume: bool) -> None:
-        """Open the Ghostty tab for a prepared Claude session (main thread)."""
+        """Open the terminal tab for a prepared Claude session (main thread)."""
         if resume:
-            self._open_ghostty_tab(task_path, command=f"{self.config.claude_path} -r")
-            self.notify("Opened Claude Code in new tab (resume)")
+            self._open_terminal_tab(
+                task_path,
+                command=f"{self.config.claude_path} -r",
+                kind="claude",
+                notice="Opened Claude Code in new tab (resume)",
+            )
         else:
-            self._open_ghostty_tab(task_path, command=self.config.claude_path)
-            self.notify("Opened new Claude Code session in new tab")
+            self._open_terminal_tab(
+                task_path,
+                command=self.config.claude_path,
+                kind="claude",
+                notice="Opened new Claude Code session in new tab",
+            )
 
     def action_dispatch_agent(self) -> None:
         """Dispatch a background Claude agent in the selected worktree."""
@@ -2316,24 +2370,95 @@ class TaskTreeApp(App):
             return
 
         # Open in new terminal tab
-        self._open_ghostty_tab(folder_path)
+        self._open_terminal_tab(folder_path)
 
-    def _open_ghostty_tab(self, path, command: str | None = None) -> None:
-        """Open a new terminal tab at the given path, optionally running a command.
+    def _open_terminal_tab(
+        self, path, command: str | None = None, kind: str = "shell", notice: str | None = None
+    ) -> None:
+        """Open a terminal tab at the given path, optionally running a command.
 
-        NOTE: This implementation is specific to the Ghostty terminal emulator
-        on macOS, using AppleScript. It will silently fail on other terminals.
+        Inside zellij (ZELLIJ_SESSION_NAME is set) the tab is a zellij tab,
+        which keeps running when the terminal window closes, and an open tab
+        of the same folder and kind is reused. Elsewhere it is a Ghostty tab
+        driven via AppleScript, which works only on macOS.
 
         Args:
-            path: Directory to cd into in the new tab
-            command: Optional command to run after cd (e.g., "claude -r")
+            path: Directory to open the new tab in
+            command: Optional shell command to run there (e.g., "claude -r")
+            kind: What the tab is for ("shell", "editor", "claude"); part of
+                the zellij tab name
+            notice: Message shown once a new tab is opened
         """
+        if os.environ.get("ZELLIJ_SESSION_NAME"):
+            self._open_zellij_tab_worker(Path(path), command, kind, notice)
+            return
         safe_path = str(path).replace("'", "'\\''")
         if command:
             shell_cmd = f"cd '{safe_path}' && clear && {command}"
         else:
             shell_cmd = f"cd '{safe_path}' && clear"
         self._open_ghostty_tab_worker(shell_cmd)
+        if notice:
+            self.notify(escape(notice))
+
+    def _zellij_tab_name(self, path: Path, kind: str) -> str:
+        """Tab name: TASK or TASK/repo, then the kind (e.g. "DIC-1/api · claude")."""
+        try:
+            # The folder name alone is ambiguous for worktrees
+            where = str(path.relative_to(self.config.tasks_dir))
+        except ValueError:
+            where = path.name
+        return f"{where} · {kind}"
+
+    def _zellij_tab_argv(self, path: Path, command: str | None, name: str) -> list[str]:
+        """Build the `zellij action new-tab` argv for _open_zellij_tab_worker."""
+        zellij = self.config.zellij_path
+        argv = [zellij, "action", "new-tab", "--name", name, "--cwd", str(path)]
+        if command:
+            # The tab closes with its command, so a tab found by name still runs it
+            argv += ["--close-on-exit", "--", "sh", "-c", command]
+        return argv
+
+    @work(thread=True, group="terminal_tab")
+    def _open_zellij_tab_worker(
+        self, path: Path, command: str | None, kind: str, notice: str | None
+    ) -> None:
+        """Switch to the open zellij tab of this folder and kind, or open one.
+
+        `go-to-tab-name` exits 0 for a missing name too, so the tab names are
+        queried first. The lock keeps two quick key presses from both missing
+        the tab and opening it twice.
+        """
+        name = self._zellij_tab_name(path, kind)
+        zellij = self.config.zellij_path
+        with self._zellij_lock:
+            try:
+                query = self._run_zellij([zellij, "action", "query-tab-names"])
+                if query.returncode == 0 and name in query.stdout.splitlines():
+                    argv = [zellij, "action", "go-to-tab-name", name]
+                    done = f"Switched to open tab '{name}'"
+                else:
+                    argv = self._zellij_tab_argv(path, command, name)
+                    done = notice
+                result = self._run_zellij(argv)
+            except (subprocess.SubprocessError, OSError) as e:
+                self.call_from_thread(
+                    self.notify, escape(f"Could not open a zellij tab: {e}"), severity="warning"
+                )
+                return
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "unknown error").strip()[:200]
+            self.call_from_thread(
+                self.notify, escape(f"Could not open a zellij tab: {detail}"), severity="warning"
+            )
+        elif done:
+            self.call_from_thread(self.notify, escape(done))
+
+    @staticmethod
+    def _run_zellij(argv: list[str]) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10
+        )
 
     @work(thread=True, group="ghostty_tab")
     def _open_ghostty_tab_worker(self, shell_cmd: str) -> None:
@@ -2563,12 +2688,44 @@ class TaskTreeApp(App):
         self._update_worktree_panel_title()
 
 
+def zellij_autostart_argv(config: Config) -> list[str] | None:
+    """The `zellij attach` argv that re-runs this TUI inside zellij, or None to run here.
+
+    Only an interactive start outside zellij re-launches. The command after
+    `--` runs only when the session is created; attaching to a running
+    session lands on the TUI already in it.
+    """
+    if not config.zellij_autostart or os.environ.get("ZELLIJ_SESSION_NAME"):
+        return None
+    if not (os.isatty(0) and os.isatty(1)):
+        return None
+    zellij = shutil.which(config.zellij_path)
+    if zellij is None:
+        print(
+            f"warning: zellij_autostart is on but {config.zellij_path} is not found",
+            file=sys.stderr,
+        )
+        return None
+    me = [sys.executable, "-m", "tasktree_manager.app"]
+    return [zellij, "attach", "--create", config.zellij_session, "--", *me]
+
+
 def main():
     """Entry point: TUI with no arguments, headless CLI otherwise."""
     if len(sys.argv) > 1:
         from .cli import run_cli
 
         raise SystemExit(run_cli(sys.argv[1:]))
+    try:
+        argv = zellij_autostart_argv(Config.load())
+    except ConfigError as e:
+        print(f"error: {e}", file=sys.stderr)
+        raise SystemExit(1) from None
+    if argv:
+        try:
+            os.execv(argv[0], argv)
+        except OSError as e:
+            print(f"warning: could not start zellij: {e}", file=sys.stderr)
     try:
         app = TaskTreeApp()
     except ConfigError as e:

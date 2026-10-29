@@ -15,6 +15,7 @@ from tasktree_manager.services.claude_sessions import find_session
 from tasktree_manager.services.epic_ask import (
     ASK_MAX_TURNS,
     ASK_QUESTION_MAX_BYTES,
+    ASK_TIMEOUT,
     LOOP_GUARD_ENV,
 )
 
@@ -129,7 +130,7 @@ class TestCommand:
         settings = json.loads(flag(command, "--settings"))
         assert settings["disableAllHooks"] is True
         assert "Read(~/.ssh/**)" in settings["permissions"]["deny"]
-        assert "Read(**/.env)" in settings["permissions"]["deny"]
+        assert "Read(//**/.env)" in settings["permissions"]["deny"]
         projects = Path(os.environ["CLAUDE_CONFIG_DIR"]).absolute() / "projects"
         assert f"Read(/{projects}/**)" in settings["permissions"]["deny"]
         assert "--no-chrome" in command
@@ -138,9 +139,10 @@ class TestCommand:
         assert prompt.endswith("<question>\nwhich layout?\n</question>")
         assert kwargs["cwd"] == config.tasks_dir / "T-2"
         assert kwargs["stdin"] is subprocess.DEVNULL
-        assert kwargs["timeout"] == 600
+        assert kwargs["timeout"] == ASK_TIMEOUT
         out = capsys.readouterr().out
-        assert "We chose layout A." in out
+        # Indented like notes, so an answer cannot forge a "== task ==" header
+        assert "  We chose layout A." in out.splitlines()
         assert "\x1b" not in out
 
     def test_env_drops_asking_session_identity(self, tm, config, in_t1, claude, live, monkeypatch):

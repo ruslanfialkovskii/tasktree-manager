@@ -362,7 +362,7 @@ class TestClaudeSessionPrepOffThread:
             release.wait(timeout=5)
             return None
 
-        monkeypatch.setattr(app, "_open_ghostty_tab", lambda *a, **k: opened.append(a))
+        monkeypatch.setattr(app, "_open_terminal_tab", lambda *a, **k: opened.append(a))
 
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -464,23 +464,61 @@ class TestArchivePathOnDeleteFailure:
         task = task_manager.create_task("PARTIAL-ARCHIVE-TASK", ["sample-repo"], branch)
 
         partial = app.config.get_archive_dir() / "PARTIAL-ARCHIVE-TASK.partial.patch"
+        archive_calls = []
 
         def failing_archive(t):
+            archive_calls.append(t.name)
             raise ArchiveIncompleteError(partial, [("repo-x", "diff failed")])
 
         async with app.run_test() as pilot:
             await pilot.pause()
             app.task_manager.archive_task = failing_archive
 
-            app._finish_task_worker(task, False)
+            app._finish_task(task, False)
             await app.workers.wait_for_complete()
             await pilot.pause()
 
             messages_panel = app.query_one("#messages-display", MessagesPanel)
             texts = [m.message for m in messages_panel._store.messages]
             assert any(str(partial) in t for t in texts)
-            # Deletion still proceeded (archive failure is non-blocking)
+            # The delete stops and asks again, like the CLI without --force
+            assert task.path.exists()
+            assert not app.query_one("#task-list", TaskList).loading
+            [modal] = [s for s in app.screen_stack if isinstance(s, ConfirmModal)]
+
+            modal.dismiss(True)
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            # Confirmed: deleted without a second archive
             assert not task.path.exists()
+            assert archive_calls == ["PARTIAL-ARCHIVE-TASK"]
+
+    async def test_cancel_after_archive_failure_keeps_task(self, app, task_manager, sample_repo):
+        repo_path, branch = sample_repo
+        task = task_manager.create_task("CANCEL-ARCHIVE-TASK", ["sample-repo"], branch)
+        result = ArchiveResult(failed=("PLAN.md (unreadable: Permission denied)",))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.task_manager.archive_task = lambda t: result
+
+            app._finish_task(task, False)
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            [modal] = [s for s in app.screen_stack if isinstance(s, ConfirmModal)]
+            assert "1 task file(s)" in modal.message_text
+            modal.dismiss(False)
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            await pilot.pause()
+
+            assert task.path.exists()
+            messages_panel = app.query_one("#messages-display", MessagesPanel)
+            texts = [m.message for m in messages_panel._store.messages]
+            assert any("Could not archive: PLAN.md" in t for t in texts)
 
     async def test_finish_task_worker_error_path_logs_successful_archive(
         self, app, task_manager, sample_repo
@@ -540,8 +578,8 @@ class TestArchivePathOnDeleteFailure:
     async def test_finish_task_worker_logs_left_out_files_on_incomplete_archive(
         self, app, task_manager, sample_repo
     ):
-        """The TUI deletes after a failed archive, so the files left out must
-        be named from the exception's result."""
+        """The confirm after a failed archive must name the files left out,
+        from the exception's result."""
         repo_path, branch = sample_repo
         task = task_manager.create_task("INCOMPLETE-LOG", ["sample-repo"], branch)
         result = ArchiveResult(skipped=("capture.pcap (2.0 GB, over the 10.0 MB file limit)",))
@@ -560,7 +598,8 @@ class TestArchivePathOnDeleteFailure:
             messages_panel = app.query_one("#messages-display", MessagesPanel)
             texts = [m.message for m in messages_panel._store.messages]
             assert any("Not archived: capture.pcap" in t for t in texts)
-            assert not task.path.exists()
+            assert task.path.exists()
+            assert any(isinstance(s, ConfirmModal) for s in app.screen_stack)
 
     async def test_log_archive_caps_notes_and_ends_with_location(self, app):
         """Hundreds of notes must not push the archive location out of the

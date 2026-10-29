@@ -20,6 +20,7 @@ from datetime import datetime, tzinfo
 from pathlib import Path
 
 from .claude_hooks import project_dir_candidates
+from .models import CONTROL_CHARS, same_folder
 
 RECAP_SUFFIX = "(disable recaps in /config)"
 TAIL_WINDOW = 1 << 20
@@ -30,6 +31,8 @@ HEAD_BUDGET = 16 << 20
 # an hour is noise rather than work time
 DURATION_CAP_MS = 3_600_000
 LAST_PROMPT_MAX = 200
+# Transcript entrypoint of a headless `claude -p` run (commit-message helpers, scripts)
+HEADLESS_ENTRYPOINT = "sdk-cli"
 
 # Cheap substring gate so multi-hundred-KB tool-result lines are never parsed
 _NEEDLES = (
@@ -93,13 +96,14 @@ def _transcripts(folder: Path) -> list[tuple[int, int, Path]]:
     return found
 
 
-def transcript_key(folder: Path) -> tuple[Path, int, int] | None:
-    """Return ``(path, mtime_ns, size)`` of the newest transcript for a folder.
+def transcript_key(*folders: Path) -> tuple[Path, int, int] | None:
+    """Return ``(path, mtime_ns, size)`` of the newest transcript for the folders.
 
     One ``scandir`` per candidate project dir and no file reads, so callers
-    can poll it to detect changes cheaply.
+    can poll it to detect changes cheaply and rerun latest_session only then.
     """
-    newest = max(_transcripts(folder), key=lambda found: found[0], default=None)
+    found = (entry for folder in folders for entry in _transcripts(folder))
+    newest = max(found, key=lambda entry: entry[0], default=None)
     if newest is None:
         return None
     mtime_ns, size, path = newest
@@ -107,10 +111,15 @@ def transcript_key(folder: Path) -> tuple[Path, int, int] | None:
 
 
 def transcript_cwd(path: Path) -> Path | None:
-    """The folder a session started in: the first ``cwd`` in its transcript.
+    """The folder a session started in: the first ``cwd`` in its transcript."""
+    return _start_record(path)[0]
+
+
+def _start_record(path: Path) -> tuple[Path | None, str | None]:
+    """``(cwd, entrypoint)`` of the first transcript record that names a cwd.
 
     Whole records are read, since ``cwd`` follows the message body; a first
-    prompt bigger than HEAD_BUDGET leaves the cwd unknown.
+    prompt bigger than HEAD_BUDGET leaves both unknown.
     """
     try:
         with open(path, "rb") as f:
@@ -118,7 +127,7 @@ def transcript_cwd(path: Path) -> Path | None:
             while budget > 0:
                 line = f.readline(budget)
                 if not line:
-                    return None
+                    return None, None
                 budget -= len(line)
                 if b'"cwd"' not in line:
                     continue
@@ -128,10 +137,11 @@ def transcript_cwd(path: Path) -> Path | None:
                     continue
                 cwd = record.get("cwd") if isinstance(record, dict) else None
                 if isinstance(cwd, str) and cwd:
-                    return Path(cwd)
+                    entrypoint = record.get("entrypoint")
+                    return Path(cwd), entrypoint if isinstance(entrypoint, str) else None
     except OSError:
-        return None
-    return None
+        return None, None
+    return None, None
 
 
 def latest_session(folders: Iterable[Path]) -> SessionRef | None:
@@ -139,6 +149,7 @@ def latest_session(folders: Iterable[Path]) -> SessionRef | None:
 
     Project dir names fold every non-alphanumeric character, so `X/1` and `X-1`
     share one dir; a transcript counts only when its recorded cwd is the folder.
+    A headless run is skipped: it is a one-shot job, not the task's session.
     """
     candidates = [
         (mtime_ns, str(path), path, folder)
@@ -146,8 +157,8 @@ def latest_session(folders: Iterable[Path]) -> SessionRef | None:
         for mtime_ns, _size, path in _transcripts(folder)
     ]
     for mtime_ns, _key, path, folder in sorted(candidates, reverse=True):
-        cwd = transcript_cwd(path)
-        if cwd is not None and _same_dir(cwd, folder):
+        cwd, entrypoint = _start_record(path)
+        if cwd is not None and entrypoint != HEADLESS_ENTRYPOINT and same_folder(cwd, folder):
             return SessionRef(path=path, cwd=folder, mtime_ns=mtime_ns)
     return None
 
@@ -159,20 +170,13 @@ def find_session(folders: Iterable[Path], session_id: str) -> SessionRef | None:
             if path.stem != session_id:
                 continue
             cwd = transcript_cwd(path)
-            if cwd is not None and _same_dir(cwd, folder):
+            if cwd is not None and same_folder(cwd, folder):
                 return SessionRef(path=path, cwd=folder, mtime_ns=mtime_ns)
     return None
 
 
-def _same_dir(a: Path, b: Path) -> bool:
-    try:
-        return os.path.samefile(a, b)
-    except OSError:
-        return os.path.realpath(a) == os.path.realpath(b)
-
-
 def read_claude_recap(path: Path) -> ClaudeRecap | None:
-    """Read the recap from one transcript (see ``transcript_key`` to pick it)."""
+    """Read the recap from one transcript (see ``latest_session`` to pick it)."""
     try:
         lines, truncated = _tail_lines(path, TAIL_WINDOW)
         found = _scan(lines)
@@ -301,7 +305,7 @@ def _as_text(value) -> str | None:
     """
     if not isinstance(value, str):
         return None
-    text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", "", value)
+    text = CONTROL_CHARS.sub("", value)
     text = re.sub(r"\s+", " ", text).strip()
     return text or None
 

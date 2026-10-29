@@ -138,6 +138,11 @@ def list_agent_sessions(claude_path: str = "claude") -> list[AgentSession] | Non
     return parse_agent_sessions(payload)
 
 
+def runs_in(session: AgentSession, folder: Path) -> bool:
+    """True when the session runs in `folder` (already resolved) or below it."""
+    return session.directory.is_relative_to(folder)
+
+
 def map_sessions_to_worktrees(
     sessions: list[AgentSession], worktree_paths: list[str]
 ) -> dict[str, str]:
@@ -152,9 +157,7 @@ def map_sessions_to_worktrees(
     states: dict[str, str] = {}
     for session in sessions:
         for original, resolved_path in resolved.items():
-            if session.directory == resolved_path or session.directory.is_relative_to(
-                resolved_path
-            ):
+            if runs_in(session, resolved_path):
                 current = states.get(original)
                 if (
                     current is None

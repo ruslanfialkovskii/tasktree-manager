@@ -23,6 +23,7 @@
 - ✻ **Session Recap** - The Info panel shows each task's latest Claude Code session: title, last turn duration, and Claude's own idle recap of what was done and what comes next — read straight from the transcript, no CLI call
 - 🔀 **Forge-Aware Safety** - MR/PR and CI state via `glab`/`gh`; squash- and rebase-merged branches count as merged instead of blocking deletion forever
 - 🗂️ **Epics** - Group related tasks under an epic: a foldable row with rolled-up dirty and Claude state, `E` to attach tasks, and an epic log and `epic ask` so the Claude sessions of one epic share what they know
+- 🧷 **zellij Tabs** - Run the TUI inside zellij (or set `zellij_autostart`) and `o`/`e`/`c` open zellij tabs that keep running across a terminal restart; pressing the key again jumps to the open tab ([details](docs/user-guide.md#zellij))
 - 📦 **Finish Flow with Archives** - Ending a task saves its combined diff (committed-but-unmerged + uncommitted) and the task-folder files outside the worktrees (plans, ADRs, notes) to an archive before deleting
 
 ## 📊 Status Indicators
@@ -161,7 +162,8 @@ in the task folder outside the worktrees to `<task>-<timestamp>.files/` next to 
   archive's path.
 - **Stops the delete unless `--force`:** a task file that cannot be read or copied.
 
-In both cases the TUI warns and deletes anyway.
+In both cases the TUI stops too, names what was left out in the messages panel, and asks
+again before it deletes.
 
 ## 📖 Documentation
 
@@ -247,8 +249,9 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 - Git 2.0+
 - 256-color terminal
 - Unix-like OS (macOS, Linux, WSL2). Opening a folder, editor or Claude session in a
-  new terminal tab (`o`, `e`, `c`) drives Ghostty via AppleScript and is macOS-only;
-  elsewhere those keys show a notice
+  new terminal tab (`o`, `e`, `c`) opens a zellij tab when the TUI runs inside zellij,
+  on any OS. Otherwise it drives Ghostty via AppleScript and is macOS-only; elsewhere
+  those keys show a notice
 
 See [Installation Guide](docs/installation.md) for detailed requirements and setup.
 

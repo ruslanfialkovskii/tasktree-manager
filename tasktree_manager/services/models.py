@@ -14,6 +14,10 @@ TASK_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9._\-]+$")
 EPIC_KIND = "epic"
 TASK_KIND = "task"
 
+# Controls dropped from model- or user-authored text before it reaches the
+# terminal: C0 except tab and newline, DEL, and C1 (U+009B is a CSI)
+CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
 
 def validate_task_name(name: str) -> str | None:
     """Validate a task name, returning an error message or None if valid.
