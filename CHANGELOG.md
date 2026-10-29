@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.19.0] - 2026-10-29
+
+### Added
+- Open zellij tabs that survive a terminal restart, and review fixes (#16)
+
+### Changed
+- Split the headless CLI and epic sections into short parts (#15)
+
+
 ## [2.18.0] - 2026-10-20
 
 ### Added
