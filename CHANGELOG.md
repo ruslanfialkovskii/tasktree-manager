@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hooks support
 - Custom task metadata
 
+## [2.20.0] - 2026-10-29
+
+### Added
+- Keep Claude running in the background when its tab closes (#17)
+
+
 ## [2.19.0] - 2026-10-29
 
 ### Added
