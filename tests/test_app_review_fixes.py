@@ -362,7 +362,7 @@ class TestClaudeSessionPrepOffThread:
             release.wait(timeout=5)
             return None
 
-        monkeypatch.setattr(app, "_open_ghostty_tab", lambda *a, **k: opened.append(a))
+        monkeypatch.setattr(app, "_open_terminal_tab", lambda *a, **k: opened.append(a))
 
         async with app.run_test() as pilot:
             await pilot.pause()

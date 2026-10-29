@@ -1,6 +1,7 @@
 """Configuration management for tasktree-manager."""
 
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -96,6 +97,9 @@ def _toml_table(config_data: dict, key: str) -> dict:
     return value
 
 
+DEFAULT_ZELLIJ_SESSION = "tasktree"
+_ZELLIJ_SESSION = re.compile(r"[A-Za-z0-9._-]+")
+
 # Private keys and certificates: never symlinked into worktrees and never
 # copied into finished-task archives
 KEY_MATERIAL_PATTERNS: list[str] = [
@@ -174,6 +178,9 @@ class Config:
     claude_recap: bool = True
     glab_path: str = "glab"
     gh_path: str = "gh"
+    zellij_path: str = "zellij"
+    zellij_autostart: bool = False
+    zellij_session: str = DEFAULT_ZELLIJ_SESSION
 
     # Forge (MR/PR state via glab/gh)
     forge_enabled: bool = True
@@ -252,6 +259,13 @@ class Config:
         claude_recap = _toml_bool(tools_config, "claude_recap", True, path="tools.claude_recap")
         glab_path = os.path.expanduser(str(tools_config.get("glab_path", "glab")))
         gh_path = os.path.expanduser(str(tools_config.get("gh_path", "gh")))
+        zellij_path = os.path.expanduser(str(tools_config.get("zellij_path", "zellij")))
+        zellij_autostart = _toml_bool(
+            tools_config, "zellij_autostart", False, path="tools.zellij_autostart"
+        )
+        zellij_session = tools_config.get("zellij_session", DEFAULT_ZELLIJ_SESSION)
+        if not (isinstance(zellij_session, str) and _ZELLIJ_SESSION.fullmatch(zellij_session)):
+            zellij_session = DEFAULT_ZELLIJ_SESSION
 
         # Forge settings
         forge_config = _toml_table(config_data, "forge")
@@ -323,6 +337,9 @@ class Config:
             claude_recap=claude_recap,
             glab_path=glab_path,
             gh_path=gh_path,
+            zellij_path=zellij_path,
+            zellij_autostart=zellij_autostart,
+            zellij_session=zellij_session,
             forge_enabled=forge_enabled,
             forge_gitlab_hosts=forge_gitlab_hosts,
             keybindings=keybindings,
@@ -482,6 +499,11 @@ glab_path = "{self._toml_escape(self.glab_path)}"
 
 # Path to gh executable (GitHub CLI, used for PR/CI status)
 gh_path = "{self._toml_escape(self.gh_path)}"
+
+# zellij: autostart re-runs the TUI inside zellij_session, so o/e/c tabs survive a terminal restart
+zellij_path = "{self._toml_escape(self.zellij_path)}"
+zellij_autostart = {str(self.zellij_autostart).lower()}
+zellij_session = "{self._toml_escape(self.zellij_session)}"
 
 # ============================================================================
 # Forge (MR/PR state via glab/gh)

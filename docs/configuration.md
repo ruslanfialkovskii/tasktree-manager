@@ -210,6 +210,14 @@ glab_path = "glab"
 # Default: "gh" (searches PATH)
 gh_path = "gh"
 
+# zellij: o/e/c open zellij tabs whenever the TUI runs inside zellij. With
+# autostart, a TUI started outside zellij re-launches itself inside session
+# zellij_session, so its tabs survive a terminal restart (see the user guide).
+# Defaults: "zellij", false, "tasktree" (letters, digits, '.', '_', '-')
+zellij_path = "zellij"
+zellij_autostart = false
+zellij_session = "tasktree"
+
 # ============================================================================
 # Forge (MR/PR state via glab/gh)
 # ============================================================================
@@ -419,6 +427,9 @@ refresh_interval = 15  # Refresh every 15 seconds
 | `hunk_path`   | string | `"hunk"`    | -                   | Path to hunk diff-viewer executable  |
 | `glab_path`   | string | `"glab"`    | -                   | Path to GitLab CLI (MR/CI status)    |
 | `gh_path`     | string | `"gh"`      | -                   | Path to GitHub CLI (PR/CI status)    |
+| `zellij_path` | string | `"zellij"`  | -                   | Path to zellij (tabs and autostart)  |
+| `zellij_autostart` | bool | `false`  | -                   | Re-launch the TUI inside zellij      |
+| `zellij_session` | string | `"tasktree"` | -              | zellij session for autostart         |
 
 ## Forge Settings
 

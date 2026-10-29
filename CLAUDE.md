@@ -72,6 +72,7 @@ All widgets extend Textual's `ListView` or `Static`:
 - Handles message events from list widgets (`TaskHighlighted`, `WorktreeHighlighted`)
 - Implements actions for keybindings (n=new task, d=delete, g=lazygit, etc.)
 - Uses `app.suspend()` to shell out to lazygit or $SHELL
+- Opens terminal tabs (`o`/`e`/`c`) via `_open_terminal_tab`: inside zellij (`ZELLIJ_SESSION_NAME` set) it switches to an open tab named `<folder> · <kind>` (`query-tab-names` first: `go-to-tab-name` exits 0 for a missing name) or runs `zellij action new-tab`; else the Ghostty AppleScript clipboard paste. `main()` execs `zellij attach --create <zellij_session>` first when `[tools] zellij_autostart` is on and the start is interactive
 - Uses static `CSS` class variable with Textual design tokens
 
 ### Styling Pattern

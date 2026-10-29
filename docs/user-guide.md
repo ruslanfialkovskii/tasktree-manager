@@ -456,7 +456,7 @@ Useful when you're spinning up several similar tasks that share the same set of 
 | `b`     | Dispatch agent          | Run a background Claude agent (`claude --bg`) in the selected worktree |
 
 **How it works:**
-- `c` opens Claude Code CLI in a new Ghostty terminal tab at the task directory.
+- `c` opens Claude Code CLI in a new terminal tab at the task directory (a zellij tab inside zellij, see [zellij](#zellij)).
   - If `~/.claude/projects/<task-folder>/` already has session transcripts, runs `claude -r` to pick from them; otherwise runs `claude` to start fresh.
 - `C` opens the Claude desktop app via the `claude://code/new?folder=<task-folder>` URL scheme.
 - The CLI variant (`c`) generates a task-level `CLAUDE.md` with task/worktree context, copies each repo's own `CLAUDE.md` into worktrees whose branch predates it (never generating stub content), and installs hooks that report session status back to tasktree-manager.
@@ -857,9 +857,9 @@ npm i -g hunkdiff
 
 **Direct editor integration:**
 1. Highlight task or worktree
-2. Press `e` to open your configured editor in a new Ghostty tab (`$EDITOR .`)
-3. tasktree-manager keeps running alongside the editor (macOS + Ghostty only, see
-   Limitations)
+2. Press `e` to open your configured editor in a new terminal tab (`$EDITOR .`)
+3. tasktree-manager keeps running alongside the editor (a zellij tab inside zellij,
+   otherwise a Ghostty tab on macOS; see [zellij](#zellij))
 
 **Configure your editor** in `~/.config/tasktree-manager/config.toml`:
 ```toml
@@ -889,6 +889,47 @@ code ~/tasks/FEAT-123  # Open entire task as workspace
 - Most IDEs can open directories in `~/tasks/TASK-NAME/repo-name`
 - Use "Open Folder" or equivalent
 - Git integration works normally
+
+### zellij
+
+`o`, `e` and `c` open a new terminal tab. Where the tab lives depends on where
+tasktree-manager runs:
+
+- Inside a zellij session (`ZELLIJ_SESSION_NAME` is set), each key opens a zellij tab
+  named after the folder and what runs in it: `TASK · shell`, `TASK/repo · editor`,
+  `TASK · claude`. The tab runs in the zellij server, so it keeps running when you close
+  or restart the terminal. Pressing the key again while that tab is open switches to it
+  instead of opening a second one.
+- Anywhere else, each key opens a Ghostty tab via AppleScript (macOS only).
+
+To run the TUI in zellij every time, set this in `config.toml`:
+
+```toml
+[tools]
+zellij_autostart = true
+zellij_session = "tasktree"   # the default
+```
+
+Plain `tasktree-manager` then re-launches itself as
+`zellij attach -c tasktree -- python -m tasktree_manager.app`. Without the setting, start
+it that way yourself: `zellij attach -c tasktree -- tasktree-manager`.
+
+After a terminal restart, run `tasktree-manager` (with autostart) or
+`zellij attach tasktree`. Either brings back the TUI and every tab it opened, Claude
+sessions included. The command after `--` runs only when the session is created, so a
+second `tasktree-manager` in another terminal tab shows the same session.
+
+- A tab that runs a command (`e`, `c`) closes when the command exits.
+- The zellij tab runs the command with `sh -c`, so `editor` and `claude_path` must name
+  programs on `PATH`. A shell alias or fish function works only in the Ghostty tab.
+- A zellij session does not survive a reboot. Attaching afterwards (or autostart) makes
+  zellij resurrect the saved layout, and each tab waits for ENTER before its command runs
+  again; tasktree-manager does not test that path.
+- Autostart applies only when the TUI starts in a terminal outside zellij, never to a
+  piped run or to the headless CLI.
+- zellij's default keybindings take Ctrl+P, Ctrl+T, Ctrl+O and other keys before the TUI
+  or Claude Code sees them. Pick zellij's "Unlock First (non-colliding)" preset or Alt-based
+  bindings, so Ctrl+P still opens the command palette.
 
 ### CI/CD
 
