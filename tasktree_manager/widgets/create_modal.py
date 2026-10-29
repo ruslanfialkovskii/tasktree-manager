@@ -918,6 +918,12 @@ class HelpModal(ThemedModalScreen[None]):
             + "\n"
         )
         tools_section += (
+            self._format_binding(
+                "close_claude_tab", "x", "Close the Claude tab (zellij); Claude keeps running"
+            )
+            + "\n"
+        )
+        tools_section += (
             self._format_binding("open_claude_gui_code", "C", "Open Claude desktop on Code page")
             + "\n"
         )

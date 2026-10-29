@@ -9,13 +9,13 @@ capped.
 """
 
 import json
-import os
 import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .agent_sessions import ASK_COPY_PREFIX, AgentSession, runs_in
+from .claude_bg import launch_env
 from .claude_hooks import claude_config_dir
 from .claude_sessions import SessionRef, find_session
 from .epic_log import require_in_scope, task_session
@@ -27,15 +27,6 @@ ASK_TIMEOUT_MAX = 3600
 ASK_QUESTION_MAX_BYTES = 16 << 10
 # Set for the copy's process; `epic ask` refuses to run under it
 LOOP_GUARD_ENV = "TASKTREE_EPIC_ASK"
-# Ties a process to the session that ran it: the copy must not inherit them
-_SESSION_ENV = (
-    "CLAUDE_CODE_SESSION_ID",
-    "CLAUDE_CODE_MESSAGING_SOCKET",
-    "CLAUDE_CODE_MESSAGING_TOKEN",
-    "CLAUDE_CODE_SESSION_ATTENDED",
-    "CLAUDE_PID",
-    "CLAUDE_EFFORT",
-)
 # Credentials the copy must not read on a question's say-so. `//` starts an
 # absolute path, so `//**/x` matches anywhere, not only below the copy's cwd
 ASK_DENY_READ = (
@@ -194,7 +185,7 @@ def ask_deny_paths() -> list[str]:
 
 def ask_env() -> dict[str, str]:
     """The copy's environment: the user's, minus the asking session's identity."""
-    env = {key: value for key, value in os.environ.items() if key not in _SESSION_ENV}
+    env = launch_env()
     env[LOOP_GUARD_ENV] = "1"
     return env
 

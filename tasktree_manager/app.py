@@ -20,7 +20,18 @@ from textual.worker import get_current_worker
 
 from . import __version__
 from .commands import TaskTreeCommands
-from .services.agent_sessions import list_agent_sessions, map_sessions_to_worktrees
+from .services.agent_sessions import AgentSession, list_agent_sessions, map_sessions_to_worktrees
+from .services.claude_bg import (
+    BackgroundError,
+    attach_command,
+    background_sessions,
+    busy,
+    end_sessions,
+    folder_session,
+    foreground_session,
+    launch_env,
+    start_background,
+)
 from .services.claude_hooks import ensure_claude_hooks, has_claude_session
 from .services.claude_sessions import (
     ClaudeRecap,
@@ -214,6 +225,7 @@ class TaskTreeApp(App):
         Binding("e", "open_editor", "Editor", show=False),
         Binding("o", "open_folder", "Open", show=False),
         Binding("c", "open_claude_resume", "Claude", show=False),
+        Binding("x", "close_claude_tab", "Close Tab", show=False),
         Binding("p", "push_all", "Push", show=False),
         Binding("t", "cycle_theme", "Theme"),
         Binding("r", "refresh", "Refresh"),
@@ -272,6 +284,8 @@ class TaskTreeApp(App):
         self._ghostty_lock = threading.Lock()
         # Serializes the zellij tab lookup and open across workers
         self._zellij_lock = threading.Lock()
+        # Two quick `c` presses must not start two background sessions
+        self._claude_bg_lock = threading.Lock()
         # App-lifetime pool for forge lookups (a fresh executor per poll
         # would rebuild threads every tick)
         self._forge_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="forge")
@@ -299,6 +313,7 @@ class TaskTreeApp(App):
             Binding(kb.get("open_editor", "e"), "open_editor", "Editor", show=False),
             Binding(kb.get("open_folder", "o"), "open_folder", "Open", show=False),
             Binding(kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude", show=False),
+            Binding(kb.get("close_claude_tab", "x"), "close_claude_tab", "Close Tab", show=False),
             Binding(kb.get("dispatch_agent", "b"), "dispatch_agent", "Agent", show=False),
             Binding(kb.get("push_all", "p"), "push_all", "Push", show=False),
             Binding(kb.get("cycle_theme", "t"), "cycle_theme", "Theme"),
@@ -363,6 +378,7 @@ class TaskTreeApp(App):
             (kb.get("set_epic", "E"), "set_epic", "Epic"),
             (kb.get("show_diff", "h"), "show_diff", "Diff"),
             (kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude"),
+            (kb.get("close_claude_tab", "x"), "close_claude_tab", "Close Tab"),
             (kb.get("cycle_sort", "s"), "cycle_sort", "Sort"),
         ]
         worktree_panel_bindings = [
@@ -371,6 +387,8 @@ class TaskTreeApp(App):
             (kb.get("open_editor", "e"), "open_editor", "Editor"),
             (kb.get("open_folder", "o"), "open_folder", "Open"),
             (kb.get("dispatch_agent", "b"), "dispatch_agent", "Agent"),
+            (kb.get("open_claude_resume", "c"), "open_claude_resume", "Claude"),
+            (kb.get("close_claude_tab", "x"), "close_claude_tab", "Close Tab"),
             (kb.get("push_all", "p"), "push_all", "Push"),
             (kb.get("delete_worktree", "D"), "delete_worktree", "Del WT"),
         ]
@@ -687,6 +705,13 @@ class TaskTreeApp(App):
                 statuses[task.name] = status
 
         if statuses != self._claude_statuses:
+            finished = [
+                name
+                for name, status in statuses.items()
+                if status == "waiting" and self._claude_statuses.get(name) == "running"
+            ]
+            if finished and self.config.claude_background and os.environ.get("ZELLIJ_SESSION_NAME"):
+                self._notify_closed_claude_tabs(finished)
             self._claude_statuses = statuses
             task_list.refresh_claude_indicators(statuses)
             if self.current_task:
@@ -1407,12 +1432,32 @@ class TaskTreeApp(App):
     def _check_task_safety_worker(self, task: Task) -> None:
         """Run task safety checks in a background thread."""
         safety_report = self.task_manager.check_task_safety(task)
+        claude_busy = busy(self._background_sessions(task) or [])
         if get_current_worker().is_cancelled:
             return
-        self.call_from_thread(self._show_delete_task_dialog, task, safety_report)
+        self.call_from_thread(self._show_delete_task_dialog, task, safety_report, claude_busy)
 
-    def _show_delete_task_dialog(self, task: Task, safety_report: TaskSafetyReport) -> None:
-        """Show the appropriate delete dialog for the safety report."""
+    def _show_delete_task_dialog(
+        self,
+        task: Task,
+        safety_report: TaskSafetyReport,
+        claude_busy: list[AgentSession] | None = None,
+    ) -> None:
+        """Show the appropriate delete dialog for the safety report.
+
+        Background Claude sessions working or waiting in the task are confirmed
+        first; the delete itself stops them.
+        """
+        if claude_busy:
+            ids = ", ".join(session.agent_id for session in claude_busy)
+            message = f"Claude is still active in '{task.name}' ({ids}). Stop it and continue?"
+
+            def handle_busy(confirmed):
+                if confirmed:
+                    self._show_delete_task_dialog(task, safety_report)
+
+            self.push_screen(ConfirmModal("Claude Still Running", escape(message)), handle_busy)
+            return
         if safety_report.is_safe():
             # When the verdict rests on a remote MR lookup (squash/rebase
             # merge), say so — the user deserves a chance to sanity-check it
@@ -1569,6 +1614,18 @@ class TaskTreeApp(App):
         """
         error: str | None = None
         archive: ArchiveResult | None = None
+        # Stopped first, so no session writes into the folder being archived;
+        # one that would not stop keeps the task
+        sessions = self._background_sessions(task)
+        if sessions is None:
+            message = f"Could not check Claude sessions of '{task.name}'; none were stopped"
+            self.call_from_thread(self.notify, escape(message), severity="warning")
+            self.call_from_thread(self._log_activity, message, MessageLevel.WARNING, task.name)
+        failed = end_sessions(self.config.claude_path, sessions or [])
+        if failed:
+            error = f"could not stop Claude session(s) {', '.join(failed)}; run `claude stop ID`"
+            self.call_from_thread(self._apply_finish_task_result, task.name, force, error)
+            return
         if not skip_archive:
             problem: str | None = None
             try:
@@ -2144,8 +2201,9 @@ class TaskTreeApp(App):
     def action_open_claude_resume(self) -> None:
         """Open Claude Code in a new terminal tab.
 
-        Resumes an existing session for the task folder if one exists,
-        otherwise starts a fresh session.
+        With `claude_background` the session runs in the background and the
+        tab only shows it (see _open_claude_background). Otherwise the tab
+        runs Claude itself, resuming the folder's session if one exists.
         """
         if not self.current_task:
             self.notify("No task selected", severity="warning")
@@ -2156,14 +2214,16 @@ class TaskTreeApp(App):
             self.notify("Task directory not found", severity="error")
             return
 
-        self._open_claude_resume_worker(task)
+        worktree = self.current_worktree if isinstance(self.focused, WorktreeList) else None
+        self._open_claude_resume_worker(task, worktree)
 
     @work(thread=True, group="claude_prep")
-    def _open_claude_resume_worker(self, task: Task) -> None:
+    def _open_claude_resume_worker(self, task: Task, worktree: Worktree | None = None) -> None:
         """Prepare the session off the UI thread, then open the terminal tab.
 
         A prep failure is reported but does not block the launch - stale
-        CLAUDE.md content is not worth failing the session over.
+        CLAUDE.md content is not worth failing the session over. When no
+        background session can start, Claude runs inside the tab as before.
         """
         try:
             self._prepare_claude_session(task)
@@ -2173,10 +2233,142 @@ class TaskTreeApp(App):
                 escape(f"Claude session prep failed for '{task.name}': {type(e).__name__}: {e}"),
                 severity="warning",
             )
+        if self.config.claude_background:
+            try:
+                with self._claude_bg_lock:
+                    self._open_claude_background(task, worktree)
+                return
+            except BackgroundError as e:
+                self.call_from_thread(
+                    self.notify,
+                    escape(f"No background Claude session ({e}); running Claude in the tab"),
+                    severity="warning",
+                )
         resume = has_claude_session(task.path)
         if get_current_worker().is_cancelled:
             return
         self.call_from_thread(self._open_claude_resume_tab, task.path, resume)
+
+    def _open_claude_background(self, task: Task, worktree: Worktree | None) -> None:
+        """Show the background Claude session in a tab, starting one if needed.
+
+        Runs in the claude_prep worker. An open tab is reused before asking
+        Claude anything. A dispatched agent of the focused worktree wins over
+        the task folder's session. With no session the folder's last
+        transcript is resumed; Claude open in another terminal is left alone.
+        Raises BackgroundError when no session can be found or started.
+        """
+        claude = self.config.claude_path
+        tabs = self._zellij_tab_names()
+        sessions: list[AgentSession] | None = None
+        for folder in [*([worktree.path] if worktree else []), task.path]:
+            if self._zellij_tab_name(folder, "claude") in tabs:
+                self.call_from_thread(self._open_terminal_tab, folder, kind="claude")
+                return
+            if sessions is None:
+                sessions = list_agent_sessions(claude, include_done=True)
+                if sessions is None:
+                    raise BackgroundError("'claude agents' is unavailable")
+            session = folder_session(sessions, folder)
+            if session:
+                self._show_background_session(
+                    folder, session.agent_id, f"Opened Claude session {session.agent_id}"
+                )
+                return
+        if foreground_session(sessions or [], task.path):
+            self.call_from_thread(
+                self.notify,
+                escape(f"Claude is already open in '{task.name}' in another terminal"),
+                severity="warning",
+            )
+            return
+        latest = latest_session([task.path])
+        resume_id = latest.session_id if latest else None
+        try:
+            agent_id = start_background(claude, task.path, task.name, resume_id)
+        except BackgroundError:
+            # A timed-out start may still have come up: attach to it, never start a second Claude
+            started = folder_session(
+                list_agent_sessions(claude, include_done=True) or [], task.path
+            )
+            if started is None:
+                raise
+            agent_id = started.agent_id
+        verb = "Resumed the last" if resume_id else "Started a"
+        self._show_background_session(
+            task.path, agent_id, f"{verb} Claude session in the background ({agent_id})"
+        )
+
+    def _show_background_session(self, folder: Path, agent_id: str, notice: str) -> None:
+        """Open the tab that attaches to a background session (from a worker)."""
+        command = attach_command(self.config.claude_path, agent_id)
+        self.call_from_thread(
+            self._open_terminal_tab, folder, command=command, kind="claude", notice=notice
+        )
+
+    def _background_sessions(self, task: Task) -> list[AgentSession] | None:
+        """The task's background Claude sessions; None when `claude agents` fails.
+
+        Without the claude CLI there are no sessions to find, so that is not a failure.
+        """
+        sessions = list_agent_sessions(self.config.claude_path, include_done=True)
+        if sessions is None:
+            return None if shutil.which(self.config.claude_path) else []
+        return background_sessions(sessions, task.path)
+
+    def action_close_claude_tab(self) -> None:
+        """Close the zellij Claude tab of the focused task or worktree."""
+        if not os.environ.get("ZELLIJ_SESSION_NAME"):
+            self.notify("Closing a Claude tab works inside zellij only", severity="warning")
+            return
+        if isinstance(self.focused, WorktreeList) and self.current_worktree:
+            folder = self.current_worktree.path
+        elif self.current_task:
+            folder = self.current_task.path
+        else:
+            self.notify("No task selected", severity="warning")
+            return
+        self._close_claude_tab_worker(folder)
+
+    @work(thread=True, group="terminal_tab")
+    def _close_claude_tab_worker(self, folder: Path) -> None:
+        """Close the folder's Claude tab when it only runs `claude attach`.
+
+        A tab that runs Claude itself would take Claude with it, so it stays.
+        """
+        name = self._zellij_tab_name(folder, "claude")
+        try:
+            tab_id = self._zellij_attach_tab_id(name)
+        except LookupError as e:
+            self.call_from_thread(self.notify, escape(str(e)), severity="warning")
+            return
+        try:
+            result = self._run_zellij(
+                [self.config.zellij_path, "action", "close-tab-by-id", tab_id]
+            )
+        except (subprocess.SubprocessError, OSError) as e:
+            result = subprocess.CompletedProcess([], 1, stdout="", stderr=str(e))
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "unknown error").strip()[:200]
+            self.call_from_thread(
+                self.notify, escape(f"Could not close '{name}': {detail}"), severity="warning"
+            )
+            return
+        self.call_from_thread(
+            self.notify, escape(f"Closed '{name}'; Claude keeps running in the background")
+        )
+
+    @work(thread=True, group="claude_notice")
+    def _notify_closed_claude_tabs(self, task_names: list[str]) -> None:
+        """Say which tasks' Claude finished a turn while no tab shows it."""
+        tabs = self._zellij_tab_names()
+        key = self.config.keybindings.get("open_claude_resume", "c")
+        for name in task_names:
+            if self._zellij_tab_name(self.config.tasks_dir / name, "claude") in tabs:
+                continue
+            message = f"Claude is waiting in '{name}' (tab closed): press {key} to open it"
+            self.call_from_thread(self.notify, escape(message))
+            self.call_from_thread(self._log_activity, message, MessageLevel.INFO, name)
 
     def _open_claude_resume_tab(self, task_path: Path, resume: bool) -> None:
         """Open the terminal tab for a prepared Claude session (main thread)."""
@@ -2249,6 +2441,7 @@ class TaskTreeApp(App):
                 capture_output=True,
                 text=True,
                 timeout=30,
+                env=launch_env(),
             )
         except FileNotFoundError:
             self.call_from_thread(
@@ -2459,6 +2652,42 @@ class TaskTreeApp(App):
         return subprocess.run(
             argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10
         )
+
+    def _zellij_tab_names(self) -> list[str]:
+        """Names of the open zellij tabs; empty outside zellij or when the query fails."""
+        if not os.environ.get("ZELLIJ_SESSION_NAME"):
+            return []
+        try:
+            result = self._run_zellij([self.config.zellij_path, "action", "query-tab-names"])
+        except (subprocess.SubprocessError, OSError):
+            return []
+        return result.stdout.splitlines() if result.returncode == 0 else []
+
+    def _zellij_attach_tab_id(self, name: str) -> str:
+        """Stable id (for close-tab-by-id) of the tab `name` whose panes all run `claude attach`.
+
+        Raises LookupError, with the message to show, when the panes cannot
+        be listed, the tab is not open, or it runs anything else.
+        """
+        argv = [self.config.zellij_path, "action", "list-panes", "--all", "--json"]
+        try:
+            result = self._run_zellij(argv)
+            panes = json.loads(result.stdout) if result.returncode == 0 else None
+        except (subprocess.SubprocessError, OSError, ValueError):
+            panes = None
+        if not isinstance(panes, list):
+            raise LookupError("Could not list the zellij panes")
+        # terminal_command is the pane's launch command, e.g. "sh -c claude attach ID"
+        tab = [
+            pane
+            for pane in panes
+            if isinstance(pane, dict) and pane.get("tab_name") == name and not pane.get("is_plugin")
+        ]
+        if not tab:
+            raise LookupError(f"No open tab '{name}'")
+        if not all(" attach " in str(pane.get("terminal_command") or "") for pane in tab):
+            raise LookupError(f"'{name}' runs Claude itself: closing it would stop Claude")
+        return str(tab[0].get("tab_id"))
 
     @work(thread=True, group="ghostty_tab")
     def _open_ghostty_tab_worker(self, shell_cmd: str) -> None:

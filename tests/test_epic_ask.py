@@ -115,7 +115,7 @@ class TestCommand:
     def test_read_only_fork(self, tm, config, in_t1, claude, live, capsys):
         assert ask(config, "T-2", "which layout?") == 0
         [(command, kwargs)] = claude.calls
-        assert command[:4] == ["claude", "-p", "--resume", T2]
+        assert command[:4] == [config.claude_path, "-p", "--resume", T2]
         for name in (
             "--fork-session",
             "--no-session-persistence",

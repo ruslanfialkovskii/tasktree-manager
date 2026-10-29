@@ -202,6 +202,12 @@ claude_repo_memory = true
 # Default: true
 claude_recap = true
 
+# Run the `c` key's Claude as a background session (`claude --bg`) and show it
+# in a tab running `claude attach`: closing the tab leaves Claude working, and
+# `c` again reopens the same conversation. false runs Claude inside the tab.
+# Default: true
+claude_background = true
+
 # Path to glab executable (GitLab CLI, used for MR/CI status)
 # Default: "glab" (searches PATH)
 glab_path = "glab"
@@ -268,6 +274,7 @@ refresh = "r"           # Refresh git status
 
 # Claude Code integration
 open_claude_resume = "c"    # Open Claude CLI (resume if a session exists, else new)
+close_claude_tab = "x"      # Close the Claude tab (zellij); Claude keeps running
 open_claude_gui_code = "C"  # Open Claude desktop on Code page in task folder (shift+c)
 dispatch_agent = "b"        # Dispatch background Claude agent in selected worktree
 
@@ -427,6 +434,7 @@ refresh_interval = 15  # Refresh every 15 seconds
 | `hunk_path`   | string | `"hunk"`    | -                   | Path to hunk diff-viewer executable  |
 | `glab_path`   | string | `"glab"`    | -                   | Path to GitLab CLI (MR/CI status)    |
 | `gh_path`     | string | `"gh"`      | -                   | Path to GitHub CLI (PR/CI status)    |
+| `claude_background` | bool | `true`  | -                   | `c` runs Claude in the background    |
 | `zellij_path` | string | `"zellij"`  | -                   | Path to zellij (tabs and autostart)  |
 | `zellij_autostart` | bool | `false`  | -                   | Re-launch the TUI inside zellij      |
 | `zellij_session` | string | `"tasktree"` | -              | zellij session for autostart         |
@@ -604,7 +612,7 @@ blocklist = ["*"]
 
 ## Keybindings Reference
 
-All 27 customizable keybindings with descriptions:
+All 28 customizable keybindings with descriptions:
 
 ### Application Control
 
@@ -642,6 +650,7 @@ All 27 customizable keybindings with descriptions:
 | Action                | Default | Description                                          | Customization Example                |
 |-----------------------|---------|------------------------------------------------------|--------------------------------------|
 | `open_claude_resume`  | `c`     | Open Claude CLI (resume if session exists, else new) | `open_claude_resume = "ctrl+c"`      |
+| `close_claude_tab`    | `x`     | Close the Claude tab (zellij); Claude keeps running  | `close_claude_tab = "ctrl+x"`        |
 | `open_claude_gui_code`| `C`     | Open Claude desktop on Code page in task folder      | `open_claude_gui_code = "ctrl+shift+c"` |
 | `toggle_messages`     | `m`     | Show/hide activity messages panel                    | `toggle_messages = "ctrl+m"`         |
 | `dispatch_agent`      | `b`     | Dispatch a background Claude agent into the worktree | `dispatch_agent = "ctrl+b"`          |
